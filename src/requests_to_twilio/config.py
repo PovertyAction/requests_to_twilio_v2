@@ -13,7 +13,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, find_dotenv, load_dotenv
 
 ENV_ACCOUNT_SID = "TWILIO_ACCOUNT_SID"
 ENV_AUTH_TOKEN = "TWILIO_AUTH_TOKEN"  # noqa: S105 - a variable name, not a secret
@@ -42,8 +42,32 @@ def load_env(env_file: Path | None = None) -> None:
         if not env_file.is_file():
             raise ConfigError(f"Env file not found: {env_file}")
         load_dotenv(env_file, override=False)
-    else:
-        load_dotenv(override=False)
+        return
+
+    # usecwd=True searches upward from the working directory. Without it,
+    # python-dotenv searches upward from *this module's* file instead, which
+    # sits in site-packages for any non-editable install - so the project's
+    # .env is silently never found and every credential looks unset.
+    found = find_dotenv(usecwd=True)
+    if found:
+        load_dotenv(found, override=False)
+        _fill_blanks(found)
+
+
+def _fill_blanks(env_file: str) -> None:
+    """Let `.env` win over variables that are present but empty.
+
+    ``override=False`` keeps a real exported value from being clobbered, which
+    is what we want. But it also treats an empty string as a deliberate
+    override, so a blank placeholder - from a CI variable, an editor's env
+    block, or a tool that exports every key it knows about - silently beats a
+    correct value in `.env`, and every credential reads as unset.
+
+    An empty variable is never a meaningful override, so treat it as absent.
+    """
+    for name, value in dotenv_values(env_file).items():
+        if value and not os.environ.get(name, "").strip():
+            os.environ[name] = value
 
 
 def require(name: str) -> str:
