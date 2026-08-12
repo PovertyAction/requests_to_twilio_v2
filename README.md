@@ -1,66 +1,283 @@
-# Intro
+# requests-to-twilio
 
-This repo has all necessary code to:
+Run SMS and WhatsApp surveys through Twilio Studio, and get the answers back
+without exposing respondents' personal information.
 
-a) Start, directly from your computer, SMS or whatsapp surveys using twilio and,
-b) Configure an encryption/decryption system to receive answers from twilio into Google Sheets.
+If you have run a SurveyCTO project, you already know this shape:
 
-For a), run `twilio_launcher.py` to launch the survey.
+| Step | SurveyCTO | Here |
+| --- | --- | --- |
+| Build the instrument | XLSForm | Twilio Studio flow |
+| Deploy a public key | server encryption key | `ENCRYPTION_PUBLIC_KEY` on a Twilio Function |
+| Launch | load a sample | `rtt launch` |
+| Monitor | server monitoring | the Google Sheet tracker |
+| Retrieve | download encrypted data | download the sheet as CSV |
+| Decrypt | local, private key | `rtt decrypt` |
+| Analyse | your tool of choice | `rtt push` to MotherDuck |
 
-For b), you must know how to publish data from Twilio into Google sheets, you can learn about this in Chapter 6 of [this guide](https://drive.google.com/file/d/1Emxcbo10MaNHD8uYjI8o2zMkD031ynti/view).
-  Please copy and paste the code in `twilio_encrypt_fields.js` as a twilio function, include all the responses you want to encrypt as parameters in the function widget.Use whatever name you want as key, as long as this name matches the name you are using inside the function (the "variable_to_encrypt" part of "event.variable_to_encrypt"), and modify the secret key (it must have 16 characters). This will hash the variables selected to encrypt.
+## How the pipeline fits together
 
-Once the data is collected in your google sheet, download it in `.csv` format, and run `csv_decryptor.py` to create a decrypted version of your `.csv`. The file to decrypt must be in a Boxcryptor location for it to work. 
+```text
+  sample.xlsx
+      |
+      | rtt launch
+      v
+  Twilio Studio flow  ---- SMS/WhatsApp ---->  respondent
+      |                                            |
+      |<------------------ replies ----------------+
+      v
+  encrypt_fields.js      (encrypts with your PUBLIC key)
+      v
+  publish_gsheets.js
+      v
+  Google Sheet           (delivery dashboard + database of record)
+      |
+      | download as CSV
+      v
+  rtt decrypt            (decrypts with your PRIVATE key)
+      v
+  rtt push  ---------->  MotherDuck
+```
 
-# Setup
+The encryption exists because the Google Sheet is widely shared. Values are
+encrypted inside Twilio, before they are ever written to the sheet, so anyone
+with access to the sheet sees ciphertext. Only the holder of the private key can
+read the responses.
 
-1. Install python, pip and git
+## Setup
 
-Use [this](https://phoenixnap.com/kb/how-to-install-python-3-windows) guide to install python3 on Windows.
+You need [uv](https://docs.astral.sh/uv/) and [just](https://just.systems/).
+On Windows the `pre-install` recipe installs both:
 
-The last versions of python have pip already installed (in the first guide it is explained how to check whether pip is installed), but just in case it is not: Use [this](https://www.liquidweb.com/kb/install-pip-windows/) to install pip.
+```powershell
+just pre-install   # winget: just, uv, gh, Node.js, markdownlint
+just venv          # creates .venv, installs dependencies, installs pre-commit hooks
+```
 
-For installing git on windows, use [this](https://phoenixnap.com/kb/how-to-install-git-windows)
+Or in one step:
 
-2. Install Microsoft Visual C++ 14.0. Get it from "Build Tools for Visual Studio". To download, click [here](https://download.visualstudio.microsoft.com/download/pr/3e542575-929e-4297-b6c6-bef34d0ee648/639c868e1219c651793aff537a1d3b77/vs_buildtools.exe) and select options like explained [here](https://stackoverflow.com/questions/29846087/microsoft-visual-c-14-0-is-required-unable-to-find-vcvarsall-bat/55575792#55575792). We will need this for the encryption libraries to install later.
+```powershell
+just get-started
+```
 
-3. Clone this repo inside Command Prompt(cmd) or, preferably, PowerShell. To open cmd or PowerShell, search in Start button from Windows.
+There is no `pip install`, no `requirements.txt`, and no Visual C++ build tools
+step any more. `uv sync` reads `pyproject.toml` and `uv.lock`, so everyone gets
+byte-identical dependency versions.
 
-`git clone https://github.com/PovertyAction/requests_to_twilio.git`
+Then create your `.env`:
 
-4. Install python dependencies in Powershell after getting into the right directory.
+```powershell
+cp .env.example .env
+```
 
-`cd requests_to_twilio` </br>
-`pip install --upgrade setuptools` </br>
-`pip install -r requirements.txt`
+Fill in the Twilio credentials. **Nothing secret is ever passed as a
+command-line flag** — arguments end up in shell history and are visible to other
+processes.
 
-# How to run
+## Generating your keypair
 
-## Launch surveys from your computer: Running twilio_launcher.py*
+```powershell
+just keygen
+```
 
-From the cmd or Powershell, run:
+This prints a **public key** and writes a **private key** to
+`rtt_private_key.txt`.
 
-`python twilio_launcher.py --account_sid your_account_sid --account_token your_account_token --twilio_number your_twilio_number --flow_id flow_id --input_file full_path_to_input_file --batch_size batch_size --sec_between_batches sec_between_batches --columns_with_info_to_send name,full_name,month,year,survey_intro,city,job,caseid`
+- The **public key** goes into Twilio. It can only encrypt. If it leaks,
+  nothing is exposed.
+- The **private key** stays on your machine and is the only thing that can read
+  responses back. Point `.env` at it, and back it up somewhere
+  access-controlled.
 
-input_file.xlsx must have one column named `Number`, which contains the numbers we want to send messages to. It can also have any other amount of columns with info that we want to send to twilio.  In order to send info from those columns, include those columns names in the `columns_with_info_to_send` arguments, separated by commas.
+> **Lose the private key and the collected data is unrecoverable.** There is no
+> reset, exactly as with a SurveyCTO private key. `keygen` refuses to overwrite
+> an existing key file unless you pass `--force`.
 
-## Encrypting and decrypting collected answers
+## Deploying the Twilio Functions
 
-This step is not required if your survey or workflow does not receive any PII. If it does, encryption is required before publishing into Gsheets. 
-Inside Twilio, go to "functions/services/create service". There, click on "add function". Copy the code in "twilio_encrypt_fields.js" from this repository and paste it in a new function in twilio (you can delete what appears by default). You need to modify the secret_key and store it in a safe place in your computer, and also the amount and names of the variables you want to encrypt. 
+In the Twilio Console, go to **Functions → Services** and create a service with
+two functions.
 
-Create  a  function  widget  in  your  Twilio  Studio  flow  just  before  the function  widget  that  publishes  to  Gsheets.  In  this  encryption  widget,  select  the service you created, select “ui” as environment, select the name of the function  you created  and  then  put  as  function  parameters  all  the  variables  that should be encrypted. For this, use the key that you want as variable names in the function code and use {{widgets.widget_name.inbound.Body}} as the values.
-After this, in the function that publishes to Gsheets,  instead  of  using {{widgets.variable_name.inbound.Body}} as value, you will use {{widgets.name_of_your_encryption_widget.parsed.name_of_the_variable}}.
+1. **`encrypt_fields`** — paste `twilio_functions/encrypt_fields.js`.
+2. **`publish_gsheets`** — paste `twilio_functions/publish_gsheets.js`, and add
+   `googleapis` under **Dependencies**.
 
-You will receive undecipherable strings for all the variables you send encrypted to Gsheets. Download this file and save it as .csv into a Boxcryptor location and then run the following code that will generate a decrypted version in the same path as the encrypted one: 
-`python .\csv_decryptor.py --encrypted_csv_path X:\path\to\your\csv\demo.csv --list_of_columns_to_decrypt col1,col2 --secret_key your_secret_key1`
+Set these under **Environment Variables** — never hard-code them into the
+function source:
 
-[DEPRECATED]
-We used to collect answers from a raw_log file. We dont do this anymore cause the log file is not reliable. But if someone is still using this, here is how to call that script:
+| Variable | Value |
+| --- | --- |
+| `ENCRYPTION_PUBLIC_KEY` | the public key from `just keygen` |
+| `GOOGLE_CLIENT_EMAIL` | the Sheets service account address |
+| `GOOGLE_PRIVATE_KEY` | its PEM key, with literal `\n` instead of newlines |
+| `GOOGLE_SHEET_ID` | the target spreadsheet's ID |
 
-*Running logs_cleaner.py*
+In your Studio flow, place a Function widget calling `encrypt_fields`
+immediately before the one calling `publish_gsheets`. Pass every value that
+needs protecting as a parameter:
 
-`python .\logs_cleaner.py --account_sid your_account_sid --account_token your_account_token --date_sent_after 2021-03-31T22:15:24Z --date_sent_before 2021-04-01T22:15:24Z --outputs_directory X:\Box\CP_Projects\path\to\folder --flow flow_name:"flow_a" twilio_number:whatsapp:+xxxxx questions_of_interest:intro1,lab_1,lab_2,lab_3 --flow flow_name:"flow_b" twilio_number:whatsapp:+xxxxx questions_of_interest:intro1,lab_1,lab_2,lab_3`
+```text
+key:   name
+value: {{widgets.ask_name.inbound.Body}}
+```
 
-be careful to respect exact same format of inputs
-outputs directory must be in boxcryptor (start with X:)
+Every parameter is encrypted and returned under the same key, so the publish
+widget reads `{{widgets.encrypt.parsed.name}}`. Unlike the pre-2.0 version,
+**there is nothing to edit in the JavaScript when your questions change.**
+
+## Running a survey
+
+Your sample file needs a `Number` column. Any other columns can be passed to the
+flow as parameters.
+
+```powershell
+# See exactly what would be sent, without sending anything
+just launch "sample.xlsx --columns name,city --dry-run"
+
+# Send for real, 50 at a time with a 5s pause between batches
+just launch "sample.xlsx --columns name,city --batch-size 50 --sleep 5"
+```
+
+This writes a **delivery tracker** next to your input, `sample_output.csv`, with
+one row per number. It is flushed to disk after every send, so if the run is
+interrupted the record of who was already contacted survives:
+
+```powershell
+just launch "sample.xlsx --columns name,city --resume"
+```
+
+`--resume` skips numbers already sent successfully and retries only the
+failures.
+
+## Decrypting responses
+
+Download the sheet as CSV, then:
+
+```powershell
+just decrypt "responses.csv"
+```
+
+Encrypted columns are detected automatically — they carry a `v2:` marker — so
+there is no list of column names to keep in sync. The result is written to
+`responses_decrypted.csv`.
+
+A value that cannot be decrypted becomes `<DECRYPTION FAILED>` rather than
+aborting the file, so one bad cell never costs you the other 5,000 rows.
+
+The output is plain-text PII. Store it per IPA policy: a Cryptomator vault or an
+access-controlled Box folder. It is gitignored, but it is your responsibility
+once it is on disk.
+
+## Reconciling against Twilio
+
+`publish_gsheets.js` can fail on a transient Sheets error, and when it does that
+respondent's row silently never appears. Since the sheet is the database of
+record, it is worth checking:
+
+```powershell
+# What does Twilio think happened?
+just fetch "--since 2026-08-01 --output executions.csv"
+
+# Which executions never made it into the sheet?
+just fetch "--against responses.csv --output missing.csv"
+```
+
+Two caveats. Twilio only retains execution context for about 30 days, so
+reconcile during collection rather than months later. And this output is
+**unencrypted** — the encryption protects the copy in Google Sheets, and was
+never able to protect the copy inside Twilio.
+
+## Loading into MotherDuck
+
+```powershell
+just push "responses_decrypted.csv --table survey_round_1"
+
+# Leave direct identifiers behind
+just push "responses_decrypted.csv --table survey_round_1 --columns caseid,city,answer"
+```
+
+Or in one step from decryption:
+
+```powershell
+just decrypt "responses.csv --to-motherduck survey_round_1"
+```
+
+Decrypted survey data is **Confidential** under IPA's data classification. Push
+it only to a database approved and access-controlled for that classification,
+and prefer `--columns` to leave direct identifiers out.
+
+## Upgrading from version 1.x
+
+This release is a rewrite. What changed and why:
+
+| Before | Now |
+| --- | --- |
+| `python twilio_launcher.py --account_token ...` | `rtt launch`, credentials from `.env` |
+| `python csv_decryptor.py --secret_key ...` | `rtt decrypt`, key from `.env` |
+| One shared secret, in Twilio and on your laptop | Public key in Twilio, private key only on your laptop |
+| AES-128-CBC, unauthenticated | AES-256-GCM, authenticated |
+| CryptoJS 3.1.2, `Math.random()` IVs | Node's built-in `crypto`, proper CSPRNG |
+| Short keys zero-padded to 16 bytes | Real 256-bit keys, passphrases refused |
+| Output written only at the end of a run | Tracker flushed after every send, `--resume` |
+| Edit the JS for each encrypted variable | Every parameter encrypted automatically |
+| Decryption blocked unless on an `X:` drive | No path restriction (Boxcryptor is discontinued) |
+| `logs_cleaner.py`, answers guessed by Jaccard similarity | `rtt fetch`, exact answers from the Studio API |
+| `pip install -r requirements.txt` | `uv sync` against a lockfile |
+
+### Reading data you already collected
+
+Old data still decrypts. It carries no `v2:` marker, so name the columns and
+supply the old secret:
+
+```powershell
+just decrypt "old_responses.csv --columns name,phone --legacy-secret your_old_key"
+```
+
+Treat anything encrypted by version 1.x as weakly protected: the CryptoJS build
+it used generated initialisation vectors with `Math.random()`, which is not
+cryptographically secure.
+
+### If you are upgrading a live project
+
+Existing flows keep working until you redeploy the Function. When you do:
+generate a keypair, set `ENCRYPTION_PUBLIC_KEY`, and replace the function body.
+Responses collected after that point are v2; earlier ones stay v1 and need
+`--legacy-secret`. A single file can contain both — `rtt decrypt` handles the
+mix.
+
+## Development
+
+```powershell
+just test          # pytest
+just test-cov      # with a coverage report
+just lint-py       # ruff check
+just fmt-all       # ruff format + markdownlint
+just scan-secrets  # gitleaks over the working tree
+```
+
+The test suite includes a cross-language check: it encrypts with the real
+JavaScript that runs inside Twilio, and decrypts in Python. That is the test
+that catches the two halves drifting apart — a mismatch there would otherwise
+only surface as unreadable production data, after collection.
+
+Pre-commit hooks run `ruff`, `codespell`, `markdownlint` and
+`detect-private-key`. Broader secret scanning with `gitleaks` runs in CI rather
+than locally, because IPA-managed Windows machines block the gitleaks binary
+under Application Control policy. None of this is decorative: an earlier version
+of this repository shipped a live Google service-account key in its source.
+
+## Security notes
+
+- **Credentials live in `.env`**, which is gitignored, never in flags.
+- **The private key never leaves your machine.** Twilio holds only the public
+  key, so Console access does not imply access to respondent data.
+- **Phone numbers are masked in all logs** by a filter on the log handler, not
+  by careful f-strings. There is no verbosity flag that turns it off.
+- **Ciphertext is authenticated.** A modified value fails loudly instead of
+  decrypting to garbage.
+- **Data files are gitignored** by pattern: `*.csv`, `*.xlsx`, `*_output.*`,
+  `*_decrypted.*`, and key files.
+
+## License
+
+See [LICENSE](LICENSE).

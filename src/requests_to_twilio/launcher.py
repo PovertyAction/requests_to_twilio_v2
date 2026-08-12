@@ -1,0 +1,336 @@
+"""Launch Twilio Studio flow executions for a list of phone numbers.
+
+The output file this writes is a delivery tracker: one row per number, carrying
+the execution SID and status. It is written incrementally, so a run that dies
+halfway - a dropped connection, a closed laptop - leaves a complete record of
+everything sent up to that point, and ``--resume`` can pick up from there. The
+pre-2.0 launcher held all results in memory and wrote the spreadsheet only after
+the final send, so any interruption lost the record of messages that had already
+gone out, with no way to tell which respondents had been contacted.
+"""
+
+from __future__ import annotations
+
+import csv
+import time
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
+from twilio.base.exceptions import TwilioRestException
+from twilio.rest import Client
+
+from .log import get_logger, mask_phone
+
+#: The one column an input file must have.
+NUMBER_COLUMN = "Number"
+
+#: Columns of the delivery tracker, in order.
+TRACKER_COLUMNS = [
+    "number",
+    "status",
+    "execution_sid",
+    "contact",
+    "url",
+    "error",
+    "sent_at",
+]
+
+#: Statuses that mean the message left successfully and must not be re-sent.
+_SENT_STATUSES = frozenset({"active", "ended"})
+
+logger = get_logger()
+
+
+class LaunchError(Exception):
+    """Raised when a run cannot start, e.g. a malformed input file."""
+
+
+@dataclass
+class DeliveryRecord:
+    """One row of the delivery tracker."""
+
+    number: str
+    status: str = ""
+    execution_sid: str = ""
+    contact: str = ""
+    url: str = ""
+    error: str = ""
+    sent_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def as_row(self) -> dict[str, Any]:
+        """Return the record as a dict ordered like :data:`TRACKER_COLUMNS`."""
+        data = asdict(self)
+        return {column: data[column] for column in TRACKER_COLUMNS}
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Decide whether a Twilio failure is worth retrying.
+
+    Rate limits and server-side faults are transient. A 400 for a malformed
+    number, or a 401 for bad credentials, will fail identically every time, so
+    retrying only delays the error the operator needs to see.
+    """
+    if isinstance(exc, TwilioRestException):
+        return exc.status == 429 or exc.status >= 500
+    # Connection-level failures surface as plain OSErrors.
+    return isinstance(exc, OSError)
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_attempt(4),
+    reraise=True,
+)
+def _create_execution(
+    client: Client,
+    flow_id: str,
+    to_number: str,
+    from_number: str,
+    parameters: dict[str, str],
+) -> Any:
+    """Create one Studio execution, retrying transient failures."""
+    return client.studio.v2.flows(flow_id).executions.create(
+        to=to_number, from_=from_number, parameters=parameters
+    )
+
+
+def read_input(input_file: Path, columns_to_send: list[str]) -> pd.DataFrame:
+    """Read and validate the sample file.
+
+    Args:
+        input_file: An ``.xlsx`` or ``.csv`` file with a ``Number`` column.
+        columns_to_send: Extra columns to pass to the flow as parameters.
+
+    Returns:
+        The loaded frame.
+
+    Raises:
+        LaunchError: If the file is unreadable, lacks ``Number``, or lacks one
+            of the requested columns. Validating up front matters: discovering a
+            typo in a column name after 300 messages have gone out is expensive
+            and irreversible.
+
+    """
+    if not input_file.is_file():
+        raise LaunchError(f"Input file not found: {input_file}")
+
+    suffix = input_file.suffix.lower()
+    try:
+        if suffix in {".xlsx", ".xlsm"}:
+            frame = pd.read_excel(input_file, dtype=str)
+        elif suffix == ".csv":
+            frame = pd.read_csv(input_file, dtype=str)
+        else:
+            raise LaunchError(
+                f"Unsupported input format {suffix!r}; use .xlsx or .csv."
+            )
+    except LaunchError:
+        raise
+    except Exception as exc:
+        raise LaunchError(f"Could not read {input_file}: {exc}") from exc
+
+    if NUMBER_COLUMN not in frame.columns:
+        raise LaunchError(
+            f"Input file has no {NUMBER_COLUMN!r} column. "
+            f"Found: {', '.join(map(str, frame.columns))}"
+        )
+
+    missing = [c for c in columns_to_send if c not in frame.columns]
+    if missing:
+        raise LaunchError(
+            f"Requested column(s) not in input file: {', '.join(missing)}. "
+            f"Available: {', '.join(map(str, frame.columns))}"
+        )
+
+    frame = frame[frame[NUMBER_COLUMN].notna()]
+    if frame.empty:
+        raise LaunchError(f"No usable rows: every {NUMBER_COLUMN} value is blank.")
+
+    return frame
+
+
+def tracker_path(input_file: Path) -> Path:
+    """Return the delivery tracker path for a given input file."""
+    return input_file.with_name(f"{input_file.stem}_output.csv")
+
+
+def already_sent(tracker: Path) -> set[str]:
+    """Read a tracker and return the numbers that were successfully sent.
+
+    Args:
+        tracker: Path to an existing tracker file. A missing file is not an
+            error; it simply means nothing has been sent yet.
+
+    Returns:
+        The set of numbers to skip on a resumed run.
+
+    """
+    if not tracker.is_file():
+        return set()
+
+    sent: set[str] = set()
+    with tracker.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if (row.get("status") or "").lower() in _SENT_STATUSES:
+                sent.add((row.get("number") or "").strip())
+    return sent
+
+
+class _TrackerWriter:
+    """Appends delivery records to the tracker, flushing after every row."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._existed = path.is_file()
+        self._handle = path.open("a", newline="", encoding="utf-8")
+        self._writer = csv.DictWriter(self._handle, fieldnames=TRACKER_COLUMNS)
+        if not self._existed:
+            self._writer.writeheader()
+            self._handle.flush()
+
+    def write(self, record: DeliveryRecord) -> None:
+        """Append one record and flush it to disk immediately."""
+        self._writer.writerow(record.as_row())
+        # Flushing per row is what makes an interrupted run recoverable. The
+        # cost is negligible next to the network call that precedes it.
+        self._handle.flush()
+
+    def close(self) -> None:
+        """Close the underlying file."""
+        self._handle.close()
+
+    def __enter__(self) -> _TrackerWriter:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+
+def launch(
+    *,
+    client: Client,
+    flow_id: str,
+    from_number: str,
+    input_file: Path,
+    columns_to_send: list[str],
+    batch_size: int,
+    sec_between_batches: float,
+    resume: bool = False,
+    dry_run: bool = False,
+) -> Path:
+    """Send a Studio flow execution to every number in the sample file.
+
+    Args:
+        client: An authenticated Twilio client.
+        flow_id: The Studio flow SID.
+        from_number: The sending number, e.g. ``whatsapp:+14155238886``.
+        input_file: The sample file.
+        columns_to_send: Columns passed through to the flow as parameters.
+        batch_size: How many messages to send before pausing.
+        sec_between_batches: How long to pause between batches.
+        resume: Skip numbers already recorded as sent in the tracker.
+        dry_run: Validate and report without sending anything.
+
+    Returns:
+        The path to the delivery tracker.
+
+    """
+    frame = read_input(input_file, columns_to_send)
+    tracker = tracker_path(input_file)
+
+    skip = already_sent(tracker) if resume else set()
+    if resume:
+        logger.info("Resuming: %d number(s) already sent will be skipped", len(skip))
+
+    pending = [
+        row
+        for _, row in frame.iterrows()
+        if str(row[NUMBER_COLUMN]).strip() not in skip
+    ]
+
+    logger.info(
+        "%d row(s) in %s, %d to send%s",
+        len(frame),
+        input_file.name,
+        len(pending),
+        " (dry run, nothing will be sent)" if dry_run else "",
+    )
+
+    if dry_run:
+        for row in pending[:5]:
+            logger.info(
+                "would send to %s with parameters %s",
+                mask_phone(str(row[NUMBER_COLUMN])),
+                {c: "<value>" for c in columns_to_send},
+            )
+        if len(pending) > 5:
+            logger.info("... and %d more", len(pending) - 5)
+        return tracker
+
+    sent_in_batch = 0
+    succeeded = 0
+    failed = 0
+
+    with _TrackerWriter(tracker) as writer:
+        for position, row in enumerate(pending, start=1):
+            to_number = str(row[NUMBER_COLUMN]).strip()
+            parameters = {c: str(row[c]) for c in columns_to_send}
+            record = DeliveryRecord(number=to_number)
+
+            try:
+                execution = _create_execution(
+                    client, flow_id, to_number, from_number, parameters
+                )
+            except TwilioRestException as exc:
+                record.status = "failed"
+                record.error = f"HTTP {exc.status} (code {exc.code}): {exc.msg}"
+                failed += 1
+                logger.error("%s -> %s", mask_phone(to_number), record.error)
+            except Exception as exc:
+                record.status = "failed"
+                record.error = f"{type(exc).__name__}: {exc}"
+                failed += 1
+                logger.error("%s -> %s", mask_phone(to_number), record.error)
+            else:
+                record.status = execution.status or "unknown"
+                record.execution_sid = execution.sid or ""
+                record.contact = execution.contact_channel_address or ""
+                record.url = execution.url or ""
+                succeeded += 1
+                logger.info(
+                    "%s -> %s (%s)  [%d/%d]",
+                    mask_phone(to_number),
+                    record.status,
+                    record.execution_sid,
+                    position,
+                    len(pending),
+                )
+
+            writer.write(record)
+
+            sent_in_batch += 1
+            if sent_in_batch == batch_size and position < len(pending):
+                logger.info(
+                    "Batch of %d done, pausing %.1fs", batch_size, sec_between_batches
+                )
+                time.sleep(sec_between_batches)
+                sent_in_batch = 0
+
+    logger.info("Finished: %d sent, %d failed", succeeded, failed)
+    logger.info("Delivery tracker: %s", tracker)
+    if failed:
+        logger.warning(
+            "Re-run with --resume to retry only the %d failed number(s).", failed
+        )
+
+    return tracker
