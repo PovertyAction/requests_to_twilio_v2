@@ -54,6 +54,10 @@ _SECRET_PATTERNS: list[tuple[str, str]] = [
 #: Widget types that carry respondent-facing question text.
 QUESTION_TYPES = frozenset({"send-and-wait-for-reply"})
 
+#: Matches ``{{flow.data.foo}}`` - a value the flow expects to be preloaded from
+#: the sample file at launch, the Studio equivalent of SurveyCTO preloads.
+_PRELOAD_PATTERN = re.compile(r"\{\{\s*flow\.data\.([A-Za-z0-9_]+)\s*\}\}")
+
 
 class FlowError(Exception):
     """Raised when a flow cannot be retrieved or is unsafe to write."""
@@ -176,6 +180,46 @@ def summarize(definition: dict) -> dict[str, Any]:
         "functions": functions,
         "encrypting": encrypting,
     }
+
+
+def preloaded_keys(definition: dict) -> set[str]:
+    """Return the ``flow.data.*`` values a flow expects to be preloaded.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        Every key referenced as ``{{flow.data.<key>}}`` anywhere in the flow -
+        message bodies, split conditions, function parameters.
+
+    These are the Studio equivalent of SurveyCTO preloads: they come from the
+    sample file at launch, and a key the flow references but the launcher does
+    not send resolves to an empty string. Nothing errors, the messages simply
+    go out with a blank where the respondent's name should be, and the publish
+    widget writes empty columns. That failure is only visible after the round.
+
+    """
+    return set(_PRELOAD_PATTERN.findall(json.dumps(definition, ensure_ascii=False)))
+
+
+def check_preloaded(definition: dict, sending: set[str]) -> tuple[set[str], set[str]]:
+    """Compare what a flow expects against what the launcher will send.
+
+    Args:
+        definition: The flow's JSON definition.
+        sending: Column names that will be passed as execution parameters.
+
+    Returns:
+        A tuple of (missing, unused):
+
+        * ``missing`` - referenced by the flow but not being sent. These become
+          empty strings in the survey and blank columns in the output.
+        * ``unused`` - being sent but never referenced. Usually harmless, but a
+          near-match to a missing key is the signature of a typo.
+
+    """
+    expected = preloaded_keys(definition)
+    return expected - sending, sending - expected
 
 
 def pull(

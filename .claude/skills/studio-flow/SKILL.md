@@ -39,6 +39,92 @@ be** and **actually retrievable**. Skipping stage 3 gives a dataset that cannot
 distinguish "refused" from "never asked". Skipping stage 4 puts PII in a shared
 spreadsheet. Skipping stage 6 leaves respondents in silence and rows unflagged.
 
+## Stage 0 - preloaded data, and the sample file
+
+Before any of that: **what the flow already knows about the respondent.**
+
+`{{flow.data.<key>}}` is the Studio equivalent of a SurveyCTO preload. The
+values come from the sample spreadsheet at launch - `rtt launch` passes each
+column named in `--columns` as an execution parameter, and the flow reads them
+back as `flow.data.<column>`.
+
+**The column name and the reference must match exactly.** This is the
+highest-frequency silent failure in the whole pipeline:
+
+```
+sample file column:   participant_name
+flow reference:       {{flow.data.name}}
+result:               every message says "Hi ,"  and the published column is blank
+```
+
+Nothing errors. Twilio resolves an unknown `flow.data` key to an empty string,
+the survey runs to completion, and the damage is only visible in the output
+after the round. So the launcher cross-checks before sending:
+
+```bash
+just launch "sample_input.xlsx --columns caseid,name,treatment --dry-run"
+```
+
+It fetches the flow, extracts every `flow.data.*` reference, compares against
+the columns being sent, and reports what is missing - including a case-mismatch
+hint, since `Name` vs `name` is the usual culprit. On a real send it asks for
+confirmation before continuing; `--skip-preload-check` bypasses it.
+
+### The house vocabulary
+
+Measured across the 47 flows, by how many use each key:
+
+| Key | Flows | What it is |
+| --- | --- | --- |
+| `name` | 29 | Respondent's first name, for the greeting |
+| `caseid` | 26 | **The join key.** Links back to the sampling frame |
+| `treatment` | 13 | Assignment arm |
+| `p_number_original` | 12 | Phone number as sampled - see below |
+| `grupo` | 11 | Group assignment |
+| `nationality`, `sexo`, `edad`, `niv_educativo_sisben` | 7 each | Demographics carried from baseline |
+| `link`, `enlace`, `link1`, `link2` | 3-5 | Per-respondent URLs |
+
+Rich flows carry a lot: `BSC_intervention` references 26 preloaded keys,
+`FMI_screening` 23. Eight flows use none at all.
+
+**`caseid` is the one that matters most.** It is what lets a response join back
+to the sampling frame, and without it a completed survey is an orphan.
+
+**`p_number_original` deserves attention.** It is preloaded *and* encrypted -
+the number as sampled goes in as data, through the encrypt widget, and lands as
+`enc_p_number_original`. That keeps the response linkable to the sample while
+the identifier itself stays protected in the Sheet. Note it is distinct from
+`Number`, which the launcher uses as the destination address; a respondent may
+reply from a different handset, so the two can diverge and both are worth
+keeping.
+
+### The sample file
+
+`sample_input.xlsx` is the committed example. One required column plus whatever
+the flow preloads:
+
+| Column | Required | Note |
+| --- | --- | --- |
+| `Number` | **Yes** | Destination. Prefix WhatsApp with `whatsapp:` |
+| `caseid` | In practice | The join key |
+| `name` | Usually | Greeting |
+| `p_number_original` | If encrypting the number | Usually the same digits as `Number`, without the channel prefix |
+| ... | | Anything else the flow references |
+
+Rules that avoid the silent failure:
+
+- **Name columns after the `flow.data` keys**, not after what they mean to you.
+  The flow is the contract.
+- **No spaces or accents in headers.** `flow.data` keys are
+  `[A-Za-z0-9_]` only, so a column named `Nombre completo` can never be
+  referenced.
+- **Everything is a string.** The launcher reads with `dtype=str` so leading
+  zeros in IDs and phone numbers survive. Excel will happily turn `007` into
+  `7` before it ever reaches the file - check.
+- **The sample file is Confidential.** It is a list of phone numbers with names
+  attached. `*.xlsx` and `*.csv` are gitignored precisely so real sample files
+  cannot be committed.
+
 ## Stage 1 - consent
 
 22 of 47 flows carry consent language; the ones that do share a shape.

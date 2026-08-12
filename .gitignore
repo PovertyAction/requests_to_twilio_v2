@@ -196,8 +196,10 @@ data/
 input/
 output/
 
-# Everything spreadsheet-shaped, except the checked-in example
+# Everything spreadsheet-shaped, except the checked-in example. sample_input.xlsx
+# is the only spreadsheet that may ever be committed; it uses the +1 555
+# 0100-0199 range, which is reserved for fiction and is not routable.
 *.xlsx
 *.xls
 *.csv
-!input_example.xlsx
+!sample_input.xlsx

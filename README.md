@@ -18,7 +18,7 @@ If you have run a SurveyCTO project, you already know this shape:
 ## How the pipeline fits together
 
 ```text
-  sample.xlsx
+  sample_input.xlsx
       |
       | rtt launch
       v
@@ -125,17 +125,55 @@ Every parameter is encrypted and returned under the same key, so the publish
 widget reads `{{widgets.encrypt.parsed.name}}`. Unlike the pre-2.0 version,
 **there is nothing to edit in the JavaScript when your questions change.**
 
-## Running a survey
+## The sample file and preloaded data
 
-Your sample file needs a `Number` column. Any other columns can be passed to the
-flow as parameters.
+`sample_input.xlsx` is the committed example. One required column, `Number`,
+plus whatever the flow needs to know about each respondent:
+
+| Number | caseid | p_number_original | name | treatment |
+| --- | --- | --- | --- | --- |
+| `whatsapp:+15555550100` | RST2026-001 | +15555550100 | Priya | 1 |
+
+Columns named in `--columns` are passed to the flow as execution parameters and
+read back inside Studio as `{{flow.data.<column>}}` — the equivalent of a
+SurveyCTO preload.
+
+> **The column name and the flow's reference must match exactly.** If the flow
+> says `{{flow.data.name}}` and your column is `participant_name`, Twilio
+> resolves it to an empty string. Nothing errors: every message goes out saying
+> "Hi ," and the published column is blank. You find out after the round.
+
+So `rtt launch` cross-checks before sending — it reads the flow, extracts every
+`flow.data` reference, and reports anything you are not supplying (including a
+case-mismatch hint, since `Name` vs `name` is the usual culprit):
+
+```text
+Flow 'BSC_intervention' references 25 preloaded value(s) you are not sending:
+
+    {{flow.data.caseid}}
+    {{flow.data.name}}   <- did you mean the column 'Name'? (case differs)
+    ...
+```
+
+On a real send it asks for confirmation; `--skip-preload-check` bypasses it.
+
+Two conventions worth following: headers must be `[A-Za-z0-9_]` only (a column
+called `Nombre completo` can never be referenced), and everything is read as
+text so leading zeros in IDs survive — though Excel may have eaten them before
+the file reaches you.
+
+Real sample files are lists of phone numbers with names attached, so `*.xlsx`
+and `*.csv` are gitignored. Only `sample_input.xlsx` is exempt, and its numbers
+are from the `+1 555 0100` range reserved for fiction.
+
+## Running a survey
 
 ```powershell
 # See exactly what would be sent, without sending anything
-just launch "sample.xlsx --columns name,city --dry-run"
+just launch "sample_input.xlsx --columns caseid,name,treatment --dry-run"
 
 # Send for real, 50 at a time with a 5s pause between batches
-just launch "sample.xlsx --columns name,city --batch-size 50 --sleep 5"
+just launch "sample_input.xlsx --columns caseid,name,treatment --batch-size 50 --sleep 5"
 ```
 
 This writes a **delivery tracker** next to your input, `sample_output.csv`, with
@@ -143,7 +181,7 @@ one row per number. It is flushed to disk after every send, so if the run is
 interrupted the record of who was already contacted survives:
 
 ```powershell
-just launch "sample.xlsx --columns name,city --resume"
+just launch "sample_input.xlsx --columns caseid,name,treatment --resume"
 ```
 
 `--resume` skips numbers already sent successfully and retries only the

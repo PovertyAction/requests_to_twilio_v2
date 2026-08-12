@@ -23,7 +23,7 @@ from . import config as cfg
 from .crypto import CryptoError, KeyPair, load_private_key
 from .decryptor import DecryptionError, decrypt_dataset
 from .fetch import FetchError, fetch_executions, reconcile, write_output
-from .flows import FlowError, list_flows, summarize
+from .flows import FlowError, check_preloaded, list_flows, resolve_flow, summarize
 from .flows import pull as pull_flow
 from .launcher import LaunchError, launch
 from .log import configure
@@ -66,6 +66,75 @@ def _client() -> tuple[Client, cfg.TwilioConfig]:
     except cfg.ConfigError as exc:
         _fail(str(exc))
     return Client(conf.account_sid, conf.auth_token), conf
+
+
+def _check_preloaded_data(
+    client: Client, flow_id: str, columns: list[str], *, force: bool
+) -> None:
+    """Compare a flow's flow.data references against the columns being sent.
+
+    A key the flow references but the launcher does not send resolves to an
+    empty string. Nothing errors: messages go out with a blank where the
+    respondent's name should be, and the publish widget writes empty columns.
+    Since that is only visible after the round, this blocks the send.
+    """
+    try:
+        flow = resolve_flow(client, flow_id)
+    except FlowError as exc:
+        typer.secho(
+            f"  warning: could not check preloaded data ({exc})",
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    if not flow.definition:
+        return
+
+    # `Number` is always available: the launcher sends it as the destination.
+    missing, unused = check_preloaded(flow.definition, set(columns) | {"Number"})
+
+    if unused:
+        typer.secho(
+            f"  note: sending column(s) the flow never uses: {', '.join(sorted(unused))}",
+            fg=typer.colors.YELLOW,
+        )
+
+    if not missing:
+        if columns:
+            typer.secho(
+                f"  preloaded data OK: flow's {len(set(columns))} reference(s) all supplied",
+                fg=typer.colors.GREEN,
+            )
+        return
+
+    typer.secho(
+        f"\nFlow {flow.friendly_name!r} references {len(missing)} preloaded "
+        f"value(s) you are not sending:\n",
+        fg=typer.colors.RED,
+        bold=True,
+    )
+    for key in sorted(missing):
+        near = [c for c in columns if c.lower() == key.lower()]
+        hint = (
+            f"   <- did you mean the column {near[0]!r}? (case differs)" if near else ""
+        )
+        typer.echo(f"    {{{{flow.data.{key}}}}}{hint}")
+
+    typer.secho(
+        "\n  These resolve to empty strings. Messages will go out with blanks, "
+        "\n  and the published columns will be empty - visible only after the round."
+        "\n  Add them to --columns (they must match the sample file's headers "
+        "exactly).",
+        fg=typer.colors.YELLOW,
+    )
+
+    if force:
+        typer.secho("\n  (dry run, continuing)", fg=typer.colors.YELLOW)
+        return
+
+    if not typer.confirm("\nSend anyway?"):
+        typer.echo("Aborted.")
+        raise typer.Exit(code=1)
 
 
 def _private_key():
@@ -159,6 +228,13 @@ def launch_cmd(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Validate without sending anything.")
     ] = False,
+    skip_preload_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-preload-check",
+            help="Do not compare the flow's flow.data references against --columns.",
+        ),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Send a Studio flow execution to every number in a sample file."""
@@ -173,6 +249,9 @@ def launch_cmd(
         _fail(str(exc))
 
     column_list = [c.strip() for c in columns.split(",") if c.strip()]
+
+    if not skip_preload_check:
+        _check_preloaded_data(client, resolved_flow, column_list, force=dry_run)
 
     try:
         launch(
