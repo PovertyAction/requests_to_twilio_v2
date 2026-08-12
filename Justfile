@@ -79,6 +79,15 @@ test-cov:
 scan-secrets:
     uv run pre-commit run detect-private-key --all-files
 
+# Generate .claude/settings.local.json from the credentials in .env, so the
+# Twilio MCP server can resolve the ${...} placeholders in .mcp.json.
+mcp-setup:
+    uv run python scripts/mcp_settings.py
+
+# Show which MCP servers this project defines, and whether each is ready
+mcp-list:
+    uv run python scripts/mcp_settings.py --list
+
 # Show the CLI help
 cli *ARGS:
     uv run rtt {{ ARGS }}
