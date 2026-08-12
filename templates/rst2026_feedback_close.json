@@ -1,0 +1,30 @@
+{
+  "_comment": [
+    "Closing template for the 2026 India Research Staff Training feedback survey.",
+    "",
+    "Sent as a template rather than free-form because the close fires after the",
+    "respondent has finished answering, which may be hours or days after they",
+    "started. A participant who begins Monday evening and finishes Wednesday is",
+    "outside the 24-hour window, and a free-form close would fail silently with",
+    "error 63016 - they would answer every question and hear nothing back.",
+    "",
+    "The 2023 flow had no closing template at all.",
+    "",
+    "Follows the house formula used by end1_msj / end2_msj2, which Meta approved",
+    "as UTILITY: thank, close warmly, sign off as the IPA team. English here",
+    "rather than the Spanish original, to match the RST audience.",
+    "",
+    "The 'please do not reply' line is included on the assumption that nobody",
+    "monitors the WhatsApp number once the training round closes - the pattern",
+    "rifa_wa_cierre uses. Drop that paragraph if someone is watching the inbox,",
+    "since telling people not to reply when they could is worse than silence."
+  ],
+  "friendly_name": "rst2026_feedback_close",
+  "language": "en",
+  "variables": {},
+  "types": {
+    "twilio/text": {
+      "body": "Thank you for sharing your feedback on the 2026 India Research Staff Training.\n\nYour answers have been recorded and will be used to improve future sessions.\n\nThis channel is now closed and is not monitored, so please do not reply to this chat.\n\n_IPA Team_"
+    }
+  }
+}
