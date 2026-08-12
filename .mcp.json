@@ -11,7 +11,7 @@
         "@twilio-alpha/mcp",
         "${TWILIO_ACCOUNT_SID}/${TWILIO_API_KEY}:${TWILIO_API_SECRET}",
         "--services",
-        "twilio_studio_v2"
+        "twilio_studio_v2,twilio_content_v1,twilio_content_v2"
       ]
     }
   }

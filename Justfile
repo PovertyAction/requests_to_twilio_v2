@@ -88,6 +88,24 @@ mcp-setup:
 mcp-list:
     uv run python scripts/mcp_settings.py --list
 
+# List WhatsApp templates and their Meta approval status
+template-list *ARGS:
+    uv run rtt template list {{ ARGS }}
+
+# Create a template in Twilio from templates/<name>.json. Does NOT submit to
+# Meta - the wording can still be changed at this stage.
+template-create FILE *ARGS:
+    uv run rtt template create {{ FILE }} {{ ARGS }}
+
+# Submit a template to Meta for WhatsApp approval. IRREVERSIBLE: submitted
+# templates can never be edited, so review the wording first.
+template-submit NAME *ARGS:
+    uv run rtt template submit {{ NAME }} {{ ARGS }}
+
+# Check a template's approval status
+template-status NAME:
+    uv run rtt template status {{ NAME }}
+
 # Show the CLI help
 cli *ARGS:
     uv run rtt {{ ARGS }}
@@ -124,3 +142,11 @@ pre-install:
 [macos]
 pre-install:
     brew install just uv gh markdownlint-cli2
+
+# List Studio flows
+flow-list:
+    uv run rtt flow list
+
+# Save a flow definition into flows/ so it can be reviewed and diffed
+flow-pull NAME *ARGS:
+    uv run rtt flow pull {{ NAME }} {{ ARGS }}

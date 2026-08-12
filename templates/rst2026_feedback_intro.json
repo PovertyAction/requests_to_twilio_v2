@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "Entry point for the feedback survey, offering the two tracks.",
+    "",
+    "The 2023 original (rst_feedbackintro, HXe2672292b71d6f18029e4a4aed0beb35)",
+    "carries no year and is still approved, so it could be reused as-is. It is",
+    "recreated here only so that the 2026 round has its own named template and",
+    "the wording can say 2026 explicitly.",
+    "",
+    "If there is no Innovation Fair in 2026, drop the second button and the",
+    "clause that mentions it - a template offering a track that does not exist",
+    "would strand anyone who taps it.",
+    "",
+    "The button ids match the 2023 payloads so the existing Studio split widgets",
+    "keep working without rewiring."
+  ],
+  "friendly_name": "rst2026_feedback_intro",
+  "language": "en",
+  "variables": {},
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Welcome to the 2026 India Research Staff Training feedback survey.\n\nYou can give feedback on the sessions, or register for the Innovation Fair.\n\nPlease select what you would like to do:",
+      "actions": [
+        {
+          "title": "Feedback",
+          "id": "Feedback_payload"
+        },
+        {
+          "title": "Innovation Fair",
+          "id": "Innovation Fair_payload"
+        }
+      ]
+    }
+  }
+}

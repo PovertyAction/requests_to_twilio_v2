@@ -86,7 +86,10 @@ docstring-code-line-length = 88
 [tool.codespell]
 builtin = "clear,rare,informal,usage,code,names"
 ignore-words-list = "jupyter,ipa,keypair,master"
-skip = "uv.lock,*.js"
+# flows/ holds definitions fetched from Twilio, containing respondent-facing
+# survey text in Spanish and English. It is a record of what was deployed, not
+# prose we author, so spell-checking it only produces false positives.
+skip = "uv.lock,*.js,flows/*"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

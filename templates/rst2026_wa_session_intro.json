@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "Opt-in template for the 2026 India Research Staff Training.",
+    "",
+    "This is the ONLY message that must be a template. It is business-initiated,",
+    "so WhatsApp requires an approved template; once the participant taps Start,",
+    "a 24-hour customer service window opens and the rest of the Studio flow can",
+    "send free-form messages.",
+    "",
+    "Rewritten from rst2023_wa_session_intro, which Meta approved as MARKETING.",
+    "Marketing templates are subject to per-user limits and opt-outs, so they",
+    "deliver less reliably. This copy drops the promotional framing ('sneak peek",
+    "into something special') for a plain statement of what the participant is",
+    "registered for and what will arrive, which reads as UTILITY. Meta assigns",
+    "the final category and may still disagree.",
+    "",
+    "Templates cannot be edited after submission. Review the wording carefully."
+  ],
+  "friendly_name": "rst2026_wa_session_intro",
+  "language": "en",
+  "variables": {
+    "1": "Priya"
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Hi {{1}}, you are registered for the 2026 India Research Staff Training.\n\nWe will use WhatsApp to share session materials and to collect your feedback during the training.\n\nTo start receiving them, press the button below.",
+      "actions": [
+        {
+          "title": "Start",
+          "id": "Start_payload"
+        }
+      ]
+    }
+  }
+}
