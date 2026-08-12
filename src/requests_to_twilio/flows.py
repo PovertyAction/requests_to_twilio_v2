@@ -182,6 +182,74 @@ def summarize(definition: dict) -> dict[str, Any]:
     }
 
 
+def _is_publish_widget(state: dict) -> bool:
+    """Whether a widget looks like the step that writes a row to Google Sheets."""
+    name = (state.get("name") or "").lower()
+    return state.get("type") == "run-function" and (
+        "gsheet" in name or name.startswith("pub")
+    )
+
+
+def unpublished_paths(definition: dict) -> list[tuple[str, str, str]]:
+    """Find break-off paths that never reach the publish widget.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        ``(widget, event, destination)`` for every ``timeout`` or
+        ``deliveryFailure`` transition from which no publish widget is
+        reachable.
+
+    Publishing is what makes the Google Sheet a live dashboard: each execution
+    appends its row the moment that respondent's flow reaches the widget, so the
+    sheet fills as submissions arrive rather than at the end of a round.
+
+    Flows carry exactly one publish widget and route every terminal path through
+    it - complete, multierror, no_reply and delivery failure alike - so that a
+    row exists whatever happened. A path that misses it produces no row at all,
+    and a respondent who broke off becomes indistinguishable from one who was
+    never contacted. That is the difference between measured attrition and
+    missing data.
+
+    """
+    states = definition.get("states", [])
+    publishers = {s["name"] for s in states if _is_publish_widget(s)}
+    if not publishers:
+        return []
+
+    # Walk edges backwards from the publish widgets to find everything that can
+    # still reach one.
+    incoming: dict[str, list[str]] = {}
+    for state in states:
+        for transition in state.get("transitions", []):
+            destination = transition.get("next")
+            if destination:
+                incoming.setdefault(destination, []).append(state["name"])
+
+    reaching = set(publishers)
+    queue = list(publishers)
+    while queue:
+        node = queue.pop()
+        for parent in incoming.get(node, []):
+            if parent not in reaching:
+                reaching.add(parent)
+                queue.append(parent)
+
+    stranded = []
+    for state in states:
+        for transition in state.get("transitions", []):
+            event = transition.get("event")
+            if event not in ("timeout", "deliveryFailure"):
+                continue
+            destination = transition.get("next")
+            if destination is None:
+                stranded.append((state["name"], event, "<dead end>"))
+            elif destination not in reaching:
+                stranded.append((state["name"], event, destination))
+    return stranded
+
+
 def preloaded_keys(definition: dict) -> set[str]:
     """Return the ``flow.data.*`` values a flow expects to be preloaded.
 

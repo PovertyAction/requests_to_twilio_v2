@@ -256,10 +256,95 @@ nothing can be added later that publishes around it.
 
 ## Stage 5 - publish
 
-Google Sheets is both the **delivery dashboard** and the **database of record**;
-MotherDuck is the analysis warehouse. Sheets first, warehouse after.
+**The point of `publish_gsheets` is that it fires per submission.** Each
+execution appends its own row the moment that respondent's flow reaches the
+widget, so the sheet fills in real time as answers arrive. That is what makes it
+a live delivery dashboard rather than an export: the field team watches rows land
+during collection, no batch job, no waiting for the round to end. It is also why
+Sheets is the database of record and not merely a copy.
 
-The payload has four groups - copy this order:
+Two things follow from that, and both are load-bearing.
+
+### One publish widget, and every path must reach it
+
+All 29 publishing flows on the account carry **exactly one** publish widget -
+`edutainment_bl` funnels 471 widgets into a single call with 95 parameters. That
+is the right shape. Every terminal path routes through it: completed, timed out,
+too many errors, delivery failed. One exit point means a row exists whatever
+happened, carrying the paradata flags that say which of those it was.
+
+**A path that misses the publish widget produces no row at all**, and a
+respondent who broke off becomes indistinguishable from one who was never
+contacted. That is the difference between measured attrition and missing data,
+and it is silent - nothing errors, the row simply never appears.
+
+`rtt flow pull` checks this by walking the graph backwards from the publish
+widget and reporting any `timeout` or `deliveryFailure` transition that cannot
+reach it:
+
+```text
+  6 break-off path(s) never reach the publish widget:
+    verif_1_pilot --timeout--> verif_1_rem1_pilot
+    verif_1_rem1_pilot --timeout--> verif_1_rem3
+    ...
+```
+
+`BSC_baseline` and `BSC_screening` both have six such paths today, in the pilot
+verification branch. Everyone who timed out there is simply absent from the data.
+
+### Every respondent must end with a final status
+
+This is the requirement the whole design serves: **at the end of a round, every
+launched respondent has exactly one row with a final status.** Nobody is
+unaccounted for.
+
+The statuses are exhaustive, and they are what an analyst reads to reconstruct
+what happened:
+
+| Final status | Meaning | Set on |
+| --- | --- | --- |
+| `set_complete` | Reached the end of the questionnaire | Normal exit |
+| `set_no_reply_<section>` | Stopped replying | `timeout` |
+| `set_fail_<section>` | Message could not be delivered | `deliveryFailure` |
+| `set_multierror_<section>` | Too many invalid answers; gave up asking | Error-counter limit |
+| `set_consent` = declined | Refused to participate | Consent branch |
+
+Two records together account for everyone:
+
+- **The delivery tracker** (`<sample>_output.csv`, written by `rtt launch`) says
+  whether the flow was ever started for that number.
+- **The published sheet** says what happened once it was.
+
+A respondent in the tracker with no row in the sheet is the case to hunt: either
+a break-off path that misses the publish widget, or a Sheets write that failed
+after its retries. `just fetch --against` distinguishes them.
+
+**Refusal and break-off are findings, not gaps.** A survey that only records
+completions cannot report its own response rate, and cannot tell a reviewer
+whether the people who left differ from the people who stayed. That is why the
+paradata is roughly half the published columns.
+
+### It fires once, so it must fire at the end
+
+Because there is a single publish call, a respondent who abandons before
+reaching it publishes nothing - even though they answered fifteen questions. The
+paradata flags are what recover that: the timeout path sets
+`set_no_reply_<section>` and then continues to publish, so the row lands with
+the answers given so far and a flag saying where it stopped.
+
+Wire break-offs *through* the publish widget, never around it.
+
+### A better mechanism, later
+
+Publishing from a Function widget at the end of the flow is a retrofit. Twilio
+Event Streams can emit each execution step as a webhook, which would give
+genuinely per-answer streaming, survive a flow that never reaches its end, and
+remove the single point of failure that a Sheets API error currently represents.
+Worth doing; not done here. Until then, reconcile with `just fetch --against`.
+
+### The payload
+
+Four groups - copy this order:
 
 ```
 caseid, assigned_group        launch data from flow.data
@@ -335,7 +420,11 @@ be committed.
 
 The checklist:
 
-- [ ] Consent recorded, and declining routes to a close
+- [ ] **Every path reaches the publish widget** - `rtt flow pull` reports the
+      ones that do not. A break-off that publishes nothing is invisible
+- [ ] **Every terminal state sets a final status** - complete, no_reply, fail,
+      multierror, or consent declined. No respondent unaccounted for
+- [ ] Consent recorded, and declining routes to a close *through* publish
 - [ ] Every question wires `reply`, `timeout` and `deliveryFailure`
 - [ ] Every split has a `noMatch` branch
 - [ ] Error counters exist, with a stop rule

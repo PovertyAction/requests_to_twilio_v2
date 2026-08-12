@@ -23,7 +23,14 @@ from . import config as cfg
 from .crypto import CryptoError, KeyPair, load_private_key
 from .decryptor import DecryptionError, decrypt_dataset
 from .fetch import FetchError, fetch_executions, reconcile, write_output
-from .flows import FlowError, check_preloaded, list_flows, resolve_flow, summarize
+from .flows import (
+    FlowError,
+    check_preloaded,
+    list_flows,
+    resolve_flow,
+    summarize,
+    unpublished_paths,
+)
 from .flows import pull as pull_flow
 from .launcher import LaunchError, launch
 from .log import configure
@@ -554,6 +561,23 @@ def flow_pull(
         typer.secho(
             "  No widget named like an encryption step. If this flow publishes "
             "PII\n  to Google Sheets, it is doing so in plain text.",
+            fg=typer.colors.YELLOW,
+        )
+
+    stranded = unpublished_paths(definition)
+    if stranded:
+        typer.secho(
+            f"\n  {len(stranded)} break-off path(s) never reach the publish widget:",
+            fg=typer.colors.RED,
+            bold=True,
+        )
+        for widget, event, destination in stranded[:8]:
+            typer.echo(f"    {widget} --{event}--> {destination}")
+        if len(stranded) > 8:
+            typer.echo(f"    ... and {len(stranded) - 8} more")
+        typer.secho(
+            "  A respondent leaving by these produces no row at all, so a\n"
+            "  break-off looks identical to someone never contacted.",
             fg=typer.colors.YELLOW,
         )
 
