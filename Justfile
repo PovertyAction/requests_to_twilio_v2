@@ -150,3 +150,8 @@ flow-list:
 # Save a flow definition into flows/ so it can be reviewed and diffed
 flow-pull NAME *ARGS:
     uv run rtt flow pull {{ NAME }} {{ ARGS }}
+
+# High-frequency checks for flows: verify the instrument was coded correctly.
+# Omit NAME to check every flow on the account.
+flow-check *ARGS:
+    uv run rtt flow check {{ ARGS }}

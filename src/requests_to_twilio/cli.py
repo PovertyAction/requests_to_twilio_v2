@@ -25,10 +25,13 @@ from .decryptor import DecryptionError, decrypt_dataset
 from .fetch import FetchError, fetch_executions, reconcile, write_output
 from .flows import (
     FlowError,
+    check_flow,
     check_preloaded,
     list_flows,
+    published_columns,
     resolve_flow,
     summarize,
+    unpaired_answers,
     unpublished_paths,
 )
 from .flows import pull as pull_flow
@@ -580,6 +583,95 @@ def flow_pull(
             "  break-off looks identical to someone never contacted.",
             fg=typer.colors.YELLOW,
         )
+
+    columns = published_columns(definition)
+    answers = [c for c, source in columns if source == "answer"]
+    if answers:
+        unpaired = unpaired_answers(definition)
+        typer.echo(f"\n  {len(columns)} published column(s), {len(answers)} answer(s)")
+        if unpaired:
+            typer.secho(
+                f"  {len(unpaired)} answer(s) publish with no status column beside "
+                f"them,\n  so a blank cell cannot be read as timed-out vs "
+                f"not-asked vs failed.",
+                fg=typer.colors.YELLOW,
+            )
+
+
+@flow_app.command("check")
+def flow_check(
+    identifier: Annotated[
+        str | None,
+        typer.Argument(help="Flow SID or name. Omit to check every flow."),
+    ] = None,
+    errors_only: Annotated[
+        bool, typer.Option("--errors-only", help="Hide warnings.")
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Check flows the way high-frequency checks check a survey.
+
+    This does not look at collected data. It verifies the instrument was coded
+    correctly - that every break-off still publishes a row, every question
+    handles non-response, and identifiers are encrypted - so that the data it
+    produces will be analysable. Run before a round and after any edit.
+    """
+    configure(verbose)
+    cfg.load_env()
+    client, _ = _client()
+
+    try:
+        targets = (
+            [resolve_flow(client, identifier)]
+            if identifier
+            else [resolve_flow(client, f.sid) for f in list_flows(client)]
+        )
+    except FlowError as exc:
+        _fail(str(exc))
+
+    total_errors = total_warnings = clean = 0
+
+    for flow in targets:
+        if not flow.definition:
+            continue
+        findings = check_flow(flow.definition)
+        if errors_only:
+            findings = [f for f in findings if f.severity == "error"]
+
+        errors = sum(1 for f in findings if f.severity == "error")
+        warnings = len(findings) - errors
+        total_errors += errors
+        total_warnings += warnings
+
+        if not findings:
+            clean += 1
+            if identifier:
+                typer.secho(
+                    f"{flow.friendly_name}: all checks passed", fg=typer.colors.GREEN
+                )
+            continue
+
+        typer.echo("")
+        typer.secho(f"{flow.friendly_name}  ({flow.status})", bold=True)
+        for finding in findings:
+            colour = (
+                typer.colors.RED if finding.severity == "error" else typer.colors.YELLOW
+            )
+            typer.secho(f"  [{finding.severity}] {finding.code}", fg=colour, nl=False)
+            typer.echo(f"  {finding.summary}")
+            for line in finding.detail:
+                typer.echo(f"      {line}")
+
+    if not identifier:
+        typer.echo("")
+        typer.secho(
+            f"{len(targets)} flow(s): {clean} clean, "
+            f"{total_errors} error(s), {total_warnings} warning(s)",
+            bold=True,
+        )
+
+    if total_errors:
+        raise typer.Exit(code=1)
 
 
 template_app = typer.Typer(

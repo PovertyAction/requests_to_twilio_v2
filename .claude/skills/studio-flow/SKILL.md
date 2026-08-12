@@ -406,17 +406,81 @@ v0.7.0, so:
 
 Nothing in this repo depends on the MCP - `rtt` talks to the API directly.
 
-## Auditing an existing flow
+## Checking a flow - the HFC equivalent
+
+`just flow-check` is to a Studio flow what
+[high-frequency checks](https://github.com/PovertyAction/high-frequency-checks)
+are to a SurveyCTO round. It does not look at collected data; it verifies the
+**instrument was coded correctly**, so that the data it produces will be
+analysable. Run it before a round starts and after any edit.
 
 ```bash
+just flow-check                       # every flow on the account
+just flow-check "edutainment_bl"      # one flow
+just flow-check "--errors-only"       # suppress warnings
 just flow-list                        # what exists, status, revision
 just flow-pull <name>                 # into flows/, committed and diffable
 ```
 
-`rtt flow pull` reports widget and question counts and warns when a flow has
-Function widgets but nothing that looks like encryption. It refuses to write a
-definition containing credential-shaped strings, since these files are meant to
-be committed.
+It exits non-zero on any error, so it can gate a deployment.
+
+### What it checks
+
+| Code | Severity | Why it matters |
+| --- | --- | --- |
+| `unpublished-paths` | error | A break-off that never reaches publish produces no row, so it is indistinguishable from someone never contacted |
+| `no-final-status` | error | A published row that cannot say how the survey ended cannot support a response rate |
+| `unhandled-timeout` | error | A question with no timeout branch strands non-responders |
+| `unhandled-delivery-failure` | error | Same, for numbers that cannot receive |
+| `credentials` | error | A definition is meant to be committed |
+| `split-without-nomatch` | warning | An unexpected answer has nowhere to go |
+| `no-encryption` | warning | Publishing identifiers to Sheets in clear |
+| `unpaired-answers` | warning | A blank cell cannot be read as timed-out vs not-asked vs failed |
+
+### What it found on this account
+
+Running it over all 47 flows: **37 clean, 10 with errors.**
+
+Seven flows share one identical defect - `BSC_baseline`, `BSC_endline`,
+`BSC_screening`, `FMI_scheduling`, `FMI_screening_bsc`, `FMI_screening_bsv`,
+`FMI_screening_elic`:
+
+```
+verif_1_pilot      --timeout--> verif_1_rem1_pilot
+verif_1_rem1_pilot --timeout--> verif_1_rem3
+verif_1_rem3       --timeout--> welcome_piloto_scr
+(and the matching deliveryFailure transitions)
+```
+
+That is one bug, copy-pasted six times when the flows were duplicated. Six of
+the seven are published. Anyone who stopped replying during pilot verification
+is absent from the data entirely - not a `no_reply` row, no row.
+
+Three more (`RST2023_innovationfair`, `ETPV Rifa`, `Te cuidadores`) publish rows
+with no final-status variable at all, so those datasets cannot distinguish a
+completion from a break-off.
+
+**This is the argument for running the check at all.** None of it was visible in
+the Studio editor, and the flows had been running for years.
+
+### Locating the drop-off
+
+Section-level status flags are the baseline and what the corpus uses:
+`set_multierror_dem`, `set_no_reply_dem`, `set_fail_dem` per questionnaire
+section. They tell an analyst which section a respondent died in.
+
+For finer resolution, pair each answer with its own status column
+(`q3` next to `q3_status`), which is what `unpaired-answers` looks for. It costs
+a `set-variables` widget per question per break-off path, so it is a real
+investment in an 85-question survey - 94% of answer columns on this account are
+currently unpaired. Section-level is a legitimate choice; the point is to make
+it deliberate, and to know that a blank answer cell alone is ambiguous between
+timed-out, not-asked and delivery-failed.
+
+The cheap third option: the Studio Executions API records the actual step
+sequence per respondent, so the drop-off widget can be derived after the fact
+with `rtt fetch` and no flow changes at all. It is not live in the dashboard,
+but it costs nothing to add.
 
 The checklist:
 

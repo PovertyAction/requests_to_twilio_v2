@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -248,6 +249,234 @@ def unpublished_paths(definition: dict) -> list[tuple[str, str, str]]:
             elif destination not in reaching:
                 stranded.append((state["name"], event, destination))
     return stranded
+
+
+#: Suffixes that mark a column as the status belonging to the answer before it.
+STATUS_SUFFIXES = ("_status", "_err", "_error", "_state", "_outcome")
+
+
+def published_columns(definition: dict) -> list[tuple[str, str]]:
+    """Return the publish widget's columns in order, as (key, source).
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        ``(column_name, source)`` pairs in the order they are published, where
+        source is one of ``answer``, ``variable``, ``preload``, ``encrypted``
+        or ``other``.
+
+    """
+    for state in definition.get("states", []):
+        if not _is_publish_widget(state):
+            continue
+
+        columns = []
+        for parameter in state.get("properties", {}).get("parameters", []):
+            key = parameter.get("key") or ""
+            value = str(parameter.get("value") or "")
+
+            if "encrypt" in value or "encriptador" in value:
+                source = "encrypted"
+            elif ".inbound." in value:
+                source = "answer"
+            elif "flow.variables." in value:
+                source = "variable"
+            elif "flow.data." in value:
+                source = "preload"
+            else:
+                source = "other"
+            columns.append((key, source))
+        return columns
+    return []
+
+
+def unpaired_answers(definition: dict) -> list[str]:
+    """Find answer columns published without an adjacent status column.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        Answer column names that have no companion status column.
+
+    A blank answer cell is ambiguous on its own: the respondent may have
+    stopped replying, the message may have failed to deliver, or the question
+    may never have been asked because of branching. Those mean different things
+    and the analyst cannot tell them apart from the answer alone - the last
+    non-empty column only says where a respondent *stopped*, not why.
+
+    Pairing each answer with its own status resolves it, and locates the
+    drop-off at the question rather than at the section.
+
+    """
+    columns = published_columns(definition)
+    names = [key for key, _ in columns]
+
+    unpaired = []
+    for index, (key, source) in enumerate(columns):
+        if source != "answer":
+            continue
+
+        # A status either carries a recognised suffix on this column's name, or
+        # sits immediately after it.
+        expected = {f"{key}{suffix}" for suffix in STATUS_SUFFIXES}
+        if expected & set(names):
+            continue
+
+        following = names[index + 1] if index + 1 < len(names) else ""
+        if following.startswith(key) and following != key:
+            continue
+
+        unpaired.append(key)
+    return unpaired
+
+
+#: Variables whose presence in the publish payload means a final status is
+#: recorded. Section-scoped names (set_no_reply_dem) count via the prefix.
+_FINAL_STATUS_PREFIXES = (
+    "set_complete",
+    "set_no_reply",
+    "set_fail",
+    "set_multierror",
+    "set_consent",
+    "set_survey_fail",
+)
+
+
+@dataclass
+class Finding:
+    """One problem found while checking a flow."""
+
+    severity: str  # "error" or "warning"
+    code: str
+    summary: str
+    detail: list[str] = field(default_factory=list)
+
+
+def check_flow(definition: dict) -> list[Finding]:
+    """Run the structural checks over a flow definition.
+
+    This is the high-frequency-check equivalent for a Studio flow: it does not
+    look at collected data, it verifies that the instrument was *coded*
+    correctly, so that the data it produces will be analysable. Run it before a
+    round starts and after any edit.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        Findings, errors first. An empty list means every check passed.
+
+    """
+    states = definition.get("states", [])
+    findings: list[Finding] = []
+    publishes = any(_is_publish_widget(s) for s in states)
+
+    # Every break-off must still produce a row.
+    stranded = unpublished_paths(definition)
+    if stranded:
+        findings.append(
+            Finding(
+                "error",
+                "unpublished-paths",
+                f"{len(stranded)} break-off path(s) never reach the publish widget",
+                [f"{w} --{e}--> {d}" for w, e, d in stranded[:10]],
+            )
+        )
+
+    # Every question must handle non-response and delivery failure.
+    missing_timeout, missing_failure = [], []
+    for state in states:
+        if state.get("type") not in QUESTION_TYPES:
+            continue
+        events = {t.get("event") for t in state.get("transitions", [])}
+        if "timeout" not in events:
+            missing_timeout.append(state["name"])
+        if "deliveryFailure" not in events:
+            missing_failure.append(state["name"])
+
+    if missing_timeout:
+        findings.append(
+            Finding(
+                "error",
+                "unhandled-timeout",
+                f"{len(missing_timeout)} question(s) do not handle a timeout",
+                missing_timeout[:10],
+            )
+        )
+    if missing_failure:
+        findings.append(
+            Finding(
+                "error",
+                "unhandled-delivery-failure",
+                f"{len(missing_failure)} question(s) do not handle delivery failure",
+                missing_failure[:10],
+            )
+        )
+
+    # A published row must say how the survey ended.
+    if publishes:
+        columns = [key for key, _ in published_columns(definition)]
+        if not any(c.startswith(_FINAL_STATUS_PREFIXES) for c in columns):
+            findings.append(
+                Finding(
+                    "error",
+                    "no-final-status",
+                    "Published payload carries no final-status variable "
+                    "(set_complete / set_no_reply / set_fail / set_multierror)",
+                )
+            )
+
+    # Splits that cannot handle an unexpected answer strand the respondent.
+    no_fallback = [
+        s["name"]
+        for s in states
+        if s.get("type") == "split-based-on"
+        and not any(t.get("event") == "noMatch" for t in s.get("transitions", []))
+    ]
+    if no_fallback:
+        findings.append(
+            Finding(
+                "warning",
+                "split-without-nomatch",
+                f"{len(no_fallback)} split(s) have no noMatch branch",
+                no_fallback[:10],
+            )
+        )
+
+    # PII protection.
+    if publishes and not summarize(definition)["encrypting"]:
+        findings.append(
+            Finding(
+                "warning",
+                "no-encryption",
+                "Publishes to Sheets with no encryption widget; any identifier "
+                "in the payload is written in plain text",
+            )
+        )
+
+    # Ambiguous blanks.
+    if publishes:
+        unpaired = unpaired_answers(definition)
+        if unpaired:
+            findings.append(
+                Finding(
+                    "warning",
+                    "unpaired-answers",
+                    f"{len(unpaired)} answer(s) publish with no status beside "
+                    "them, so a blank cannot be read as timed-out vs not-asked",
+                    unpaired[:10],
+                )
+            )
+
+    secrets = scan_for_secrets(definition)
+    if secrets:
+        findings.append(
+            Finding("error", "credentials", "Definition contains secrets", secrets)
+        )
+
+    return sorted(findings, key=lambda f: (f.severity != "error", f.code))
 
 
 def preloaded_keys(definition: dict) -> set[str]:
