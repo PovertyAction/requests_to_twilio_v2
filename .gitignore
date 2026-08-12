@@ -184,6 +184,10 @@ rtt_private_key*
 *private_key*.txt
 *private-key*.txt
 
+# Local Claude Code settings. `.mcp.json` is shared and must stay free of
+# secrets; the Twilio API key/secret it references live here instead.
+.claude/settings.local.json
+
 # Inputs and outputs containing respondent data
 *_output.xlsx
 *_output.csv
