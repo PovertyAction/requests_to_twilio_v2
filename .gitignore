@@ -177,6 +177,13 @@ cython_debug/
 *.key
 service-account*.json
 
+# Encryption private keys. `rtt keygen` writes rtt_private_key.txt by default,
+# but --out can put it anywhere, so match the shape broadly. Losing control of
+# this file exposes every response ever encrypted to its public key.
+rtt_private_key*
+*private_key*.txt
+*private-key*.txt
+
 # Inputs and outputs containing respondent data
 *_output.xlsx
 *_output.csv
