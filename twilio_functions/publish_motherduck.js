@@ -49,17 +49,45 @@ const QUERY_TIMEOUT_MS = 4000;
 const RESERVED_KEYS = new Set(["request", "UserIdentity"]);
 
 /**
+ * Reassembles the MotherDuck token from the environment.
+ *
+ * Twilio caps an environment variable at 450 bytes and a MotherDuck token is a
+ * JWT of roughly 457, so it does not fit in one variable. The deploy script
+ * splits it into MOTHERDUCK_TOKEN_1, _2, ... and this joins them back in order.
+ * A single MOTHERDUCK_TOKEN is still honoured, for shorter tokens.
+ *
+ * @param {object} context The Twilio Function context.
+ * @returns {string} The complete token, or an empty string if absent.
+ */
+function readToken(context) {
+  if (context.MOTHERDUCK_TOKEN) {
+    return context.MOTHERDUCK_TOKEN;
+  }
+
+  const parts = [];
+  for (let index = 1; context[`MOTHERDUCK_TOKEN_${index}`]; index += 1) {
+    parts.push(context[`MOTHERDUCK_TOKEN_${index}`]);
+  }
+  return parts.join("");
+}
+
+/**
  * Reads and validates configuration from the environment.
  * @param {object} context The Twilio Function context.
  * @returns {{token: string, host: string, database: string, table: string}} Config.
  */
 function readConfig(context) {
+  const token = readToken(context);
+
   const missing = [
-    "MOTHERDUCK_TOKEN",
     "MOTHERDUCK_HOST",
     "MOTHERDUCK_DATABASE",
     "MOTHERDUCK_TABLE",
   ].filter((name) => !context[name]);
+
+  if (!token) {
+    missing.unshift("MOTHERDUCK_TOKEN (or MOTHERDUCK_TOKEN_1, _2, ...)");
+  }
 
   if (missing.length > 0) {
     throw new Error(
@@ -69,7 +97,7 @@ function readConfig(context) {
   }
 
   return {
-    token: context.MOTHERDUCK_TOKEN,
+    token,
     host: context.MOTHERDUCK_HOST,
     database: context.MOTHERDUCK_DATABASE,
     table: context.MOTHERDUCK_TABLE,

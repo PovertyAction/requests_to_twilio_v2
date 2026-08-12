@@ -155,3 +155,11 @@ flow-pull NAME *ARGS:
 # Omit NAME to check every flow on the account.
 flow-check *ARGS:
     uv run rtt flow check {{ ARGS }}
+
+# Build the RST Jaipur 2026 flow definition from the Foro flow
+build-rst-flow:
+    uv run python scripts/build_rst2026_flow.py
+
+# Deploy encrypt_fields.js and publish_motherduck.js as Twilio Functions
+deploy-functions:
+    uv run python scripts/deploy_twilio_functions.py
