@@ -43,7 +43,7 @@ from .flows import (
 )
 from .flows import pull as pull_flow
 from .hfc import check_dataset, outcome_counts
-from .launcher import LaunchError, launch
+from .launcher import SENT_AT_PARAM, LaunchError, launch
 from .log import configure
 from .templates import (
     CATEGORIES,
@@ -133,12 +133,16 @@ def _check_preloaded_data(
         return
 
     # `Number` is always available: the launcher sends it as the destination.
-    missing, unused = check_preloaded(flow.definition, set(columns) | {"Number"})
+    # `sent_at` likewise: the launcher supplies it on every send, so a flow may
+    # reference it without anyone adding a column for it.
+    missing, unused = check_preloaded(
+        flow.definition, set(columns) | {"Number", SENT_AT_PARAM}
+    )
 
     # ...which also means it is never a preload, so reporting it as an unused
     # one is noise on every single run. A warning that always fires is a
     # warning nobody reads.
-    unused = unused - {"Number"}
+    unused = unused - {"Number", SENT_AT_PARAM}
 
     if unused:
         typer.secho(

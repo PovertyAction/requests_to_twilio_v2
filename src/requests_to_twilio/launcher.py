@@ -34,6 +34,11 @@ from .log import get_logger, mask_phone
 #: The one column an input file must have.
 NUMBER_COLUMN = "Number"
 
+#: Execution parameter carrying the send time in UTC. Supplied by the launcher
+#: rather than read from the sample file, so it is always available to the flow
+#: as ``{{flow.data.sent_at}}`` without anyone having to remember a column.
+SENT_AT_PARAM = "sent_at"
+
 #: Above this many recipients, per-respondent success lines drop to DEBUG and
 #: progress is reported per batch instead. A round of several hundred otherwise
 #: buries its own failures in a wall of successes.
@@ -277,7 +282,8 @@ def launch(
             logger.info(
                 "would send to %s with parameters %s",
                 mask_phone(str(row[NUMBER_COLUMN])),
-                {c: "<value>" for c in columns_to_send},
+                {c: "<value>" for c in columns_to_send}
+                | {SENT_AT_PARAM: "<utc timestamp>"},
             )
         if len(pending) > 5:
             logger.info("... and %d more", len(pending) - 5)
@@ -300,8 +306,19 @@ def launch(
     with _TrackerWriter(tracker) as writer:
         for position, row in enumerate(pending, start=1):
             to_number = str(row[NUMBER_COLUMN]).strip()
-            parameters = {c: str(row[c]) for c in columns_to_send}
             record = DeliveryRecord(number=to_number)
+
+            parameters = {c: str(row[c]) for c in columns_to_send}
+            # The moment this respondent was contacted, in UTC, handed to the
+            # flow so it can publish it alongside the answers. Studio cannot
+            # produce a UTC timestamp itself - its Liquid date filter renders in
+            # Twilio's own timezone and has no way to convert - so the only
+            # clock the flow can trust is one supplied from outside.
+            #
+            # Deliberately the same value the tracker records, not a second
+            # call to now(): the delivery tracker and the published row should
+            # agree about when a message went out, to the character.
+            parameters[SENT_AT_PARAM] = record.sent_at
 
             try:
                 execution = _create_execution(

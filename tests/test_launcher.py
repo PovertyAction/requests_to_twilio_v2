@@ -129,7 +129,13 @@ class TestLaunch:
         _, kwargs = (
             client.studio.v2.flows.return_value.executions.create.call_args_list[0]
         )
-        assert kwargs["parameters"] == {"name": "Ana", "city": "Cali"}
+        parameters = kwargs["parameters"]
+        assert parameters["name"] == "Ana"
+        assert parameters["city"] == "Cali"
+        # Always supplied on top of the requested columns: it is the only UTC
+        # clock the flow has, since Studio stamps in Twilio's timezone.
+        assert parameters["sent_at"].endswith("+00:00")
+        assert set(parameters) == {"name", "city", "sent_at"}
 
     def test_dry_run_sends_nothing(self, sample):
         client = fake_client()
@@ -286,3 +292,96 @@ def test_delivery_record_column_order():
         "error",
         "sent_at",
     ]
+
+
+class TestSentAtParameter:
+    """The launcher supplies the one UTC clock the flow can trust.
+
+    Studio renders `now` in Twilio's own timezone and Liquid cannot convert it,
+    so a timestamp the flow stamps itself is not comparable with anything. The
+    send time therefore comes from outside.
+    """
+
+    def test_sent_at_is_passed_to_the_flow(self, tmp_path, monkeypatch):
+        import pandas as pd
+        from twilio.rest import Client
+
+        from requests_to_twilio import launcher as mod
+
+        sample = tmp_path / "s.xlsx"
+        pd.DataFrame([{"Number": "+15550100", "caseid": "A"}]).to_excel(
+            sample, index=False
+        )
+
+        seen = {}
+
+        def fake_create(client, flow_id, to_number, from_number, parameters):
+            seen.update(parameters)
+            return type(
+                "E",
+                (),
+                {
+                    "status": "active",
+                    "sid": "FN1",
+                    "contact_channel_address": to_number,
+                    "url": "",
+                },
+            )()
+
+        monkeypatch.setattr(mod, "_create_execution", fake_create)
+
+        mod.launch(
+            client=object.__new__(Client),
+            flow_id="FW1",
+            from_number="whatsapp:+15550199",
+            input_file=sample,
+            columns_to_send=["caseid"],
+            batch_size=50,
+            sec_between_batches=0,
+        )
+
+        assert mod.SENT_AT_PARAM in seen
+        assert seen[mod.SENT_AT_PARAM].endswith("+00:00")
+        assert seen["caseid"] == "A"
+
+    def test_it_matches_the_tracker_exactly(self, tmp_path, monkeypatch):
+        """The delivery tracker and the published row must agree on the time."""
+        import csv
+
+        import pandas as pd
+        from twilio.rest import Client
+
+        from requests_to_twilio import launcher as mod
+
+        sample = tmp_path / "s.xlsx"
+        pd.DataFrame([{"Number": "+15550100", "caseid": "A"}]).to_excel(
+            sample, index=False
+        )
+        seen = {}
+
+        def fake_create(client, flow_id, to_number, from_number, parameters):
+            seen.update(parameters)
+            return type(
+                "E",
+                (),
+                {
+                    "status": "active",
+                    "sid": "FN1",
+                    "contact_channel_address": to_number,
+                    "url": "",
+                },
+            )()
+
+        monkeypatch.setattr(mod, "_create_execution", fake_create)
+        tracker = mod.launch(
+            client=object.__new__(Client),
+            flow_id="FW1",
+            from_number="whatsapp:+15550199",
+            input_file=sample,
+            columns_to_send=["caseid"],
+            batch_size=50,
+            sec_between_batches=0,
+        )
+        with tracker.open(newline="", encoding="utf-8") as handle:
+            row = next(csv.DictReader(handle))
+        assert row["sent_at"] == seen[mod.SENT_AT_PARAM]

@@ -1499,10 +1499,16 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         ("set_no_reply", "{{flow.variables.set_no_reply}}"),
         ("set_fail", "{{flow.variables.set_fail}}"),
         ("outcome", "{{flow.variables.outcome}}"),
-        # The join key back to the execution log, and to the UTC start time the
-        # Studio API reports. Without it a warehouse row cannot be traced to the
-        # execution that produced it.
+        # The join key back to the execution log. Without it a warehouse row
+        # cannot be traced to the execution that produced it.
         ("execution_sid", "{{flow.sid}}"),
+        # The two timestamps that bracket a respondent's participation, both
+        # UTC. `sent_at` is supplied by the launcher at the moment of contact,
+        # because Studio cannot produce a UTC time itself; `submitted_at` is
+        # stamped server-side by the publish Function when the row is written,
+        # which is the last step of the flow. Their difference is the time the
+        # respondent took, and both mean what they say.
+        ("sent_at", "{{flow.data.sent_at}}"),
     ]
     for arm in ("ARM1", "ARM2"):
         for key in QUESTION_KEYS:
