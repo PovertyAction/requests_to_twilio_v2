@@ -808,36 +808,16 @@ def template_list(
         typer.echo(f"{row['language']:7} {row['friendly_name']}")
 
 
-@template_app.command("create")
-def template_create(
-    definition_file: Annotated[
-        Path, typer.Argument(help="JSON definition, e.g. templates/foo.json")
-    ],
-    submit: Annotated[
-        bool,
-        typer.Option("--submit", help="Also submit to Meta. Irreversible."),
-    ] = False,
-    category: Annotated[
-        str, typer.Option("--category", help=f"One of: {', '.join(CATEGORIES)}")
-    ] = "UTILITY",
-    yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
-    ] = False,
-    skip_existing: Annotated[
-        bool,
-        typer.Option(
-            "--skip-existing",
-            help="Report and exit 0 if the name is already taken, instead of "
-            "failing. For scripting over a directory of definitions.",
-        ),
-    ] = False,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+def _create_one(
+    client: Client,
+    definition_file: Path,
+    *,
+    submit: bool,
+    category: str,
+    yes: bool,
+    skip_existing: bool,
 ) -> None:
-    """Create a template in Twilio from a version-controlled definition."""
-    configure(verbose)
-    cfg.load_env()
-    client, _ = _client()
-
+    """Create one template from its definition file."""
     try:
         definition = load_definition(definition_file)
     except TemplateError as exc:
@@ -866,6 +846,8 @@ def template_create(
             typer.echo(f"    {line}")
         for action in body.get("actions") or []:
             typer.echo(f"    [{action.get('title')}]")
+        for item in body.get("items") or []:
+            typer.echo(f"    - {item.get('item')}  ({item.get('description')})")
 
     if submit:
         typer.secho(
@@ -902,6 +884,72 @@ def template_create(
             f"\nNot yet submitted to Meta - it exists only in Twilio, so it can\n"
             f"still be deleted and redone. When the wording is final:\n"
             f"  just template-submit {name}"
+        )
+
+
+@template_app.command("create")
+def template_create(
+    definition_file: Annotated[
+        Path,
+        typer.Argument(
+            help="JSON definition, e.g. templates/foo.json. A directory creates "
+            "every *.json in it."
+        ),
+    ],
+    submit: Annotated[
+        bool,
+        typer.Option("--submit", help="Also submit to Meta. Irreversible."),
+    ] = False,
+    category: Annotated[
+        str, typer.Option("--category", help=f"One of: {', '.join(CATEGORIES)}")
+    ] = "UTILITY",
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
+    ] = False,
+    skip_existing: Annotated[
+        bool,
+        typer.Option(
+            "--skip-existing",
+            help="Report and exit 0 if the name is already taken, instead of "
+            "failing. For scripting over a directory of definitions.",
+        ),
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Create one template, or every template in a directory.
+
+    Taking a directory here rather than looping in the shell keeps the recipe
+    that calls it portable: a `for` loop in a Justfile needs a bash shebang,
+    which on Windows needs cygpath to translate.
+    """
+    configure(verbose)
+
+    if definition_file.is_dir():
+        paths = sorted(definition_file.glob("*.json"))
+        if not paths:
+            _fail(f"No .json definitions in {definition_file}")
+        if submit:
+            # Bulk-submitting is irreversible for every file at once, and the
+            # whole point of reviewing wording is doing it one at a time.
+            _fail(
+                "Refusing to --submit a whole directory. Submission is "
+                "irreversible; submit each template by name once its wording "
+                "is final."
+            )
+    else:
+        paths = [definition_file]
+
+    cfg.load_env()
+    client, _ = _client()
+
+    for path in paths:
+        _create_one(
+            client,
+            path,
+            submit=submit,
+            category=category,
+            yes=yes,
+            skip_existing=skip_existing,
         )
 
 

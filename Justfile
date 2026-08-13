@@ -163,15 +163,14 @@ build-demo-flow *ARGS:
 
 # Create every content template the demo flow needs that does not exist yet.
 # These are in-session only (quick-reply buttons and list pickers), so none of
-# them is ever submitted to Meta - only the opener needs approval. Safe to
+# them is ever submitted to Meta - only the two bookends need approval. Safe to
 # re-run: --skip-existing leaves a template that is already there alone rather
 # than creating a second one with the same name.
+#
+# The directory is passed to the CLI rather than looped over here: a shell loop
+# needs a bash shebang, which `just` cannot run on Windows without cygpath.
 demo-templates-create:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for file in templates/generated/*.json; do
-        uv run rtt template create "$file" --skip-existing --yes
-    done
+    uv run rtt template create templates/generated --skip-existing --yes
 
 # Deploy encrypt_fields.js and publish_motherduck.js as Twilio Functions
 deploy-functions:
