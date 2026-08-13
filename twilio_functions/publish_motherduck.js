@@ -238,7 +238,31 @@ exports.handler = async function (context, event, callback) {
     }
 
     await client.query(insert.text, insert.values);
-    console.log(`publish_motherduck: wrote ${insert.used.length} column(s)`);
+
+    // Anything the flow sent that the table cannot hold is dropped by
+    // buildInsert. That is the right behaviour - a row missing one answer beats
+    // no row at all - but it must not be silent. A question added to the flow
+    // without a matching column would otherwise vanish behind a 200 and a row
+    // that looks complete, which is the exact failure this pipeline exists to
+    // prevent. Names only: the values are respondent answers and Console logs
+    // are readable by anyone with account access.
+    const storable = new Set(columns);
+    const dropped = Object.keys(event).filter(
+      (key) => !RESERVED_KEYS.has(key) && !storable.has(key),
+    );
+
+    if (dropped.length > 0) {
+      console.error(
+        `publish_motherduck: ${dropped.length} parameter(s) had no column in ` +
+          `${config.table} and were NOT stored: ${dropped.join(", ")}. ` +
+          `Regenerate the table with \`rtt flow schema\`.`,
+      );
+    }
+
+    console.log(
+      `publish_motherduck: wrote ${insert.used.length} column(s)` +
+        (dropped.length > 0 ? `, dropped ${dropped.length}` : ""),
+    );
 
     return callback();
   } catch (error) {

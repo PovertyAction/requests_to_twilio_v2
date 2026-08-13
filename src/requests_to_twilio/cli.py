@@ -36,6 +36,7 @@ from .flows import (
     summarize,
     unpaired_answers,
     unpublished_paths,
+    warehouse_schema,
 )
 from .flows import (
     deploy as deploy_flow,
@@ -800,6 +801,37 @@ def flow_check(
 
     if total_errors:
         raise typer.Exit(code=1)
+
+
+@flow_app.command("schema")
+def flow_schema(
+    definition_file: Annotated[
+        Path, typer.Argument(help="Flow definition JSON, e.g. flows/foo.json")
+    ],
+    table: Annotated[
+        str,
+        typer.Option("--table", help="Fully qualified destination table."),
+    ] = "rst_2026.main.data_use",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Print CREATE TABLE DDL matching what the flow publishes.
+
+    The publish Function inserts only into columns that already exist, so a
+    question added to the flow lands in a table with nowhere to put it and is
+    dropped - silently, with a 200 and a row that looks complete. Deriving the
+    schema from the instrument is what keeps the two from drifting.
+    """
+    configure(verbose)
+
+    try:
+        definition = json.loads(definition_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _fail(f"Could not read {definition_file}: {exc}")
+
+    try:
+        typer.echo(warehouse_schema(definition, table))
+    except FlowError as exc:
+        _fail(str(exc))
 
 
 @flow_app.command("deploy")

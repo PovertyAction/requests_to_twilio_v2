@@ -447,6 +447,58 @@ def opening_sends(definition: dict) -> list[str]:
     return first
 
 
+def warehouse_schema(definition: dict, table: str) -> str:
+    """Return CREATE TABLE DDL matching the flow's publish payload.
+
+    Args:
+        definition: The flow's JSON definition.
+        table: Fully qualified destination, e.g. ``db.main.responses``.
+
+    Returns:
+        A ``CREATE TABLE IF NOT EXISTS`` statement, one VARCHAR column per
+        published parameter plus a ``submitted_at`` timestamp.
+
+    The publish Function inserts only into columns that already exist, which
+    means a question added to the flow lands in a table with nowhere to put it
+    and is dropped - silently, with a 200 response and a row that looks
+    complete. Generating the schema from the instrument is what stops the two
+    drifting: the table is a function of the flow, not a thing maintained
+    alongside it.
+
+    Everything is VARCHAR on purpose. Survey answers arrive as text and a
+    warehouse is not the place to discover that a "numeric" question collected
+    "about 5". Cast at analysis time, where a failed cast is visible.
+
+    """
+    columns = [key for key, _ in published_columns(definition)]
+    if not columns:
+        raise FlowError("Flow publishes nothing, so there is no schema to build.")
+
+    lines = [f'  "{c}" VARCHAR' for c in columns if c != "submitted_at"]
+    lines.append('  "submitted_at" TIMESTAMP')
+    body = ",\n".join(lines)
+    return f"CREATE TABLE IF NOT EXISTS {table} (\n{body}\n);"
+
+
+def missing_warehouse_columns(definition: dict, existing: list[str]) -> list[str]:
+    """Return published columns the destination table cannot store.
+
+    Args:
+        definition: The flow's JSON definition.
+        existing: The table's current column names.
+
+    Returns:
+        Published parameter names with no matching column, in publish order.
+
+    """
+    have = {c.lower() for c in existing}
+    return [
+        key
+        for key, _ in published_columns(definition)
+        if key.lower() not in have and key != "submitted_at"
+    ]
+
+
 #: Suffixes that mark a column as the status belonging to the answer before it.
 STATUS_SUFFIXES = ("_status", "_err", "_error", "_state", "_outcome")
 

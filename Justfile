@@ -185,3 +185,9 @@ deploy-functions:
 # Deploy a flow definition. Refuses to ship one that fails the checks.
 flow-deploy FILE *ARGS:
     uv run rtt flow deploy {{ FILE }} {{ ARGS }}
+
+# Print CREATE TABLE DDL matching what a flow publishes. The publish Function
+# only inserts into columns that already exist, so a question added to the flow
+# with no matching column is dropped silently behind a 200.
+flow-schema FILE *ARGS:
+    uv run rtt flow schema {{ FILE }} {{ ARGS }}
