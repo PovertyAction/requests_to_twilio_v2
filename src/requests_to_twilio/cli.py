@@ -611,18 +611,21 @@ def data_check(
         typer.secho("  all checks passed", fg=typer.colors.GREEN)
         return
 
-    errors = 0
     for finding in findings:
         colour = (
             typer.colors.RED if finding.severity == "error" else typer.colors.YELLOW
         )
-        errors += finding.severity == "error"
         typer.secho(f"  [{finding.severity}] {finding.code}", fg=colour, bold=True)
         typer.echo(f"      {finding.summary}")
         for line in finding.detail[:10]:
             typer.echo(f"        {line}")
 
-    if errors:
+    # Deliberately exits zero on warnings. This reports on data that already
+    # exists, so there is nothing left to prevent - and it is meant to be run on
+    # a loop while a round is live, which a non-zero exit would break. A
+    # duplicate may be a defect or a deliberate re-launch; only the person
+    # running the round knows which.
+    if any(f.severity == "error" for f in findings):
         raise typer.Exit(code=1)
 
 

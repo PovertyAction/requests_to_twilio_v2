@@ -11,6 +11,16 @@ an answer is plausible is the analyst's question; whether the dataset holds one
 observation per respondent, whether every row can be joined back to the sampling
 frame, and whether break-offs are being recorded rather than lost, are questions
 the pipeline itself has to answer.
+
+**These findings are warnings, where the flow-side ones are errors.** That is
+not timidity, it is the difference between the two halves. A flow check runs
+*before* a round and can prevent the harm, so it blocks: refusing to deploy a
+broken instrument costs nothing but a fix. A data check runs *after* the data
+exists, and there is nothing left to prevent - the only useful thing it can do
+is describe what arrived and let a person decide. A duplicate might be a defect
+or might be a deliberate re-launch, and only the person running the round knows
+which. Failing the command would also break any monitoring that runs it on a
+loop while a round is live, which is precisely when it is most worth running.
 """
 
 from __future__ import annotations
@@ -115,7 +125,7 @@ def check_dataset(frame: pd.DataFrame, key: str = DEFAULT_KEY) -> list[Finding]:
         total = sum(duplicates.values()) - len(duplicates)
         findings.append(
             Finding(
-                "error",
+                "warning",
                 "duplicate-observations",
                 f"{len(duplicates)} respondent(s) have more than one row "
                 f"({total} extra row(s))",
@@ -127,7 +137,7 @@ def check_dataset(frame: pd.DataFrame, key: str = DEFAULT_KEY) -> list[Finding]:
     if orphans:
         findings.append(
             Finding(
-                "error",
+                "warning",
                 "unjoinable-rows",
                 f"{orphans} row(s) have no {key}, so they cannot be matched "
                 "back to the sampling frame",

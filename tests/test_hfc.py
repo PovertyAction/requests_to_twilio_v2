@@ -45,12 +45,17 @@ class TestDuplicateObservations:
         data = frame([{"caseid": ""}, {"caseid": None}, {"caseid": "A"}])
         assert duplicate_observations(data) == {}
 
-    def test_a_duplicate_is_an_error_not_a_warning(self):
+    def test_a_duplicate_is_a_warning_not_an_error(self):
+        """Data that already exists cannot be blocked, only described.
+
+        A duplicate may equally be a deliberate re-launch, and only the person
+        running the round can tell which.
+        """
         data = frame([{"caseid": "A"}, {"caseid": "A"}])
         finding = next(
             f for f in check_dataset(data) if f.code == "duplicate-observations"
         )
-        assert finding.severity == "error"
+        assert finding.severity == "warning"
         assert "A appears 2 times" in finding.detail
 
     def test_the_summary_counts_extra_rows_not_respondents(self):
@@ -73,7 +78,7 @@ class TestUnjoinableRows:
     def test_every_row_is_unjoinable_without_the_column(self):
         assert unjoinable_rows(frame([{"other": "x"}, {"other": "y"}])) == 2
 
-    def test_it_is_an_error(self):
+    def test_it_is_reported(self):
         """Without the identifier there is nothing to match the row to."""
         data = frame([{"caseid": "A"}, {"caseid": None}])
         assert "unjoinable-rows" in codes(data)
@@ -122,3 +127,23 @@ class TestCheckDataset:
             ]
         )
         assert {"duplicate-observations", "unjoinable-rows"} <= codes(data)
+
+
+class TestSeverity:
+    """Data checks describe; flow checks prevent.
+
+    A flow check runs before a round and refusing to deploy costs only a fix. A
+    data check runs after the data exists, so blocking achieves nothing - and it
+    is meant to run on a loop while a round is live, which a failure would
+    break.
+    """
+
+    def test_nothing_here_blocks_by_default(self):
+        data = frame(
+            [
+                {"caseid": "A", "outcome": "complete"},
+                {"caseid": "A", "outcome": "complete"},
+                {"caseid": None, "outcome": "undeliverable"},
+            ]
+        )
+        assert all(f.severity == "warning" for f in check_dataset(data))
