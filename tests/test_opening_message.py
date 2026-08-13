@@ -467,3 +467,62 @@ class TestInboundRouting:
 
         client = self.client_with("+15550100", "/Flows/FW" + "d" * 32)
         assert inbound_flow_sid(client, "") is None
+
+
+class TestRespondentInitiatedStart:
+    """IPA launches rounds; respondents do not start them.
+
+    A flow that can be begun by writing to the number gets started by people
+    being polite after they finish, and those executions carry no preloaded
+    data - so they publish rows with no caseid to join back to the frame.
+    """
+
+    def test_inbound_reaching_a_question_is_flagged(self):
+        definition = {
+            "states": [
+                trigger(incomingRequest="intro", incomingMessage="intro"),
+                template_question("intro", incomingMessage="q2"),
+                body_question("q2"),
+            ]
+        }
+        assert "respondent-initiated-start" in codes(definition)
+
+    def test_a_terminal_acknowledgement_is_not_flagged(self):
+        """The house pattern: say one thing, end, do not start the survey."""
+        definition = {
+            "states": [
+                trigger(incomingRequest="intro", incomingMessage="ack"),
+                {
+                    "name": "ack",
+                    "type": "send-message",
+                    "properties": {"body": "Thanks for your message."},
+                    "transitions": [{"event": "sent"}, {"event": "failed"}],
+                },
+                template_question("intro"),
+            ]
+        }
+        assert "respondent-initiated-start" not in codes(definition)
+
+    def test_an_unrouted_inbound_is_not_flagged(self):
+        definition = {
+            "states": [
+                trigger(incomingRequest="intro"),
+                template_question("intro"),
+            ]
+        }
+        assert "respondent-initiated-start" not in codes(definition)
+
+    def test_it_walks_through_silent_widgets(self):
+        definition = {
+            "states": [
+                trigger(incomingRequest="intro", incomingMessage="flag"),
+                {
+                    "name": "flag",
+                    "type": "set-variables",
+                    "properties": {},
+                    "transitions": [{"event": "next", "next": "intro"}],
+                },
+                template_question("intro"),
+            ]
+        }
+        assert "respondent-initiated-start" in codes(definition)

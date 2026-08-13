@@ -499,6 +499,55 @@ def missing_warehouse_columns(definition: dict, existing: list[str]) -> list[str
     ]
 
 
+def respondent_started_questions(definition: dict) -> str | None:
+    """Return the first question a respondent can reach by messaging in.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        The question widget's name, or None if writing to the number cannot
+        start the instrument.
+
+    IPA launches rounds; respondents do not start them. A flow whose trigger
+    routes an inbound message into the questions can be begun by anyone who
+    writes to the number - including, in practice, respondents being polite
+    after they have already finished, whose "thanks" starts a whole new survey.
+    Those executions also carry no preloaded data, so they produce rows with no
+    caseid to join back to the sampling frame.
+
+    A warning rather than an error: an opt-in keyword flow is a legitimate
+    design, it is just not the house one.
+
+    """
+    states = {s.get("name"): s for s in definition.get("states", [])}
+    trigger = next(
+        (s for s in states.values() if s.get("type") == "trigger"),
+        None,
+    )
+    if trigger is None:
+        return None
+
+    queue = [
+        t.get("next")
+        for t in trigger.get("transitions", [])
+        if t.get("event") == "incomingMessage" and t.get("next")
+    ]
+    seen: set[str] = set()
+    while queue:
+        name = queue.pop(0)
+        if name in seen or name not in states:
+            continue
+        seen.add(name)
+        state = states[name]
+        if state.get("type") in QUESTION_TYPES:
+            return name
+        for transition in state.get("transitions", []):
+            if transition.get("next"):
+                queue.append(transition["next"])
+    return None
+
+
 #: Suffixes that mark a column as the status belonging to the answer before it.
 STATUS_SUFFIXES = ("_status", "_err", "_error", "_state", "_outcome")
 
@@ -938,6 +987,24 @@ def check_flow(
                 "unmatchable-condition",
                 f"{len(broken)} split condition(s) can never match",
                 broken[:10],
+            )
+        )
+
+    started = respondent_started_questions(definition)
+    if started is not None:
+        findings.append(
+            Finding(
+                "warning",
+                "respondent-initiated-start",
+                "Writing to this number starts the survey, so a respondent "
+                "can begin a round nobody launched",
+                [
+                    f"Trigger --incomingMessage--> ... --> {started}",
+                    "Those executions carry no preloaded data, so they publish "
+                    "rows with no caseid.",
+                    "In practice this path is mostly people saying thank you "
+                    "after finishing.",
+                ],
             )
         )
 

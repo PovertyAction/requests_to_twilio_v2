@@ -123,6 +123,39 @@ checked the number for both and reported `inbound routing OK` on a round that
 was completely broken. **A check that answers the wrong question is worse than
 no check**, because it is a green light.
 
+### Rounds are launched, never self-started
+
+**Do not route the trigger's `incomingMessage` into the questions.** IPA starts
+rounds; respondents do not. `rtt flow check` reports
+`respondent-initiated-start` if writing to the number can begin the instrument.
+
+Two reasons, and the first is the one that surprises people:
+
+- **In practice that path is mostly politeness.** People say "thanks" after
+  finishing. Each of those starts a fresh execution, which cheerfully sends the
+  whole opener back - *"Hi, welcome to the Research Staff Training 2026… Press
+  Start"* - to somebody who has just completed the survey. Observed on the first
+  live run.
+- **Those executions carry no preloaded data.** No `caseid`, so the row cannot
+  join back to the sampling frame; and the opener's name variable is empty,
+  which fails the send outright with error 21656.
+
+The house pattern is one short acknowledgement, then end:
+
+```
+Trigger --incomingMessage--> unsolicited_reply   (send-message, no transitions)
+```
+
+Free-form, not a template - anyone on this path has just messaged you, so the
+window is open by definition. No survey, no published row: **a row should mean a
+sampled respondent was asked something**, and "thanks" is not a response.
+
+Retries are launched too. `rtt launch --resume` re-contacts the numbers that
+failed; it is not something a respondent triggers by writing in.
+
+An opt-in keyword flow is a legitimate design and this is only a warning - it is
+just not what IPA does.
+
 ## Stage 0 - preloaded data, and the sample file
 
 Before any of that: **what the flow already knows about the respondent.**
@@ -836,6 +869,7 @@ It exits non-zero on any error, so it can gate a deployment.
 | `split-without-nomatch` | warning | An unexpected answer has nowhere to go |
 | `no-encryption` | warning | Publishing identifiers to Sheets in clear |
 | `unpaired-answers` | warning | A blank cell cannot be read as timed-out vs not-asked vs failed |
+| `respondent-initiated-start` | warning | Writing to the number starts the survey, so a "thanks" becomes a new round |
 
 `opening-cannot-open-session` needs to know what each content template actually
 is, which costs one Content API call per template. It runs when you check a
