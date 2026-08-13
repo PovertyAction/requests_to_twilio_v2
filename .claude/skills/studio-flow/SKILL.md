@@ -167,17 +167,145 @@ Past the limit WhatsApp does not truncate politely; the send fails.
 There is also a research reason to sit well under both. Every option past the
 first few is another scroll on a phone, and options nobody scrolls to are
 options nobody picks - which shows up as a skew in the marginals, not as an
-error. **A question needing more than ten answers needs splitting, not a longer
-list.** If the option set is genuinely long (districts, occupations), ask a
-coarse question first and branch to a shorter list.
+error.
 
 | Answer type | Use | Limits |
 | --- | --- | --- |
 | 2-3 options | `twilio/quick-reply` buttons | **3 max** in session. Title 25 chars |
 | 4-10 options | `twilio/list-picker` | **10 max**. Item 24 chars, description 72 (required), button 20 |
-| More than 10 | Split the question | Branch to a second, shorter list |
-| Scale 1-10 | List picker, or a validated numeric split | Both work; the list removes typos |
+| Likert 1-5 or 1-7 | List picker, one row per point | See below - the midpoint label does not fit |
+| More than 10 | `twilio/flows`, or validated numeric text | See below. **Do not split the question** |
 | Genuinely open | `send-and-wait-for-reply` with free text | Only when the answer cannot be enumerated |
+
+#### More than 10 options, without splitting the question
+
+Splitting one item into a coarse question plus a follow-up is **not** an option
+here: it changes the instrument, and the resulting variable is not comparable
+with the same question asked whole. Two real alternatives:
+
+- **`twilio/flows`** (WhatsApp Flows) is a form-like page with `SINGLE_SELECT`,
+  `MULTI_SELECT`, `LIST` and `DATE_PICKER` components, which carry more options
+  than a list picker. The cost is that Flows **need Meta approval even to be
+  sent in session** - the only interactive type that does - so they are not the
+  same-afternoon option the rest of this page describes. Check the current
+  per-component option cap before committing to it.
+- **Validated free text** with a tight regex, when the answer is a number. For
+  0-10, `^(?:10|[0-9])$`. This is typing, so it costs what typing costs, but it
+  is the only way to ask a scale that does not fit.
+
+The second one matters more than it sounds: **0-10 is eleven points, so an NPS
+item does not fit in a list picker.** Dropping to 1-10 makes it fit but is no
+longer NPS and cannot be compared against NPS benchmarks. Decide that
+deliberately rather than discovering it at create time.
+
+### Likert and 1-5 rating scales
+
+**One list-picker row per scale point.** That is the whole mechanism: the five
+points are pre-defined rows in a content template, so the respondent taps a
+scale point instead of typing a digit. Five or seven rows sit well inside the
+10-row limit, and a scale is the case where buttons are never the answer - three
+buttons cannot carry five points.
+
+```json
+"twilio/list-picker": {
+  "body": "Question 3 of 8\n\nHow satisfied were you with the training?\n\nAnswers run from Very dissatisfied to Very satisfied.",
+  "button": "Rate 1 to 5",
+  "items": [
+    {"id": "sat_1", "item": "1 - Very dissatisfied", "description": "Not at all satisfied"},
+    {"id": "sat_2", "item": "2 - Dissatisfied",      "description": "Mostly unhappy"},
+    {"id": "sat_3", "item": "3 - Neither",           "description": "Neither satisfied nor dissatisfied"},
+    {"id": "sat_4", "item": "4 - Satisfied",         "description": "Mostly happy"},
+    {"id": "sat_5", "item": "5 - Very satisfied",    "description": "Completely satisfied"}
+  ]
+}
+```
+
+The respondent sees the question, taps **Rate 1 to 5**, and picks from a sheet
+of five labelled rows. Nothing is typed, and no template approval is involved
+because this is sent in session.
+
+**Number *and* label each row when the construct is numeric.** `1 - Very
+dissatisfied` is 21 characters, so it fits, and it gives the respondent the
+numeric anchor and its meaning together. For a pure attitude item where the
+number is not part of the construct - agreement, for instance - label only.
+Either way the digit still works as a typed fallback, because the split accepts
+position as well as label.
+
+**The midpoint label is the one that does not fit.** A list item caps at 24
+characters, and that is the only standard Likert label that exceeds it - in both
+languages:
+
+| Label | Chars | |
+| --- | --- | --- |
+| `Strongly disagree` / `Muy en desacuerdo` | 17 | fits |
+| `Somewhat disagree` / `En desacuerdo` | 17 / 13 | fits |
+| `Neither agree nor disagree` | **26** | **2 over** |
+| `Ni de acuerdo ni en desacuerdo` | **30** | **6 over** |
+| `Somewhat agree` / `De acuerdo` | 14 / 10 | fits |
+| `Strongly agree` / `Muy de acuerdo` | 14 | fits |
+
+Satisfaction and frequency scales all fit as-is. For agreement, shorten the
+midpoint in the **item** and put the full wording in the **description**, which
+allows 72 characters and is displayed underneath:
+
+```python
+("agree_3", "Neither", "Neither agree nor disagree"),
+("agree_3", "Ni una cosa ni otra", "Ni de acuerdo ni en desacuerdo"),
+```
+
+Numbering the row buys headroom here too: `3 - Neither` is 11 characters and
+still reads as the midpoint of a scale.
+
+`check_language` in the demo builder catches an over-long item, but only if you
+build the flow through it - hand-built templates fail at create time with a
+generic error instead.
+
+**Put the endpoints in the body, not the whole scale.** The list is hidden
+behind the button until the respondent taps, so a scale rendered only in the
+rows is a scale they cannot see while reading the question. Naming the two ends
+in the body lets them calibrate before opening it, without repeating all five:
+
+```
+Question 3 of 8
+
+The training gave me skills I can use in my work.
+
+Answers run from Strongly disagree to Strongly agree.
+```
+
+**Keep the direction identical across every item** in an instrument, and never
+randomise the order of an ordinal scale. Randomising is a reasonable defence
+against order effects for unordered lists; on a scale it destroys the ordering
+the measurement depends on.
+
+**A "Prefer not to say" row must not code as a scale point.** It is a sixth row,
+so a position-based code makes it a 6 - the top of a 5-point scale - and it is
+then silently averaged in. This is the kind of error that survives all the way
+into a published mean.
+
+In the demo builder, give the option an explicit code as a fourth element:
+
+```python
+("sat_5", "5 - Very satisfied", "Completely satisfied"),
+("sat_na", "Prefer not to say", "Not counted in the scale", -99),
+```
+
+which emits Liquid that codes it out of range rather than by position:
+
+```liquid
+{% when "prefer not to say" or "6" %}-99
+```
+
+Same for "Don't know". Offering either increases how often it is chosen, so
+decide deliberately whether the item needs it - and keep it out of the numbered
+part of the text fallback so it does not read as a scale point there either.
+
+**Keep the scale to one message.** Do not ask direction first and intensity
+second to fit inside three buttons. Two-step branching is a real technique in
+interviewer-administered survey methodology, but the variable it produces is not
+comparable with the same scale asked whole, and it doubles the messages per item
+and so the break-off opportunities. The list picker takes all five points in one
+message; use it.
 
 Open text costs three ways: it needs a validation split and an error counter, it
 arrives with typos and mixed languages that require cleaning, and it is far more

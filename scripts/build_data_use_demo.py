@@ -551,7 +551,8 @@ def check_language(lang: str) -> list[str]:
                 "list-picker allows 1 to 10"
             )
         seen: set[str] = set()
-        for option_id, item, description in options:
+        for option in options:
+            option_id, item, description = option[0], option[1], option[2]
             if len(item) > 24:
                 problems.append(
                     f"{lang}: ARM2 {key} item is {len(item)} chars, cap is 24: {item!r}"
@@ -604,7 +605,8 @@ def _check_options_are_matchable(lang: str) -> list[str]:
         options = LANGS[lang]["arm2"][key]["options"]
         pattern = answer_pattern(options)
 
-        for index, (_, item, _) in enumerate(options, start=1):
+        for index, option in enumerate(options, start=1):
+            item = option[1]
             for reply in (item, str(index), f"{index}.", f" {item} ", item.upper()):
                 if not evaluate_condition("regex", pattern, reply):
                     problems.append(
@@ -623,7 +625,9 @@ def _check_options_are_matchable(lang: str) -> list[str]:
         # tolerant of the two, a respondent is recorded as having answered
         # while their answer codes as `other` - which reads in the data as a
         # broken option rather than as the tolerance working.
-        for index, (_, item, _) in enumerate(options, start=1):
+        for index, option in enumerate(options, start=1):
+            item = option[1]
+            wanted = option_code(option, index)
             for reply in (item, str(index), f"{index}.", f"({index})", item.upper()):
                 accepted = evaluate_condition("regex", pattern, reply)
                 code = expected_code(options, reply)
@@ -632,10 +636,10 @@ def _check_options_are_matchable(lang: str) -> list[str]:
                         f"{lang}: ARM2 {key} accepts {reply!r} but codes it as "
                         "'other'; the split is more tolerant than the mapping"
                     )
-                if accepted and code not in ("other", str(index)):
+                if accepted and code not in ("other", wanted):
                     problems.append(
-                        f"{lang}: ARM2 {key} codes {reply!r} as option {code}, "
-                        f"expected {index}"
+                        f"{lang}: ARM2 {key} codes {reply!r} as {code}, "
+                        f"expected {wanted}"
                     )
     return problems
 
@@ -748,8 +752,8 @@ def question_definition(lang: str, key: str) -> dict[str, Any]:
     question = table["arm2"][key]
     name = question_template_name(lang, key)
     numbered = "\n".join(
-        f"{index} - {item}"
-        for index, (_, item, _) in enumerate(question["options"], start=1)
+        f"{index} - {option[1]}"
+        for index, option in enumerate(question["options"], start=1)
     )
     return {
         "_comment": _generated_note(
@@ -767,8 +771,8 @@ def question_definition(lang: str, key: str) -> dict[str, Any]:
                 "body": question["body"],
                 "button": table["arm2"]["button"],
                 "items": [
-                    {"id": option_id, "item": item, "description": description}
-                    for option_id, item, description in question["options"]
+                    {"id": option[0], "item": option[1], "description": option[2]}
+                    for option in question["options"]
                 ],
             },
         },
@@ -938,8 +942,8 @@ def answer_pattern(options) -> str:
 
     """
     alternatives: list[str] = []
-    for index, (_, item, _) in enumerate(options, start=1):
-        alternatives.append(escape_literal(item))
+    for index, option in enumerate(options, start=1):
+        alternatives.append(escape_literal(option[1]))
         alternatives.append(rf"\(?{index}[.)]?")
     return r"(?:\s*(?:" + "|".join(alternatives) + r")\s*)"
 
@@ -973,12 +977,24 @@ def normalise_reply(reply: str) -> str:
     return text.strip()
 
 
+def option_code(option, index: int) -> str:
+    """Return the value stored for an option: its own code, or its position.
+
+    An option may carry an explicit code as a fourth element. That exists for
+    the answers that are *offered on a scale but are not points on it* - "Prefer
+    not to say", "Don't know". Left to their position they would code as a 6 on
+    a 5-point item and be silently averaged in, which is the kind of error that
+    survives all the way into a published mean.
+    """
+    return str(option[3]) if len(option) > 3 else str(index)
+
+
 def expected_code(options, reply: str) -> str:
     """Return the code the flow will store for this reply, or "other"."""
     normalised = normalise_reply(reply)
-    for index, (_, item, _) in enumerate(options, start=1):
-        if normalised in (normalise_reply(item), str(index)):
-            return str(index)
+    for index, option in enumerate(options, start=1):
+        if normalised in (normalise_reply(option[1]), str(index)):
+            return option_code(option, index)
     return "other"
 
 
@@ -997,8 +1013,11 @@ def code_mapping(widget: str, options) -> str:
     """
     removals = "".join(f' | replace: "{char}", ""' for char in _STRIPPED_PUNCTUATION)
     clauses = []
-    for index, (_, item, _) in enumerate(options, start=1):
-        clauses.append(f'{{% when "{normalise_reply(item)}" or "{index}" %}}{index}')
+    for index, option in enumerate(options, start=1):
+        clauses.append(
+            f'{{% when "{normalise_reply(option[1])}" or "{index}" %}}'
+            f"{option_code(option, index)}"
+        )
     return (
         f"{{% assign reply = widgets.{widget}.inbound.Body "
         f"| strip | downcase{removals} | strip %}}"

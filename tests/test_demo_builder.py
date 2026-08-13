@@ -180,6 +180,33 @@ class TestCodeMapping:
         assert demo.expected_code(options, "banana") == "other"
         assert "{% else %}other{% endcase %}" in demo.code_mapping("q", options)
 
+    def test_an_option_may_declare_a_code_outside_the_scale(self):
+        """A "Prefer not to say" row must not become a 6 on a 5-point item.
+
+        Left to its position it would be averaged in as if it were the top of
+        the scale, which is the kind of error that survives into a published
+        mean.
+        """
+        likert = [
+            ("r1", "1 - Very dissatisfied", "d"),
+            ("r2", "2 - Dissatisfied", "d"),
+            ("r3", "3 - Neither", "d"),
+            ("r4", "4 - Satisfied", "d"),
+            ("r5", "5 - Very satisfied", "d"),
+            ("rna", "Prefer not to say", "d", -99),
+        ]
+        assert demo.expected_code(likert, "5 - Very satisfied") == "5"
+        assert demo.expected_code(likert, "Prefer not to say") == "-99"
+        assert demo.expected_code(likert, "6") == "-99"
+        assert '{% when "prefer not to say" or "6" %}-99' in demo.code_mapping(
+            "q", likert
+        )
+
+    def test_a_scale_point_still_codes_by_position(self):
+        likert = [("r1", "1 - Low", "d"), ("r2", "2 - High", "d")]
+        assert demo.option_code(likert[0], 1) == "1"
+        assert demo.option_code(("x", "y", "z", -99), 6) == "-99"
+
     def test_the_liquid_normalises_before_comparing(self):
         """Otherwise the tolerant split and the strict mapping disagree."""
         liquid = demo.code_mapping("q", [("a", "Yes", "d")])
