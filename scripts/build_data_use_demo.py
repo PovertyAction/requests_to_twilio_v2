@@ -128,7 +128,17 @@ QUESTION_KEYS = ("P1", "P2", "P3", "P4")
 #: is how set_time_fin came to be blank on every row of the first live test. The
 #: Liquid date filter does accept the literal string 'now', which is the
 #: documented way to stamp a time.
-NOW = "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
+#:
+#: Epoch seconds rather than a readable timestamp, because Studio renders `now`
+#: in Twilio's own timezone rather than UTC. Measured on a live run: a stamp of
+#: 09:12:05 sat beside a submitted_at of 16:12:06 UTC from the publish Function
+#: - exactly seven hours apart, in the same row, by construction. Durations
+#: within Studio's clock were fine; anything computed against submitted_at was
+#: seven hours wrong and nothing errored. Epoch has no timezone to get wrong,
+#: sorts correctly, and subtracts directly. Convert at analysis time:
+#:
+#:     to_timestamp(CAST(set_time_start AS BIGINT))
+NOW = "{{ 'now' | date: \"%s\" }}"
 
 
 # ---------------------------------------------------------------------------
