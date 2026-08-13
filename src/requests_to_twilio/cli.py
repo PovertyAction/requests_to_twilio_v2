@@ -34,6 +34,9 @@ from .flows import (
     unpaired_answers,
     unpublished_paths,
 )
+from .flows import (
+    deploy as deploy_flow,
+)
 from .flows import pull as pull_flow
 from .launcher import LaunchError, launch
 from .log import configure
@@ -672,6 +675,71 @@ def flow_check(
 
     if total_errors:
         raise typer.Exit(code=1)
+
+
+@flow_app.command("deploy")
+def flow_deploy(
+    definition_file: Annotated[
+        Path, typer.Argument(help="Flow definition JSON, e.g. flows/foo.json")
+    ],
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="Friendly name. Defaults to the file stem."),
+    ] = None,
+    publish: Annotated[
+        bool, typer.Option("--publish", help="Publish rather than leaving a draft.")
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Deploy despite check errors. Rarely right."),
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Deploy a flow, refusing to ship one that fails the checks.
+
+    The gate matters because this class of defect spreads by duplication:
+    seven flows on this account carry one identical break-off path that never
+    reaches the publish widget, copied six times when flows were cloned. A
+    check you have to remember to run does not prevent that.
+    """
+    configure(verbose)
+    cfg.load_env()
+    client, _ = _client()
+
+    if not definition_file.is_file():
+        _fail(f"No such file: {definition_file}")
+
+    try:
+        payload = json.loads(definition_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        _fail(f"{definition_file} is not valid JSON: {exc}")
+
+    # Accept either a bare definition or the wrapper `rtt flow pull` writes.
+    definition = payload.get("definition", payload)
+    flow_name = name or payload.get("friendly_name") or definition_file.stem
+
+    try:
+        sid, findings = deploy_flow(
+            client=client,
+            name=flow_name,
+            definition=definition,
+            publish=publish,
+            force=force,
+        )
+    except FlowError as exc:
+        _fail(str(exc))
+
+    for finding in findings:
+        colour = (
+            typer.colors.RED if finding.severity == "error" else typer.colors.YELLOW
+        )
+        typer.secho(
+            f"  [{finding.severity}] {finding.code}  {finding.summary}", fg=colour
+        )
+
+    state = "published" if publish else "draft"
+    typer.echo("")
+    typer.secho(f"{flow_name}  {sid}  ({state})", fg=typer.colors.GREEN, bold=True)
 
 
 template_app = typer.Typer(

@@ -503,6 +503,123 @@ def check_flow(definition: dict) -> list[Finding]:
     return sorted(findings, key=lambda f: (f.severity != "error", f.code))
 
 
+def validate_remote(client: Client, name: str, definition: dict) -> list[str]:
+    """Ask Twilio whether a definition is structurally valid.
+
+    Args:
+        client: An authenticated Twilio client, used for its credentials.
+        name: Friendly name to validate under.
+        definition: The flow's JSON definition.
+
+    Returns:
+        Error messages from Twilio, empty if the definition is valid.
+
+    """
+    import requests
+    from requests.auth import HTTPBasicAuth
+
+    response = requests.post(
+        "https://studio.twilio.com/v2/Flows/Validate",
+        auth=HTTPBasicAuth(client.username, client.password),
+        data={
+            "FriendlyName": name,
+            "Status": "draft",
+            "Definition": json.dumps(definition),
+        },
+        timeout=30,
+    )
+    body = response.json()
+    if body.get("valid"):
+        return []
+
+    details = body.get("details") or {}
+    errors = details.get("errors") or [{"message": body.get("message", "invalid")}]
+    return [
+        f"{e.get('property_path', '')} {e.get('message', '')}".strip() for e in errors
+    ]
+
+
+def deploy(
+    *,
+    client: Client,
+    name: str,
+    definition: dict,
+    publish: bool = False,
+    force: bool = False,
+) -> tuple[str, list[Finding]]:
+    """Create or update a Studio flow, refusing to ship a broken one.
+
+    Args:
+        client: An authenticated Twilio client.
+        name: The flow's friendly name. An existing flow with this name is
+            updated rather than duplicated.
+        definition: The flow's JSON definition.
+        publish: Publish rather than leaving it a draft.
+        force: Deploy despite check errors. Warnings never block.
+
+    Returns:
+        The flow SID and the findings that were reported.
+
+    Raises:
+        FlowError: If the checks find errors and ``force`` is not set, if
+            Twilio rejects the definition, or if the API call fails.
+
+    The gate exists because this class of defect spreads by duplication. Seven
+    flows on this account share one identical break-off path that never reaches
+    the publish widget - the same bug copied six times when flows were cloned
+    from each other, six of them published. Detection that has to be remembered
+    does not stop that; a deploy that refuses does.
+
+    """
+    import requests
+    from requests.auth import HTTPBasicAuth
+
+    findings = check_flow(definition)
+    errors = [f for f in findings if f.severity == "error"]
+    if errors and not force:
+        detail = "\n".join(f"  [{f.code}] {f.summary}" for f in errors)
+        raise FlowError(
+            f"Refusing to deploy {name!r}: {len(errors)} check error(s).\n{detail}\n\n"
+            "These are the defects that produce unusable data - break-offs that "
+            "publish no row, questions that strand non-responders. Fix them, or "
+            "pass --force if you accept the consequence."
+        )
+
+    problems = validate_remote(client, name, definition)
+    if problems:
+        raise FlowError(
+            "Twilio rejected the definition:\n" + "\n".join(f"  {p}" for p in problems)
+        )
+
+    auth = HTTPBasicAuth(client.username, client.password)
+    status = "published" if publish else "draft"
+
+    existing = next((f for f in list_flows(client) if f.friendly_name == name), None)
+    payload = {"Status": status, "Definition": json.dumps(definition)}
+
+    if existing is not None:
+        url = f"https://studio.twilio.com/v2/Flows/{existing.sid}"
+    else:
+        url = "https://studio.twilio.com/v2/Flows"
+        payload["FriendlyName"] = name
+
+    response = requests.post(url, auth=auth, data=payload, timeout=60)
+    if response.status_code >= 300:
+        raise FlowError(
+            f"Deploy failed: HTTP {response.status_code} {response.text[:300]}"
+        )
+
+    body = response.json()
+    logger.info(
+        "%s %r as %s (revision %s)",
+        "Updated" if existing else "Created",
+        name,
+        status,
+        body.get("revision"),
+    )
+    return body["sid"], findings
+
+
 def preloaded_keys(definition: dict) -> set[str]:
     """Return the ``flow.data.*`` values a flow expects to be preloaded.
 

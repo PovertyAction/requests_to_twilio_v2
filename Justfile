@@ -163,3 +163,7 @@ build-rst-flow:
 # Deploy encrypt_fields.js and publish_motherduck.js as Twilio Functions
 deploy-functions:
     uv run python scripts/deploy_twilio_functions.py
+
+# Deploy a flow definition. Refuses to ship one that fails the checks.
+flow-deploy FILE *ARGS:
+    uv run rtt flow deploy {{ FILE }} {{ ARGS }}
