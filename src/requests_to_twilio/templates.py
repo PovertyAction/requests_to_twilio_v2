@@ -283,6 +283,34 @@ def submit(client: Client, sid: str, name: str, category: str) -> Any:
     return result
 
 
+def delete(client: Client, sid: str) -> None:
+    """Delete a content template from Twilio.
+
+    Args:
+        client: An authenticated Twilio client.
+        sid: The content SID, starting ``HX``.
+
+    Raises:
+        TemplateError: If Twilio rejects the request.
+
+    This is what makes "created but not submitted" genuinely reversible. Twilio
+    has no update operation for content, so revising the wording of a template
+    that has not gone to Meta yet means deleting it and creating it again.
+
+    Callers are responsible for checking the approval status first - see
+    :func:`approval_status`. Deleting a template a live flow references breaks
+    that flow.
+
+    """
+    try:
+        client.content.v1.contents(sid).delete()
+    except TwilioRestException as exc:
+        raise TemplateError(
+            f"Could not delete {sid}: HTTP {exc.status} (code {exc.code}): {exc.msg}"
+        ) from exc
+    logger.info("Deleted %s", sid)
+
+
 def approval_status(client: Client, sid: str) -> dict[str, Any]:
     """Fetch a template's WhatsApp approval status.
 

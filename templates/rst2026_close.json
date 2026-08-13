@@ -30,8 +30,9 @@
     "them would be confusing rather than interesting.",
     "",
     "Submission is irreversible - Meta has no edit operation - so review the",
-    "wording here first. Copy must match the `close_never_started` widget that",
-    "scripts/build_data_use_demo.py emits."
+    "wording here first. This file is the only home for the copy: the flow's",
+    "`close_never_started` widget references it by SID and carries no text of",
+    "its own, so there is nothing here to keep in sync."
   ],
   "friendly_name": "rst2026_close",
   "language": "en",
@@ -40,7 +41,7 @@
   },
   "types": {
     "twilio/text": {
-      "body": "Hi {{1}}, thank you for your time. The short WhatsApp survey we sent for the Research Staff Training 2026 has now closed.\n\nNo reply is needed from you, and we will not message you about it again.\n\nIf you would like to see what the exercise showed, come along to the session at the training.\n\n_IPA Team_"
+      "body": "Hi {{1}}, thank you for your time. The short WhatsApp survey we sent for the Research Staff Training 2026 has now closed.\n\nNo reply is needed from you, and we will not message you about it again.\n\nIf you would like to see what the exercise showed, join us at the session during the training.\n\n_IPA Team_"
     }
   }
 }

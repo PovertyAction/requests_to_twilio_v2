@@ -54,6 +54,9 @@ from .templates import (
     create as create_template,
 )
 from .templates import (
+    delete as delete_template,
+)
+from .templates import (
     submit as submit_template,
 )
 from .warehouse import WarehouseError, push_dataframe, push_file, resolve_database
@@ -951,6 +954,72 @@ def template_create(
             yes=yes,
             skip_existing=skip_existing,
         )
+
+
+@template_app.command("delete")
+def template_delete(
+    identifier: Annotated[str, typer.Argument(help="Content SID or friendly name.")],
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Delete an unsubmitted template, so its wording can be redone.
+
+    Twilio has no update operation for content, so revising a template that has
+    not gone to Meta yet means deleting it and creating it again. This is what
+    makes the create/submit split genuinely reversible on the create side.
+
+    Refuses anything that has been submitted. A template Meta has seen may be
+    referenced by a flow that is running right now, and deleting it breaks that
+    flow silently - if you really mean to retire one, do it in the console where
+    the consequences are in front of you.
+    """
+    configure(verbose)
+    cfg.load_env()
+    client, _ = _client()
+
+    content = _resolve_content(client, identifier)
+
+    try:
+        status = approval_status(client, content.sid)["status"]
+    except TemplateError:
+        # No approval record at all is the normal case for a template that was
+        # created and never submitted.
+        status = "unsubmitted"
+
+    if status.lower() not in ("unsubmitted", "unknown"):
+        _fail(
+            f"{content.friendly_name!r} has been submitted to Meta (status: "
+            f"{status}). Refusing to delete it here: a flow may be using it, "
+            "and deleting it would break that flow without warning. Retire it "
+            "in the Twilio console if that is really what you want."
+        )
+
+    typer.secho(
+        f"\nAbout to DELETE {content.friendly_name!r} ({content.sid})",
+        fg=typer.colors.YELLOW,
+        bold=True,
+    )
+    typer.echo(
+        "  Any flow referencing this SID will stop working until it is\n"
+        "  rebuilt against the replacement."
+    )
+
+    if not yes and not typer.confirm("\nDelete it?"):
+        typer.echo("Aborted.")
+        raise typer.Exit(code=1)
+
+    try:
+        delete_template(client, content.sid)
+    except TemplateError as exc:
+        _fail(str(exc))
+
+    typer.secho(f"Deleted {content.sid}", fg=typer.colors.GREEN, bold=True)
+    typer.echo(
+        "\nThe name is free again. Recreate it with:\n"
+        f"  just template-create templates/{content.friendly_name}.json"
+    )
 
 
 @template_app.command("submit")

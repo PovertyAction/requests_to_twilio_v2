@@ -15,6 +15,7 @@ from twilio.base.exceptions import TwilioRestException
 
 from requests_to_twilio.templates import (
     TemplateError,
+    delete,
     submit,
     unsubmittable_types,
 )
@@ -60,6 +61,43 @@ class TestUnsubmittableTypes:
     def test_an_unreachable_template_does_not_block(self):
         """A guard must never be the reason a real submission cannot go."""
         assert unsubmittable_types(fake_client(fails=True), "HXgone") == []
+
+
+class TestDelete:
+    """Deleting is what makes "created but not submitted" actually reversible.
+
+    Twilio has no update operation for content, so revising the wording of a
+    draft means deleting it and creating it again.
+    """
+
+    def deleting_client(self, *, fails=False):
+        record = {}
+
+        def do_delete():
+            if fails:
+                raise TwilioRestException(
+                    status=404, uri="/Content", msg="gone", code=20404
+                )
+            record["deleted"] = True
+
+        client = SimpleNamespace(
+            content=SimpleNamespace(
+                v1=SimpleNamespace(
+                    contents=lambda sid: SimpleNamespace(delete=do_delete)
+                )
+            )
+        )
+        return client, record
+
+    def test_deletes_the_template(self):
+        client, record = self.deleting_client()
+        delete(client, "HXdraft")
+        assert record == {"deleted": True}
+
+    def test_a_failure_is_reported_not_swallowed(self):
+        client, _ = self.deleting_client(fails=True)
+        with pytest.raises(TemplateError, match="Could not delete"):
+            delete(client, "HXgone")
 
 
 class TestSubmit:

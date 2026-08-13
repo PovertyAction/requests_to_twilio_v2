@@ -102,6 +102,12 @@ template-create FILE *ARGS:
 template-submit NAME *ARGS:
     uv run rtt template submit {{ NAME }} {{ ARGS }}
 
+# Delete an unsubmitted template so its wording can be redone. Twilio has no
+# update operation for content, so this is how a draft gets revised. Refuses
+# anything already submitted to Meta.
+template-delete NAME *ARGS:
+    uv run rtt template delete {{ NAME }} {{ ARGS }}
+
 # Check a template's approval status
 template-status NAME:
     uv run rtt template status {{ NAME }}
