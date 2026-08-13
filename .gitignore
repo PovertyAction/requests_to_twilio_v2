@@ -204,6 +204,12 @@ output/
 *.csv
 !sample_input.xlsx
 
+# The generated value labels. These are the opposite of respondent data - they
+# are what makes a column of codes readable, and they must ship with the
+# instrument or the dataset cannot be interpreted. Same trailing /* reason as
+# flows/ above: a bare `codebook/` would make the negation dead.
+!codebook/*.csv
+
 # Pulled flow definitions are not tracked. They are snapshots of state that
 # lives in Twilio - `just flow-pull <name>` re-fetches any of them - and they
 # are large enough to bury a real change in a diff.

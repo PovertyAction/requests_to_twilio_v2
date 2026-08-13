@@ -84,6 +84,7 @@ Run with `just build-demo-flow`.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
@@ -100,6 +101,7 @@ from requests_to_twilio.flows import check_flow, evaluate_condition  # noqa: E40
 
 FLOW_DIR = REPO_ROOT / "flows"
 TEMPLATE_DIR = REPO_ROOT / "templates" / "generated"
+CODEBOOK_DIR = REPO_ROOT / "codebook"
 
 FROM = "{{flow.channel.address}}"
 TIMEOUT = "3600"  # 1 hour, as in the source flow
@@ -1544,6 +1546,55 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def codebook_rows(lang: str) -> list[dict[str, str]]:
+    """Return the value labels for this language's coded answers.
+
+    The published row carries a code, not a label. That is deliberate - a label
+    in every row is redundant, and it would be in whichever language that
+    respondent happened to receive, which makes pooling the two impossible.
+
+    What the data needs instead is value labels, the same thing a SurveyCTO
+    choice list or a Stata `label define` provides. Generating them from the
+    option tables that also build the flow means the labels cannot drift from
+    the codes they describe: change an option and the codebook changes with it,
+    in the same commit.
+
+    `option_id` is included because it is what a tapped list row actually sends
+    and therefore what lands in the raw answer column, so it is the join key
+    between a raw reply and its meaning.
+    """
+    table = LANGS[lang]
+    rows: list[dict[str, str]] = []
+    for key in QUESTION_KEYS:
+        question = table["arm2"][key]
+        for index, option in enumerate(question["options"], start=1):
+            rows.append(
+                {
+                    "lang": lang,
+                    "arm": "2",
+                    "question": f"ARM2_{key}",
+                    "variable": f"ARM2_{key}_code",
+                    "code": option_code(option, index),
+                    "option_id": option[0],
+                    "label": option[1],
+                    "description": option[2],
+                }
+            )
+    return rows
+
+
+def write_codebook(lang: str) -> Path:
+    """Write the value labels for a language as CSV."""
+    path = CODEBOOK_DIR / f"data_use_demo_{LANGS[lang]['flow_suffix']}.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = codebook_rows(lang)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
 def flow_path(lang: str) -> Path:
     """Where a language's flow definition is written."""
     return FLOW_DIR / f"data_use_demo_{LANGS[lang]['flow_suffix']}.json"
@@ -1615,6 +1666,9 @@ def build_one(lang: str) -> bool:
 
     for path in write_template_definitions(lang):
         print(f"  template  {path.relative_to(REPO_ROOT).as_posix()}")
+
+    book = write_codebook(lang)
+    print(f"  codebook  {book.relative_to(REPO_ROOT).as_posix()}")
 
     found, missing = resolve_sids(lang)
     if missing:
