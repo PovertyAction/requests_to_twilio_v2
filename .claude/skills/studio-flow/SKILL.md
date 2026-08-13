@@ -95,6 +95,16 @@ they have **separate inbound webhooks**:
 | Phone number, `sms_url` | Phone Numbers → Manage → Active numbers | **SMS only** |
 | WhatsApp sender, `webhook.callback_url` | Messaging → Senders → WhatsApp senders | **WhatsApp** |
 
+This pipeline is built WhatsApp-first, so the sender is nearly always the
+webhook you want; the phone number is in the table mainly to explain why
+changing it does nothing for a WhatsApp round. For an SMS round it is the other
+way round.
+
+Either way, **`RTT_FROM_NUMBER` must carry the prefix for the channel you
+intend.** Without `whatsapp:` Twilio reads the address as SMS - and so does the
+routing check, which would then report confidently on a channel the round never
+touches. `rtt launch` warns when the prefix is missing.
+
 Repointing the *number* for a WhatsApp round changes nothing about WhatsApp. We
 did exactly that, watched replies keep going to the wrong flow, and only found
 it by tracing the message log: every `Start` was answered within one second by a

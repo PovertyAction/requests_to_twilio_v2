@@ -193,6 +193,23 @@ def _check_inbound_routing(
     different flow answers them and these executions sit untouched until they
     time out. The round collects nothing and nothing reports an error.
     """
+    # A bare number is an SMS address to Twilio, and this pipeline is
+    # WhatsApp-first, so a missing prefix is usually an oversight rather than a
+    # choice. Left unsaid, the check below would read the number's SMS webhook
+    # and report on a channel the round may never touch - the same
+    # confident-wrong-answer that let a broken round look healthy once already.
+    # It is a warning, not a block: an SMS round is a legitimate thing to run.
+    if not from_number.startswith("whatsapp:"):
+        typer.secho(
+            f"  warning: {from_number} has no 'whatsapp:' prefix, so it is an "
+            "SMS address.\n"
+            "           Inbound routing below describes SMS, not WhatsApp. If "
+            "this round is\n"
+            "           WhatsApp, set RTT_FROM_NUMBER to "
+            f"'whatsapp:{from_number}'.",
+            fg=typer.colors.YELLOW,
+        )
+
     try:
         owner = inbound_flow_sid(client, from_number)
     except FlowError as exc:
