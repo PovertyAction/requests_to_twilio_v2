@@ -1,0 +1,150 @@
+"""High-frequency checks on collected data.
+
+`flows.check_flow` is the instrument-side equivalent: it verifies the survey was
+*coded* correctly before a round. This module is the other half, run *during* a
+round against what has actually arrived, and it exists because some defects are
+only visible in the data - a respondent who answered twice looks fine in every
+widget of the flow.
+
+The checks here are deliberately about structure rather than substance. Whether
+an answer is plausible is the analyst's question; whether the dataset holds one
+observation per respondent, whether every row can be joined back to the sampling
+frame, and whether break-offs are being recorded rather than lost, are questions
+the pipeline itself has to answer.
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+
+from .flows import Finding
+
+#: The column that identifies a respondent. Named after the house convention -
+#: `caseid` is the join key back to the sampling frame, and a row without one is
+#: an orphan whatever else it contains.
+DEFAULT_KEY = "caseid"
+
+
+def duplicate_observations(
+    frame: pd.DataFrame, key: str = DEFAULT_KEY
+) -> dict[str, int]:
+    """Return identifiers that appear more than once, with their counts.
+
+    Args:
+        frame: The collected dataset.
+        key: The respondent identifier column.
+
+    Returns:
+        Identifier to row count, for identifiers appearing more than once.
+
+    One respondent, one survey, one row. A duplicate means either the number was
+    launched twice - a re-run without ``--resume`` will do it - or the flow let
+    the respondent start a second execution themselves. Neither is visible from
+    the flow definition, and neither announces itself: the duplicate rows look
+    exactly like real ones.
+
+    It matters more than a tidiness problem. A respondent with two rows is
+    double-weighted in every mean, and if the two rows disagree there is no
+    principled way to choose between them after the fact.
+
+    """
+    if key not in frame.columns or frame.empty:
+        return {}
+
+    ids = frame[key].astype("string").str.strip()
+    counts = ids[ids.notna() & (ids != "")].value_counts()
+    return {str(k): int(v) for k, v in counts[counts > 1].items()}
+
+
+def unjoinable_rows(frame: pd.DataFrame, key: str = DEFAULT_KEY) -> int:
+    """Count rows with no identifier, which cannot reach the sampling frame.
+
+    Args:
+        frame: The collected dataset.
+        key: The respondent identifier column.
+
+    Returns:
+        The number of rows whose key is missing or blank.
+
+    These are usually executions nobody launched - somebody messaging the number
+    directly - so they carry no preloaded data at all. They are not
+    recoverable: without the identifier there is nothing to match them to.
+
+    """
+    if key not in frame.columns:
+        return len(frame)
+    ids = frame[key].astype("string").str.strip()
+    return int((ids.isna() | (ids == "")).sum())
+
+
+def outcome_counts(frame: pd.DataFrame, column: str = "outcome") -> dict[str, int]:
+    """Return how many rows ended in each outcome.
+
+    Args:
+        frame: The collected dataset.
+        column: The final-status column.
+
+    Returns:
+        Outcome to row count, empty if the column is absent.
+
+    """
+    if column not in frame.columns or frame.empty:
+        return {}
+    values = frame[column].astype("string").fillna("(blank)").replace("", "(blank)")
+    return {str(k): int(v) for k, v in values.value_counts().items()}
+
+
+def check_dataset(frame: pd.DataFrame, key: str = DEFAULT_KEY) -> list[Finding]:
+    """Run the data-side checks over a collected dataset.
+
+    Args:
+        frame: The collected dataset.
+        key: The respondent identifier column.
+
+    Returns:
+        Findings, errors first. An empty list means every check passed.
+
+    """
+    findings: list[Finding] = []
+
+    if frame.empty:
+        return [Finding("warning", "no-data", "The dataset is empty")]
+
+    duplicates = duplicate_observations(frame, key)
+    if duplicates:
+        total = sum(duplicates.values()) - len(duplicates)
+        findings.append(
+            Finding(
+                "error",
+                "duplicate-observations",
+                f"{len(duplicates)} respondent(s) have more than one row "
+                f"({total} extra row(s))",
+                [f"{k} appears {v} times" for k, v in list(duplicates.items())[:10]],
+            )
+        )
+
+    orphans = unjoinable_rows(frame, key)
+    if orphans:
+        findings.append(
+            Finding(
+                "error",
+                "unjoinable-rows",
+                f"{orphans} row(s) have no {key}, so they cannot be matched "
+                "back to the sampling frame",
+            )
+        )
+
+    outcomes = outcome_counts(frame)
+    if outcomes and not any(
+        o in outcomes for o in ("complete", "declined", "incomplete")
+    ):
+        findings.append(
+            Finding(
+                "warning",
+                "no-recognised-outcome",
+                "No row carries a recognised outcome, so completion cannot be measured",
+                [f"{k}: {v}" for k, v in outcomes.items()][:10],
+            )
+        )
+
+    return findings

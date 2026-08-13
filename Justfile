@@ -191,3 +191,9 @@ flow-deploy FILE *ARGS:
 # with no matching column is dropped silently behind a 200.
 flow-schema FILE *ARGS:
     uv run rtt flow schema {{ FILE }} {{ ARGS }}
+
+# High-frequency checks on collected data: one observation per respondent, every
+# row joinable back to the sampling frame, outcomes recorded. The instrument-side
+# equivalent is `just flow-check`.
+data-check FILE *ARGS:
+    uv run rtt data-check {{ FILE }} {{ ARGS }}

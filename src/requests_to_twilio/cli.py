@@ -42,6 +42,7 @@ from .flows import (
     deploy as deploy_flow,
 )
 from .flows import pull as pull_flow
+from .hfc import check_dataset, outcome_counts
 from .launcher import LaunchError, launch
 from .log import configure
 from .templates import (
@@ -570,6 +571,59 @@ def fetch(
             )
         except WarehouseError as exc:
             _fail(str(exc))
+
+
+@app.command("data-check")
+def data_check(
+    input_file: Annotated[
+        Path, typer.Argument(help="Collected dataset (.csv or .xlsx).")
+    ],
+    key: Annotated[
+        str, typer.Option("--key", help="Respondent identifier column.")
+    ] = "caseid",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """High-frequency checks on collected data, during a round.
+
+    `rtt flow check` verifies the instrument was coded correctly before a round.
+    This is the other half: some defects only exist in the data. A respondent
+    who answered twice looks perfectly healthy in every widget of the flow, and
+    is double-weighted in every mean computed afterwards.
+    """
+    configure(verbose)
+
+    try:
+        if input_file.suffix.lower() in {".xlsx", ".xlsm"}:
+            frame = pd.read_excel(input_file, dtype=str)
+        else:
+            frame = pd.read_csv(input_file, dtype=str)
+    except Exception as exc:  # noqa: BLE001 - any read failure is the same to us
+        _fail(f"Could not read {input_file}: {exc}")
+
+    typer.echo(f"{input_file}: {len(frame)} row(s)")
+
+    outcomes = outcome_counts(frame)
+    if outcomes:
+        typer.echo("  outcomes: " + ", ".join(f"{k}={v}" for k, v in outcomes.items()))
+
+    findings = check_dataset(frame, key)
+    if not findings:
+        typer.secho("  all checks passed", fg=typer.colors.GREEN)
+        return
+
+    errors = 0
+    for finding in findings:
+        colour = (
+            typer.colors.RED if finding.severity == "error" else typer.colors.YELLOW
+        )
+        errors += finding.severity == "error"
+        typer.secho(f"  [{finding.severity}] {finding.code}", fg=colour, bold=True)
+        typer.echo(f"      {finding.summary}")
+        for line in finding.detail[:10]:
+            typer.echo(f"        {line}")
+
+    if errors:
+        raise typer.Exit(code=1)
 
 
 @app.command()
