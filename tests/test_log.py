@@ -15,9 +15,9 @@ from requests_to_twilio.log import PhoneRedactingFilter, configure, mask_phone
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        ("+155555501234", "+********8169"),
-        ("whatsapp:+155555501234", "whatsapp:+********8169"),
-        ("+1 773 322 0947", "+*******0947"),
+        ("+155555501234", "+********1234"),
+        ("whatsapp:+155555501234", "whatsapp:+********1234"),
+        ("+1 555 555 0100", "+*******0100"),
         ("+57 300 123 4567", "+********4567"),
         ("1234", "****"),
         ("12", "**"),
@@ -33,8 +33,8 @@ def test_mask_phone_preserves_channel_prefix():
 
 def test_masked_number_contains_no_leading_digits():
     masked = mask_phone("+155555501234")
-    assert "320619" not in masked
-    assert masked.endswith("8169")
+    assert "555555" not in masked
+    assert masked.endswith("1234")
 
 
 class TestRedactingFilter:
@@ -53,11 +53,11 @@ class TestRedactingFilter:
         record = self.make_record("sending to +155555501234 now")
         PhoneRedactingFilter().filter(record)
         assert "+155555501234" not in record.getMessage()
-        assert "8169" in record.getMessage()
+        assert "1234" in record.getMessage()
 
     def test_redacts_inside_a_payload_dump(self):
         """Even a careless full-payload print must not leak the number."""
-        record = self.make_record("{'To': 'whatsapp:+15555550100', 'name': 'Felipe'}")
+        record = self.make_record("{'To': 'whatsapp:+15555550100', 'name': 'Sample'}")
         PhoneRedactingFilter().filter(record)
         assert "+15555550100" not in record.getMessage()
 
