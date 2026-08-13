@@ -29,6 +29,7 @@ from .flows import (
     check_preloaded,
     list_flows,
     published_columns,
+    published_revision,
     referenced_content_types,
     resolve_flow,
     summarize,
@@ -104,11 +105,37 @@ def _check_preloaded_data(
         )
         return
 
+    # Executions run the latest *published* revision. Against a flow that has
+    # never been published there is nothing to run, so every row in the round
+    # fails identically - and the tracker fills with failures that look like a
+    # credentials or number problem rather than a missing publish.
+    try:
+        if published_revision(client, flow.sid) is None:
+            typer.secho(
+                f"\nFlow {flow.friendly_name!r} has never been published, so it "
+                "cannot run.\n"
+                "Studio executes the latest published revision, and this flow "
+                "has only a draft.\n\n"
+                "  just flow-deploy <definition.json> --publish\n",
+                fg=typer.colors.RED,
+                bold=True,
+            )
+            raise typer.Exit(code=1)
+    except FlowError as exc:
+        typer.secho(
+            f"  warning: could not check publish state ({exc})", fg=typer.colors.YELLOW
+        )
+
     if not flow.definition:
         return
 
     # `Number` is always available: the launcher sends it as the destination.
     missing, unused = check_preloaded(flow.definition, set(columns) | {"Number"})
+
+    # ...which also means it is never a preload, so reporting it as an unused
+    # one is noise on every single run. A warning that always fires is a
+    # warning nobody reads.
+    unused = unused - {"Number"}
 
     if unused:
         typer.secho(

@@ -976,6 +976,33 @@ def validate_remote(client: Client, name: str, definition: dict) -> list[str]:
     ]
 
 
+def published_revision(client: Client, flow_id: str) -> int | None:
+    """Return the flow's latest published revision, or None if never published.
+
+    Args:
+        client: An authenticated Twilio client.
+        flow_id: A flow SID starting ``FW``.
+
+    Returns:
+        The revision number, or None if the flow has no published revision.
+
+    Executions run the latest *published* revision, not the latest draft. A flow
+    that has never been published therefore cannot run at all - which is worth
+    knowing before a launch rather than after every row in the round has failed.
+
+    """
+    try:
+        revision = client.studio.v2.flows(flow_id).revisions("LatestPublished").fetch()
+    except TwilioRestException as exc:
+        if exc.status == 404:
+            return None
+        raise FlowError(
+            f"Could not read published revision of {flow_id}: "
+            f"HTTP {exc.status} (code {exc.code}): {exc.msg}"
+        ) from exc
+    return revision.revision
+
+
 def referenced_content_types(
     client: Client, definition: dict
 ) -> dict[str, dict[str, Any]]:
