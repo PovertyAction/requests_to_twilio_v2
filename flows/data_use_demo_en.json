@@ -172,7 +172,7 @@
           },
           {
             "key": "set_time_start",
-            "value": "{{ 'now' | date: \"%s\" }}"
+            "value": "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
           }
         ]
       },
@@ -1365,7 +1365,7 @@
         "variables": [
           {
             "key": "set_time_fin",
-            "value": "{{ 'now' | date: \"%s\" }}"
+            "value": "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
           }
         ]
       },

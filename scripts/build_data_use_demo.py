@@ -129,16 +129,23 @@ QUESTION_KEYS = ("P1", "P2", "P3", "P4")
 #: Liquid date filter does accept the literal string 'now', which is the
 #: documented way to stamp a time.
 #:
-#: Epoch seconds rather than a readable timestamp, because Studio renders `now`
-#: in Twilio's own timezone rather than UTC. Measured on a live run: a stamp of
-#: 09:12:05 sat beside a submitted_at of 16:12:06 UTC from the publish Function
-#: - exactly seven hours apart, in the same row, by construction. Durations
-#: within Studio's clock were fine; anything computed against submitted_at was
-#: seven hours wrong and nothing errored. Epoch has no timezone to get wrong,
-#: sorts correctly, and subtracts directly. Convert at analysis time:
+#: Studio's date filter does NOT support the %s (epoch) directive. Asking for it
+#: does not error - it renders the literal string "%s" into the column, which is
+#: how a live round came back with set_time_start = "%s" on every row. That
+#: attempt was trying to dodge a real problem, and made it worse; this is the
+#: format verified working on a live run.
 #:
-#:     to_timestamp(CAST(set_time_start AS BIGINT))
-NOW = "{{ 'now' | date: \"%s\" }}"
+#: The real problem it was dodging: Studio renders `now` in Twilio's own
+#: timezone, not UTC. Measured live, a stamp of 09:12:05 sat beside a
+#: submitted_at of 16:12:06 UTC from the publish Function - seven hours apart in
+#: the same row. So:
+#:
+#:   * set_time_start -> set_time_fin is a valid DURATION. Same clock, both ends.
+#:   * For absolute time, use submitted_at. It is stamped server-side in UTC and
+#:     is the only timestamp here that means what it says.
+#:
+#: Do not subtract one from the other across that boundary.
+NOW = "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
 
 
 # ---------------------------------------------------------------------------
