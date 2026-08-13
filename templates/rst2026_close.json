@@ -1,0 +1,33 @@
+{
+  "_comment": [
+    "CLOSING template for the RST Jaipur 2026 data-use survey.",
+    "",
+    "Copy matches the `close_complete` widget in",
+    "flows/RST2026_jaipur_data_use.json.",
+    "",
+    "Sent as a template rather than free-form because the close fires after the",
+    "respondent has finished answering, which can be hours or days after they",
+    "started - the flow allows an hour per question. A participant who begins in",
+    "the afternoon and finishes the next morning is outside the 24-hour window,",
+    "and a free-form close would fail silently with 63016: they answer every",
+    "question and hear nothing back. As a template it delivers either way.",
+    "",
+    "This is the second half of the bookend rule. The 2023 RST flow had no closing",
+    "template at all.",
+    "",
+    "The debrief is the point of the exercise: it reveals that participants were",
+    "randomised into two question formats, which is what makes the session teach",
+    "something. Registration is handled separately, so this teases the results",
+    "rather than recruiting.",
+    "",
+    "No variables, so nothing to get wrong at send time."
+  ],
+  "friendly_name": "rst2026_close",
+  "language": "en",
+  "variables": {},
+  "types": {
+    "twilio/text": {
+      "body": "Thank you for completing the survey.\n\nYou took part in an experiment with two different versions of the same survey: one using plain language with clear answer options, and one more open and complex.\n\nWe want to show how the way a question is asked can change the answers - and the results - in WhatsApp surveys.\n\nWe will show what your group's answers looked like, live in the session. See you there.\n\n_IPA Team_"
+    }
+  }
+}

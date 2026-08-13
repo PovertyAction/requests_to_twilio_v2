@@ -11,6 +11,11 @@ dependencies = [
     "openpyxl>=3.1.5",
     "pandas>=2.2.3",
     "python-dotenv>=1.0.1",
+    # Used directly for the two Twilio endpoints the SDK does not cover: the
+    # multipart function-source upload, and Flows/Validate. It arrives anyway as
+    # a twilio dependency, but relying on that would break silently if the SDK
+    # ever changed HTTP client.
+    "requests>=2.32.0",
     "tenacity>=9.0.0",
     "twilio>=9.4.0",
     "typer>=0.15.1",

@@ -428,6 +428,26 @@ def check_flow(definition: dict) -> list[Finding]:
                 )
             )
 
+    # A flow launched from `rtt launch` is started over the REST API, which
+    # fires incomingRequest. If the trigger does not route it, the execution
+    # ends immediately having sent nothing - and the launcher still records it
+    # as `active`, so the run looks successful while every respondent gets
+    # silence.
+    trigger = next((s for s in states if s.get("type") == "trigger"), None)
+    if trigger is not None:
+        routed = {
+            t.get("event") for t in trigger.get("transitions", []) if t.get("next")
+        }
+        if "incomingRequest" not in routed:
+            findings.append(
+                Finding(
+                    "error",
+                    "trigger-ignores-api-launch",
+                    "Trigger does not route incomingRequest, so executions "
+                    "created by `rtt launch` end immediately without sending",
+                )
+            )
+
     # Splits that cannot handle an unexpected answer strand the respondent.
     no_fallback = [
         s["name"]

@@ -39,6 +39,13 @@ OUTPUT = REPO_ROOT / "flows" / "RST2026_jaipur_data_use.json"
 FROM = "{{flow.channel.address}}"
 TIMEOUT = "3600"  # 1 hour, as in the source flow
 
+#: rst2023_wa_session_intro - already approved on this account, en_US, carries a
+#: {{1}} name variable and a Start button. Reused so the flow can be launched
+#: business-initiated today rather than waiting on Meta to approve a new
+#: template. Its text still says 2023, which is fine for a test and must be
+#: replaced with an approved rst2026 template before a real round.
+OPENING_TEMPLATE_SID = "HX10a14cb24093a9b56de154385a545640"
+
 #: Filled in once the Functions are deployed on this account. Left as None so a
 #: half-configured flow cannot be deployed by accident.
 ENCRYPT_SERVICE_SID = "ZS04f75bf125e71003387d709e77f1f6ad"
@@ -362,14 +369,40 @@ def build():
             "type": "trigger",
             "properties": {"offset": {"x": 0, "y": -1100}},
             "transitions": [
+                # `rtt launch` creates executions over the REST API, which fires
+                # incomingRequest - NOT incomingMessage. Leaving it unrouted
+                # ends the execution at the trigger without sending anything,
+                # and the launcher still reports it as "active".
+                {"event": "incomingRequest", "next": "intro"},
+                # Someone messaging the number cold gets the same opening.
                 {"event": "incomingMessage", "next": "intro"},
                 {"event": "incomingCall"},
                 {"event": "incomingConversationMessage"},
-                {"event": "incomingRequest"},
                 {"event": "incomingParent"},
             ],
         },
-        send("intro", INTRO, "consent", x=0, y=-950),
+        # The opening must be an approved template and must WAIT for a reply.
+        # Anything sent before the respondent answers is business-initiated, so
+        # a plain send here would let the next message go out while the session
+        # is still closed and fail with 63016. Waiting means their reply opens
+        # the 24-hour window and everything downstream can be free-form.
+        {
+            "name": "intro",
+            "type": "send-and-wait-for-reply",
+            "properties": {
+                "offset": {"x": 0, "y": -950},
+                "from": FROM,
+                "message_type": "content_template",
+                "content_sid": OPENING_TEMPLATE_SID,
+                "content_variables": [{"key": "1", "value": "{{flow.data.name}}"}],
+                "timeout": TIMEOUT,
+            },
+            "transitions": [
+                {"event": "incomingMessage", "next": "consent"},
+                {"event": "timeout", "next": "mark_no_reply"},
+                {"event": "deliveryFailure", "next": "mark_delivery_failed"},
+            ],
+        },
         ask("consent", CONSENT, "split_consent", x=0, y=-820),
         split(
             "split_consent",

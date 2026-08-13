@@ -1,5 +1,7 @@
 {
   "_comment": [
+    "NOT PART OF THE RST JAIPUR 2026 DATA-USE ROUND. This describes a session-feedback survey, which is a different instrument from the deployed flow (flows/RST2026_jaipur_data_use.json, the ARM1/ARM2 data-use experiment). Do not submit it for that round - submitting freezes the wording forever. Use rst2026_intro.json and rst2026_close.json instead.",
+    "",
     "Entry point for the feedback survey, offering the two tracks.",
     "",
     "The 2023 original (rst_feedbackintro, HXe2672292b71d6f18029e4a4aed0beb35)",

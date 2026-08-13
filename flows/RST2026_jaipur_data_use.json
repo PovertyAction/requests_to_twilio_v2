@@ -12,6 +12,10 @@
       },
       "transitions": [
         {
+          "event": "incomingRequest",
+          "next": "intro"
+        },
+        {
           "event": "incomingMessage",
           "next": "intro"
         },
@@ -22,32 +26,41 @@
           "event": "incomingConversationMessage"
         },
         {
-          "event": "incomingRequest"
-        },
-        {
           "event": "incomingParent"
         }
       ]
     },
     {
       "name": "intro",
-      "type": "send-message",
+      "type": "send-and-wait-for-reply",
       "properties": {
         "offset": {
           "x": 0,
           "y": -950
         },
         "from": "{{flow.channel.address}}",
-        "body": "Hi {{flow.data.name}}, welcome to the Research Staff Training 2026 in Jaipur.\n\nYou are about to take part in a real WhatsApp survey - and you are also part of the example.\n\nIt takes about 3 minutes. Your answers are confidential and will only be used to illustrate WhatsApp data collection during the session."
+        "message_type": "content_template",
+        "content_sid": "HX10a14cb24093a9b56de154385a545640",
+        "content_variables": [
+          {
+            "key": "1",
+            "value": "{{flow.data.name}}"
+          }
+        ],
+        "timeout": "3600"
       },
       "transitions": [
         {
-          "event": "sent",
+          "event": "incomingMessage",
           "next": "consent"
         },
         {
-          "event": "failed",
-          "next": "consent"
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
         }
       ]
     },
