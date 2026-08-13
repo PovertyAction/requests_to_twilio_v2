@@ -129,23 +129,24 @@ QUESTION_KEYS = ("P1", "P2", "P3", "P4")
 #: Liquid date filter does accept the literal string 'now', which is the
 #: documented way to stamp a time.
 #:
-#: Studio's date filter does NOT support the %s (epoch) directive. Asking for it
-#: does not error - it renders the literal string "%s" into the column, which is
-#: how a live round came back with set_time_start = "%s" on every row. That
-#: attempt was trying to dodge a real problem, and made it worse; this is the
-#: format verified working on a live run.
+#: The flow no longer stamps times at all, and this is why.
 #:
-#: The real problem it was dodging: Studio renders `now` in Twilio's own
-#: timezone, not UTC. Measured live, a stamp of 09:12:05 sat beside a
-#: submitted_at of 16:12:06 UTC from the publish Function - seven hours apart in
-#: the same row. So:
+#: Studio renders `now` in Twilio's own timezone, not UTC - measured live, a
+#: stamp of 09:12:05 sat beside a submitted_at of 16:12:06 UTC in the same row.
+#: Liquid cannot convert it: the date filter has no timezone directive, and the
+#: %s (epoch) escape is not supported either. Asking for %s does not error, it
+#: writes the literal string "%s" into the column, which a live round proved.
 #:
-#:   * set_time_start -> set_time_fin is a valid DURATION. Same clock, both ends.
-#:   * For absolute time, use submitted_at. It is stamped server-side in UTC and
-#:     is the only timestamp here that means what it says.
+#: There is no way to produce a UTC timestamp from inside a Studio widget, so
+#: the flow stops pretending. Both ends come from sources that are UTC by
+#: construction:
 #:
-#: Do not subtract one from the other across that boundary.
-NOW = "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
+#:   start     execution.date_created, from the Studio API via `rtt fetch`
+#:   end       submitted_at, stamped server-side by the publish Function
+#:
+#: `execution_sid` is published so the two join exactly. That column earns its
+#: place regardless - without it a warehouse row cannot be traced back to the
+#: execution log that produced it.
 
 
 # ---------------------------------------------------------------------------
@@ -1354,18 +1355,7 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             y=-700,
             condition="regex",
         ),
-        # Stamped here rather than at the trigger: the interval that matters is
-        # how long the questions took, and time spent deciding whether to
-        # consent is not part of that. With set_time_fin it gives a duration,
-        # and implausibly fast completion is the standard flag for inattentive
-        # responding.
-        set_vars(
-            "record_consent",
-            [("set_consent", "yes"), ("set_time_start", NOW)],
-            "split_arm",
-            x=0,
-            y=-580,
-        ),
+        set_vars("record_consent", [("set_consent", "yes")], "split_arm", x=0, y=-580),
         set_vars(
             "record_declined",
             [("set_consent", "no"), ("outcome", "declined")],
@@ -1460,9 +1450,12 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             # Single convergence point. Every terminal path arrives here, so a
             # row is published whatever happened - complete, declined, timed
             # out or undeliverable.
+            # Pure convergence point now that times come from UTC sources.
+            # Kept as its own widget because every terminal path routes through
+            # it, which is what guarantees a row exists whatever happened.
             set_vars(
                 "finish",
-                [("set_time_fin", NOW)],
+                [("set_reached_finish", "1")],
                 "function_encrypt",
                 x=0,
                 y=1320,
@@ -1506,10 +1499,10 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         ("set_no_reply", "{{flow.variables.set_no_reply}}"),
         ("set_fail", "{{flow.variables.set_fail}}"),
         ("outcome", "{{flow.variables.outcome}}"),
-        # Both were set but never published, so the duration they exist to
-        # measure was not in the data at all.
-        ("set_time_start", "{{flow.variables.set_time_start}}"),
-        ("set_time_fin", "{{flow.variables.set_time_fin}}"),
+        # The join key back to the execution log, and to the UTC start time the
+        # Studio API reports. Without it a warehouse row cannot be traced to the
+        # execution that produced it.
+        ("execution_sid", "{{flow.sid}}"),
     ]
     for arm in ("ARM1", "ARM2"):
         for key in QUESTION_KEYS:

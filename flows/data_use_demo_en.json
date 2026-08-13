@@ -169,10 +169,6 @@
           {
             "key": "set_consent",
             "value": "yes"
-          },
-          {
-            "key": "set_time_start",
-            "value": "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
           }
         ]
       },
@@ -1364,8 +1360,8 @@
         },
         "variables": [
           {
-            "key": "set_time_fin",
-            "value": "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
+            "key": "set_reached_finish",
+            "value": "1"
           }
         ]
       },
@@ -1464,12 +1460,8 @@
             "value": "{{flow.variables.outcome}}"
           },
           {
-            "key": "set_time_start",
-            "value": "{{flow.variables.set_time_start}}"
-          },
-          {
-            "key": "set_time_fin",
-            "value": "{{flow.variables.set_time_fin}}"
+            "key": "execution_sid",
+            "value": "{{flow.sid}}"
           },
           {
             "key": "ARM1_P1",
