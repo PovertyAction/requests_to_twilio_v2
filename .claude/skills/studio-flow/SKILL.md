@@ -172,10 +172,40 @@ error.
 | Answer type | Use | Limits |
 | --- | --- | --- |
 | 2-3 options | `twilio/quick-reply` buttons | **3 max** in session. Title 25 chars |
-| 4-10 options | `twilio/list-picker` | **10 max**. Item 24 chars, description 72 (required), button 20 |
+| 4-10 options | `twilio/list-picker` | **10 max**. See the length budget below |
 | Likert 1-5 or 1-7 | List picker, one row per point | See below - the midpoint label does not fit |
 | More than 10 | `twilio/flows`, or validated numeric text | See below. **Do not split the question** |
 | Genuinely open | `send-and-wait-for-reply` with free text | Only when the answer cannot be enumerated |
+
+#### The length budget
+
+**Check these before writing the questions, not after.** They are short enough
+to change what you can ask - 24 characters is shorter than most people's first
+draft of an answer option - and past the limit the create call fails with a
+generic error that does not name the offending string. `rtt flow check` reports
+`text-too-long` and names it.
+
+| Content type | Field | Limit | |
+| --- | --- | --- | --- |
+| `twilio/list-picker` | `body` | 1024 | the question itself |
+| `twilio/list-picker` | `item` | **24** | the tappable label. The tight one |
+| `twilio/list-picker` | `description` | **72** | required, not optional - shown under the label |
+| `twilio/list-picker` | `id` | 200 | never shown |
+| `twilio/list-picker` | `button` | ~20 | **Meta's limit; Twilio documents none.** Reported as a warning |
+| `twilio/quick-reply` | `title` | 25 | the button face |
+| `twilio/quick-reply` | `id` | 128 | 256 for an unapproved template in session |
+
+Three consequences for how questions get written:
+
+- **`description` is required on every list row**, so a list picker is never
+  just labels - you are writing 10 short strings and 10 longer ones. Use the
+  description for the detail that will not fit in 24 characters rather than
+  padding it out.
+- **Option labels are the tightest constraint in the instrument.** Draft them
+  first and let the question wording follow, not the other way round.
+- The limits count *characters*, so accented Spanish and non-Latin scripts spend
+  the budget at the same rate, but the same option translated is often longer.
+  Check every language, not just the one it was drafted in.
 
 #### More than 10 options, without splitting the question
 
@@ -701,6 +731,8 @@ It exits non-zero on any error, so it can gate a deployment.
 | `opening-not-a-template` | error | A free-form first message fails with 63016 for the whole round at once |
 | `opening-cannot-open-session` | error | A list picker or location cannot start a conversation, only continue one |
 | `too-many-options` | error | More than 10 list rows, or more than 3 buttons in session - the send fails |
+| `text-too-long` | error | An option label, description or body past what WhatsApp renders |
+| `text-may-truncate` | warning | Near a limit Meta enforces but Twilio does not document |
 | `unmatchable-condition` | error | A regex that does not compile, or a comma-broken `matches_any_of`; both route everyone to noMatch |
 | `credentials` | error | A definition is meant to be committed |
 | `split-without-nomatch` | warning | An unexpected answer has nowhere to go |

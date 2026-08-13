@@ -557,6 +557,88 @@ _CANNOT_OPEN_SESSION = frozenset({"twilio/list-picker", "twilio/location"})
 #: Hard ceiling on a list picker's options. Twilio rejects more than this.
 MAX_LIST_ITEMS = 10
 
+#: Character limits Twilio documents for interactive content, as
+#: ``(content type, field, limit)``. These are what a respondent's phone will
+#: actually render; past them the create call fails with a generic error that
+#: does not say which string was too long.
+#:
+#: The limits shape question *design*, not just implementation - 24 characters
+#: is shorter than most people's first draft of an answer option, and it is the
+#: reason a standard Likert midpoint has to be reworded. Check them before
+#: writing the instrument, not after.
+_TEXT_LIMITS: tuple[tuple[str, str, int], ...] = (
+    ("twilio/list-picker", "body", 1024),
+    ("twilio/list-picker", "item", 24),
+    ("twilio/list-picker", "description", 72),
+    ("twilio/list-picker", "id", 200),
+    ("twilio/quick-reply", "title", 25),
+)
+
+#: Meta's limit on the button that opens a list. Twilio's documentation gives no
+#: maximum for this field, so this is the WhatsApp platform limit rather than a
+#: documented Twilio one - hence a warning, not an error.
+LIST_BUTTON_CHARS = 20
+
+
+def overlong_content_text(
+    definition: dict, content_types: dict[str, dict[str, Any]]
+) -> tuple[list[str], list[str]]:
+    """Find interactive text that exceeds what WhatsApp will render.
+
+    Args:
+        definition: The flow's JSON definition.
+        content_types: Content SID to its ``types`` mapping.
+
+    Returns:
+        ``(errors, warnings)`` - errors for the limits Twilio documents,
+        warnings for the one it does not.
+
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    for state in definition.get("states", []):
+        sid = state.get("properties", {}).get("content_sid")
+        types = content_types.get(sid) if sid else None
+        if not isinstance(types, dict):
+            continue
+        name = state.get("name", "")
+
+        for type_name, field_name, limit in _TEXT_LIMITS:
+            config = types.get(type_name)
+            if not isinstance(config, dict):
+                continue
+
+            # Top-level strings, then the same field inside items/actions.
+            candidates: list[tuple[str, Any]] = [(field_name, config.get(field_name))]
+            for collection in ("items", "actions"):
+                entries = config.get(collection)
+                if isinstance(entries, list):
+                    candidates += [
+                        (f"{collection}[{i}].{field_name}", entry.get(field_name))
+                        for i, entry in enumerate(entries)
+                        if isinstance(entry, dict)
+                    ]
+
+            for where, text in candidates:
+                if isinstance(text, str) and len(text) > limit:
+                    errors.append(
+                        f"{name}: {type_name} {where} is {len(text)} chars, "
+                        f"the maximum is {limit}: {text[:40]!r}"
+                    )
+
+        picker = types.get("twilio/list-picker")
+        if isinstance(picker, dict):
+            button = picker.get("button")
+            if isinstance(button, str) and len(button) > LIST_BUTTON_CHARS:
+                warnings.append(
+                    f"{name}: list button is {len(button)} chars; WhatsApp "
+                    f"allows about {LIST_BUTTON_CHARS} and Twilio documents no "
+                    f"limit, so this may be truncated: {button!r}"
+                )
+    return errors, warnings
+
+
 #: Ceiling on quick-reply buttons for the way this repo uses them. Twilio allows
 #: up to 10, but only on a template Meta has approved; sent in session without
 #: approval, WhatsApp permits 3. Every question template here is deliberately
@@ -770,6 +852,27 @@ def check_flow(
                 f"{len(oversized)} interactive message(s) exceed what WhatsApp "
                 "will render",
                 oversized[:10],
+            )
+        )
+
+    long_errors, long_warnings = overlong_content_text(definition, content_types or {})
+    if long_errors:
+        findings.append(
+            Finding(
+                "error",
+                "text-too-long",
+                f"{len(long_errors)} interactive string(s) exceed the limit "
+                "WhatsApp will render",
+                long_errors[:10],
+            )
+        )
+    if long_warnings:
+        findings.append(
+            Finding(
+                "warning",
+                "text-may-truncate",
+                f"{len(long_warnings)} string(s) are near an undocumented limit",
+                long_warnings[:10],
             )
         )
 

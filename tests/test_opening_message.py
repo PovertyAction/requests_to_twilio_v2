@@ -274,3 +274,94 @@ class TestOptionLimits:
             "HXodd", **{"twilio/list-picker": "nonsense"}
         )
         assert "too-many-options" not in codes(definition, types)
+
+
+class TestTextLimits:
+    """The character caps are short enough to shape question design.
+
+    24 characters is shorter than most people's first draft of an answer option,
+    and past the limit the create call fails with a generic error that does not
+    say which string was too long.
+    """
+
+    def picker(self, **overrides):
+        config = {
+            "body": "How satisfied were you?",
+            "button": "Rate 1 to 5",
+            "items": [
+                {"id": "s1", "item": "1 - Very bad", "description": "Not at all"},
+                {"id": "s2", "item": "2 - Good", "description": "Mostly happy"},
+            ],
+        }
+        config.update(overrides)
+        return (
+            {
+                "states": [
+                    trigger(incomingRequest="intro"),
+                    template_question("intro", sid="HXopener", incomingMessage="q2"),
+                    template_question("q2", sid="HXlist"),
+                ]
+            },
+            {
+                "HXopener": {"twilio/quick-reply": {}},
+                "HXlist": {"twilio/list-picker": config},
+            },
+        )
+
+    def test_a_short_scale_passes(self):
+        definition, types = self.picker()
+        assert "text-too-long" not in codes(definition, types)
+
+    def test_an_item_over_24_chars_is_an_error(self):
+        """The standard Likert midpoint is 26 characters, so this bites."""
+        definition, types = self.picker(
+            items=[
+                {"id": "s3", "item": "Neither agree nor disagree", "description": "ok"}
+            ]
+        )
+        assert "text-too-long" in codes(definition, types)
+
+    def test_a_description_over_72_chars_is_an_error(self):
+        definition, types = self.picker(
+            items=[{"id": "s1", "item": "Fine", "description": "x" * 73}]
+        )
+        assert "text-too-long" in codes(definition, types)
+
+    def test_a_body_over_1024_chars_is_an_error(self):
+        definition, types = self.picker(body="x" * 1025)
+        assert "text-too-long" in codes(definition, types)
+
+    def test_a_long_button_is_only_a_warning(self):
+        """Twilio documents no limit for it, so this is Meta's, not theirs."""
+        definition, types = self.picker(button="Tap here to choose your answer")
+        found = codes(definition, types)
+        assert "text-may-truncate" in found
+        assert "text-too-long" not in found
+
+    def test_a_quick_reply_title_over_25_chars_is_an_error(self):
+        definition = {
+            "states": [
+                trigger(incomingRequest="intro"),
+                template_question("intro", sid="HXopener"),
+            ]
+        }
+        types = {
+            "HXopener": {
+                "twilio/quick-reply": {"actions": [{"title": "y" * 26, "id": "yes"}]}
+            }
+        }
+        assert "text-too-long" in codes(definition, types)
+
+    def test_the_offending_string_is_named(self):
+        """A generic failure is exactly what this check exists to replace."""
+        definition, types = self.picker(
+            items=[
+                {"id": "s1", "item": "Neither agree nor disagree", "description": "ok"}
+            ]
+        )
+        finding = next(
+            f for f in check_flow(definition, types) if f.code == "text-too-long"
+        )
+        detail = " ".join(finding.detail)
+        assert "Neither agree nor disagree" in detail
+        assert "26" in detail

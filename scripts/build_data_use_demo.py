@@ -577,9 +577,13 @@ def check_language(lang: str) -> list[str]:
             if len(option_id) > 200:
                 problems.append(f"{lang}: ARM2 {key} id exceeds 200 chars")
 
+    # Meta's limit on the button that opens a list. Twilio's documentation gives
+    # no maximum for this field, so this is the platform limit rather than a
+    # documented Twilio one - kept because being conservative here costs nothing.
     if len(table["arm2"]["button"]) > 20:
         problems.append(
-            f"{lang}: list button {table['arm2']['button']!r} exceeds 20 chars"
+            f"{lang}: list button {table['arm2']['button']!r} exceeds the "
+            "20 characters WhatsApp shows on a list button"
         )
 
     problems.extend(_check_options_are_matchable(lang))
