@@ -334,6 +334,15 @@ EN: dict[str, Any] = {
         "We will look at how the format of a question changes the answers it "
         "gets, live in the session. See you there."
     ),
+    # Sent to anyone who writes to the number without being launched into the
+    # survey - which in practice is mostly people saying thank you after
+    # finishing it.
+    "unsolicited": (
+        "👋 Thanks for your message.\n\n"
+        "This number only runs a short survey during the session, so there is "
+        "nothing further needed from you here.\n\n"
+        "If you have a question, the IPA team at the training can help."
+    ),
 }
 
 ES: dict[str, Any] = {
@@ -495,6 +504,13 @@ ES: dict[str, Any] = {
         "registradas.\n\n"
         "Veremos cómo el formato de una pregunta cambia las respuestas "
         "que recibe, en vivo durante la sesión. Nos vemos allá."
+    ),
+    "unsolicited": (
+        "👋 Gracias por tu mensaje.\n\n"
+        "Este número solo se usa para una encuesta corta durante la "
+        "sesión, así que no necesitas hacer nada más por aquí.\n\n"
+        "Si tienes una pregunta, el equipo de IPA en la sesión puede "
+        "ayudarte."
     ),
 }
 
@@ -1246,14 +1262,19 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 # ends the execution at the trigger without sending anything,
                 # and the launcher still reports it as "active".
                 {"event": "incomingRequest", "next": "intro"},
-                # Someone messaging the number cold gets the same opening, but
-                # is flagged first. They arrive with no preloaded data at all -
-                # no caseid, so nothing to join back to the sampling frame -
-                # and the first live test produced exactly such a row: every
-                # field null but the outcome. At a conference a walk-up is
-                # welcome, in a real round it is contamination, and either way
-                # the analyst has to be able to tell which rows are which.
-                {"event": "incomingMessage", "next": "mark_unsolicited"},
+                # Someone messaging the number cold does NOT get the survey.
+                # In practice this path is almost entirely people being polite
+                # after they finish - "thanks", "ok" - and re-sending the whole
+                # opener to somebody who has just completed the survey is worse
+                # than saying nothing. They also arrive with no preloaded data,
+                # so they would produce a row with no caseid to join back to
+                # the sampling frame, and the opener's name variable would be
+                # empty, which fails the send outright (error 21656).
+                #
+                # They get one short acknowledgement and the execution ends. No
+                # survey, no row: a dataset row should mean a sampled
+                # respondent was asked something.
+                {"event": "incomingMessage", "next": "unsolicited_reply"},
                 {"event": "incomingCall"},
                 {"event": "incomingConversationMessage"},
                 {"event": "incomingParent"},
@@ -1263,12 +1284,12 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         # It is the only business-initiated message in the flow, so it is the
         # only one Meta reviews. Waiting means the respondent's reply opens the
         # 24-hour window, after which the buttons and lists below are free.
-        set_vars(
-            "mark_unsolicited",
-            [("set_unsolicited", "1")],
-            "intro",
-            x=-500,
-            y=-1000,
+        send(
+            "unsolicited_reply",
+            table["unsolicited"],
+            "unsolicited_reply",
+            x=-600,
+            y=-950,
         ),
         ask_content(
             "intro",
@@ -1477,7 +1498,6 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         ("set_complete", "{{flow.variables.set_complete}}"),
         ("set_no_reply", "{{flow.variables.set_no_reply}}"),
         ("set_fail", "{{flow.variables.set_fail}}"),
-        ("set_unsolicited", "{{flow.variables.set_unsolicited}}"),
         ("outcome", "{{flow.variables.outcome}}"),
         # Both were set but never published, so the duration they exist to
         # measure was not in the data at all.
@@ -1586,10 +1606,11 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         ]
     )
 
-    # The closing messages are terminal: drop their outgoing transitions so the
-    # flow ends rather than looping back into itself.
+    # The closing messages and the unsolicited acknowledgement are terminal:
+    # drop their outgoing transitions so the flow ends rather than looping back
+    # into itself.
     for state in states:
-        if state["name"].startswith("close_"):
+        if state["name"].startswith("close_") or state["name"] == "unsolicited_reply":
             state["transitions"] = [{"event": "sent"}, {"event": "failed"}]
 
     return {

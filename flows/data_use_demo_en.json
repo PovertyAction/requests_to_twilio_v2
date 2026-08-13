@@ -17,7 +17,7 @@
         },
         {
           "event": "incomingMessage",
-          "next": "mark_unsolicited"
+          "next": "unsolicited_reply"
         },
         {
           "event": "incomingCall"
@@ -31,24 +31,22 @@
       ]
     },
     {
-      "name": "mark_unsolicited",
-      "type": "set-variables",
+      "name": "unsolicited_reply",
+      "type": "send-message",
       "properties": {
         "offset": {
-          "x": -500,
-          "y": -1000
+          "x": -600,
+          "y": -950
         },
-        "variables": [
-          {
-            "key": "set_unsolicited",
-            "value": "1"
-          }
-        ]
+        "from": "{{flow.channel.address}}",
+        "body": "👋 Thanks for your message.\n\nThis number only runs a short survey during the session, so there is nothing further needed from you here.\n\nIf you have a question, the IPA team at the training can help."
       },
       "transitions": [
         {
-          "event": "next",
-          "next": "intro"
+          "event": "sent"
+        },
+        {
+          "event": "failed"
         }
       ]
     },
@@ -1460,10 +1458,6 @@
           {
             "key": "set_fail",
             "value": "{{flow.variables.set_fail}}"
-          },
-          {
-            "key": "set_unsolicited",
-            "value": "{{flow.variables.set_unsolicited}}"
           },
           {
             "key": "outcome",
