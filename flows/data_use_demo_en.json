@@ -67,7 +67,7 @@
         "content_variables": [
           {
             "key": "1",
-            "value": "{{flow.data.name}}"
+            "value": "{{flow.data.name | default: 'there'}}"
           }
         ]
       },
@@ -1671,7 +1671,7 @@
         "content_variables": [
           {
             "key": "1",
-            "value": "{{flow.data.name}}"
+            "value": "{{flow.data.name | default: 'there'}}"
           }
         ]
       },

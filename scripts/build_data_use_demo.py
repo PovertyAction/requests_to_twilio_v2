@@ -1276,7 +1276,14 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             "consent",
             x=0,
             y=-950,
-            variables=[{"key": "1", "value": "{{flow.data.name}}"}],
+            # A template variable that resolves to an empty string is rejected
+            # outright - error 21656, "one or more variables resolve to null or an
+            # empty string at send time" - and the entire opener fails to send. Two
+            # ways that happens: somebody messages the number cold, so there is no
+            # preloaded name at all, or a sample file has a blank cell. Both leave a
+            # respondent who was contacted and then heard nothing. Seen live: a cold
+            # inbound published a row reading `undeliverable` for exactly this.
+            variables=[{"key": "1", "value": "{{flow.data.name | default: 'there'}}"}],
             # Someone who never answers the opener has never opened the 24-hour
             # window, so every later message to them is business-initiated and
             # fails with 63016. They get a published row and no closing message
@@ -1546,7 +1553,9 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 content_sids[table["close_template"]],
                 x=900,
                 y=1800,
-                variables=[{"key": "1", "value": "{{flow.data.name}}"}],
+                variables=[
+                    {"key": "1", "value": "{{flow.data.name | default: 'there'}}"}
+                ],
             ),
             {
                 "name": "end_without_message",
