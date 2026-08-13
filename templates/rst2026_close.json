@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "CLOSING template for the data-use demo, English.",
+    "",
+    "This is the second half of the bookend, and it exists for one specific",
+    "group: people who never replied to the opener at all. They never opened the",
+    "24-hour window, so every message to them is business-initiated and a",
+    "free-form send fails with 63016. An approved template is the only way to",
+    "reach them - which is the whole reason the bookend rule asks for one.",
+    "",
+    "Why bother reaching them. A respondent who was contacted and did not answer",
+    "is left not knowing whether something is still expected of them. Closing",
+    "the loop tells them the exercise is over, that no reply is needed, and that",
+    "they will not be contacted again. That is closure, and it is the courteous",
+    "half of a contact we initiated.",
+    "",
+    "The flow's other three closings are NOT this template. Complete, declined",
+    "and stopped-midway all have an inbound reply within the last hour, so they",
+    "are in session and send free-form bodies - which lets each carry its own",
+    "longer, outcome-specific text, including the reveal of the experiment.",
+    "Undeliverable gets nothing at all: a number that could not receive the",
+    "first message cannot receive this one either.",
+    "",
+    "Framed for UTILITY. It concludes an exchange the recipient was part of,",
+    "states plainly that nothing further is required, and asks for nothing. No",
+    "incentive, no persuasion, no link.",
+    "",
+    "Deliberately has no reveal of the A/B design. Somebody who never answered",
+    "saw one message and has no context for it; explaining the experiment to",
+    "them would be confusing rather than interesting.",
+    "",
+    "Submission is irreversible - Meta has no edit operation - so review the",
+    "wording here first. Copy must match the `close_never_started` widget that",
+    "scripts/build_data_use_demo.py emits."
+  ],
+  "friendly_name": "rst2026_close",
+  "language": "en",
+  "variables": {
+    "1": "Priya"
+  },
+  "types": {
+    "twilio/text": {
+      "body": "Hi {{1}}, thank you for your time. The short WhatsApp survey we sent for the Research Staff Training 2026 has now closed.\n\nNo reply is needed from you, and we will not message you about it again.\n\nIf you would like to see what the exercise showed, come along to the session at the training.\n\n_IPA Team_"
+    }
+  }
+}

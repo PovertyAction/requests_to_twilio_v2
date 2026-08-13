@@ -27,7 +27,11 @@ LANGS = sorted(demo.LANGS)
 
 def fake_sids(lang: str) -> dict[str, str]:
     """Every content SID the flow needs, without touching Twilio."""
-    names = [demo.LANGS[lang]["intro_template"], demo.consent_template_name(lang)]
+    names = [
+        demo.LANGS[lang]["intro_template"],
+        demo.LANGS[lang]["close_template"],
+        demo.consent_template_name(lang),
+    ]
     names += [demo.question_template_name(lang, k) for k in demo.QUESTION_KEYS]
     return {name: f"HX{index:032d}" for index, name in enumerate(names)}
 
@@ -351,52 +355,90 @@ class TestBuild:
         for reply in [consent["button_no"], *consent["typed_no"].split("|")]:
             assert route_split(split, reply) == "record_declined", reply
 
-    def test_someone_who_never_replies_gets_a_row_and_no_message(self, lang):
-        """The window never opened, so any close would fail with 63016.
+    def test_someone_who_never_replies_gets_a_row_and_a_closing_template(self, lang):
+        """They are owed closure, and only a template can reach them.
 
-        It is also the right thing to do rather than merely the only possible
-        one - there is nothing to thank a non-participant for. What must still
-        happen is the row.
+        Somebody contacted once who did not answer is left not knowing whether
+        anything is still expected of them. They never opened the 24-hour
+        window, so a free-form close fails with 63016 - the approved template
+        is the only mechanism that gets there.
         """
         definition = demo.build(lang, fake_sids(lang))
         states = {s["name"]: s for s in definition["states"]}
 
-        node, event, path = "intro", "timeout", []
+        # Walk the timeout edge out of the opener, evaluating splits properly
+        # rather than taking whichever branch happens to be first.
+        node, event, path, outcome = "intro", "timeout", [], None
         while node and node not in path:
             path.append(node)
-            following = [
-                t.get("next")
-                for t in states[node]["transitions"]
-                if t.get("event") == event and t.get("next")
-            ]
-            node = following[0] if following else None
-            if node is None:
-                node = next(
-                    (
-                        t.get("next")
-                        for t in states[path[-1]]["transitions"]
-                        if t.get("next")
-                    ),
-                    None,
-                )
+            state = states[node]
+
+            for variable in state["properties"].get("variables", []):
+                if variable["key"] == "outcome":
+                    outcome = variable["value"]
+
+            if state["type"] == "split-based-on":
+                node = route_split(state, outcome or "")
+            else:
+                following = [
+                    t.get("next")
+                    for t in state["transitions"]
+                    if t.get("event") == event and t.get("next")
+                ]
+                if not following:
+                    following = [
+                        t.get("next") for t in state["transitions"] if t.get("next")
+                    ]
+                node = following[0] if following else None
             event = "next"
 
+        assert outcome == "unreachable", path
         assert "publish_motherduck" in path, path
-        assert not any(p.startswith("close_") for p in path), path
-        assert path[-1] == "end_without_message", path
+        assert path[-1] == "close_never_started", path
 
-    def test_a_close_is_only_sent_where_the_window_is_open(self, lang):
-        """Every outcome that reaches a close must have had an inbound reply."""
+    def test_the_close_to_a_non_responder_is_a_template_not_a_body(self, lang):
+        """A free-form body here fails with 63016 for every single one of them."""
+        definition = demo.build(lang, fake_sids(lang))
+        close = next(
+            s for s in definition["states"] if s["name"] == "close_never_started"
+        )
+        assert close["properties"]["message_type"] == "content_template"
+        assert close["properties"]["content_sid"]
+        assert "body" not in close["properties"]
+
+    def test_the_in_session_closes_stay_free_form(self, lang):
+        """They have an inbound reply within the hour, so nothing is frozen.
+
+        That matters: it lets each carry its own longer, outcome-specific text,
+        including the reveal of the experiment.
+        """
+        definition = demo.build(lang, fake_sids(lang))
+        states = {s["name"]: s for s in definition["states"]}
+        for name in ("close_complete", "close_declined", "close_incomplete"):
+            assert states[name]["properties"]["body"]
+            assert "content_sid" not in states[name]["properties"]
+
+    def test_every_outcome_is_routed_deliberately(self, lang):
         definition = demo.build(lang, fake_sids(lang))
         split = next(s for s in definition["states"] if s["name"] == "split_closing")
         for outcome, expected in (
             ("complete", "close_complete"),
             ("declined", "close_declined"),
             ("incomplete", "close_incomplete"),
-            ("unreachable", "end_without_message"),
+            ("unreachable", "close_never_started"),
+            # The one case nothing can reach: the first message never arrived,
+            # so neither would this one.
             ("undeliverable", "end_without_message"),
         ):
             assert route_split(split, outcome) == expected, outcome
+
+    def test_both_bookend_templates_are_required_to_build(self, lang):
+        """Missing either one must fail loudly, not silently ship a broken flow."""
+        for key in ("intro_template", "close_template"):
+            sids = fake_sids(lang)
+            sids.pop(demo.LANGS[lang][key])
+            with pytest.raises(demo.BuildError, match="missing content SIDs"):
+                demo.build(lang, sids)
 
     def test_an_unreadable_consent_reply_does_not_enrol_anyone(self, lang):
         """Ambiguity must never be read as agreement."""

@@ -158,9 +158,10 @@ EN: dict[str, Any] = {
     "name": "English",
     "flow_suffix": "en",
     "language": "en",
-    # Already reviewed in templates/rst2026_intro.json and pending Meta
-    # approval. The opener is the only piece of this flow that needs it.
+    # The two ends of the bookend, and the only two templates in this flow that
+    # Meta ever sees. Everything between them is in session and free.
     "intro_template": "rst2026_intro",
+    "close_template": "rst2026_close",
     "description": "Data use demo (ARM1/ARM2 experiment) - English, RST Jaipur 2026",
     "consent": {
         "body": (
@@ -320,6 +321,7 @@ ES: dict[str, Any] = {
     "flow_suffix": "es",
     "language": "es",
     "intro_template": "data_use_demo_intro_es",
+    "close_template": "data_use_demo_close_es",
     "description": "Data use demo (ARM1/ARM2 experiment) - Spanish",
     "consent": {
         "body": (
@@ -811,6 +813,30 @@ def send(name, body, next_state, *, x=0, y=0):
     }
 
 
+def send_content(name, content_sid, *, x=0, y=0, variables=None):
+    """Build a terminal one-way message that sends an approved template.
+
+    Used for the closing message to somebody who never replied. They never
+    opened the 24-hour window, so this send is business-initiated and a
+    free-form body would fail with 63016 - a template is the only way to reach
+    them at all.
+    """
+    properties = {
+        "offset": {"x": x, "y": y},
+        "from": FROM,
+        "message_type": "content_template",
+        "content_sid": content_sid,
+    }
+    if variables:
+        properties["content_variables"] = variables
+    return {
+        "name": name,
+        "type": "send-message",
+        "properties": properties,
+        "transitions": [{"event": "sent"}, {"event": "failed"}],
+    }
+
+
 def ask(name, body, on_reply, *, x=0, y=0, on_timeout="mark_no_reply"):
     """Build a free-text question. Wires reply, timeout and deliveryFailure."""
     return {
@@ -1159,7 +1185,11 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         )
 
     table = LANGS[lang]
-    needed = [table["intro_template"], consent_template_name(lang)]
+    needed = [
+        table["intro_template"],
+        table["close_template"],
+        consent_template_name(lang),
+    ]
     needed += [question_template_name(lang, key) for key in QUESTION_KEYS]
     missing = [name for name in needed if not content_sids.get(name)]
     if missing:
@@ -1415,10 +1445,19 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
 
     states.extend(
         [
-            # noMatch is the "say nothing" branch, and it is where `unreachable`
-            # and `undeliverable` land. Those are the two outcomes where a
-            # closing message cannot be delivered, so the flow ends quietly
-            # rather than queuing a send that is certain to fail with 63016.
+            # Four of the five outcomes get a closing message; they differ only
+            # in which mechanism can reach the respondent.
+            #
+            #   complete / declined / incomplete   replied within the last hour,
+            #                                      so the window is open and the
+            #                                      body can be free-form and as
+            #                                      long as the outcome needs
+            #   unreachable                        never replied, so the window
+            #                                      never opened - only an
+            #                                      approved template gets there
+            #   undeliverable                      the first message never
+            #                                      arrived, so neither will this
+            #                                      one. Nothing is sent
             split(
                 "split_closing",
                 "{{flow.variables.outcome}}",
@@ -1426,16 +1465,25 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                     ("complete", "close_complete"),
                     ("declined", "close_declined"),
                     ("incomplete", "close_incomplete"),
+                    ("unreachable", "close_never_started"),
+                    ("undeliverable", "end_without_message"),
                 ],
                 "end_without_message",
                 x=0,
                 y=1680,
             ),
+            send_content(
+                "close_never_started",
+                content_sids[table["close_template"]],
+                x=900,
+                y=1800,
+                variables=[{"key": "1", "value": "{{flow.data.name}}"}],
+            ),
             {
                 "name": "end_without_message",
                 "type": "set-variables",
                 "properties": {
-                    "offset": {"x": 900, "y": 1800},
+                    "offset": {"x": 1400, "y": 1800},
                     "variables": [{"key": "set_closed_silently", "value": "1"}],
                 },
                 "transitions": [{"event": "next"}],
@@ -1513,7 +1561,11 @@ def resolve_sids(lang: str) -> tuple[dict[str, str], list[str]]:
     client = cfg.twilio_client()
 
     table = LANGS[lang]
-    wanted = [table["intro_template"], consent_template_name(lang)]
+    wanted = [
+        table["intro_template"],
+        table["close_template"],
+        consent_template_name(lang),
+    ]
     wanted += [question_template_name(lang, key) for key in QUESTION_KEYS]
 
     found: dict[str, str] = {}
@@ -1546,9 +1598,9 @@ def build_one(lang: str) -> bool:
         print("\n  Cannot build the flow yet - these content templates do not")
         print("  exist on this account. Create them, then re-run this build:")
         for name in missing:
-            if name == LANGS[lang]["intro_template"]:
+            if name in (LANGS[lang]["intro_template"], LANGS[lang]["close_template"]):
                 where = f"templates/{name}.json"
-                note = "  # opener: needs Meta approval before a real round"
+                note = "  # bookend: needs Meta approval before a real round"
             else:
                 where = f"templates/generated/{name}.json"
                 note = "  # in-session only: never submit this one"

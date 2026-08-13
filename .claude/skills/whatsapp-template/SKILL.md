@@ -249,10 +249,51 @@ any number of unsubmitted ones behind it. In this repo:
 reject that request - it never resolves, which is indistinguishable from a slow
 approval on the morning a round is waiting for it.
 
-The exception is the **closing** message. A survey with 4-hour timeouts can run
-past the 24-hour window, so by the time the close is sent the window may have
-shut. That is why the bookend rule below asks for an approved closing template
-even though the close is nominally "in session".
+The exception is the **closing** message, and the reason is stronger than the
+timeout arithmetic suggests.
+
+A survey with 4-hour timeouts can run past the 24-hour window, so the close may
+land after it has shut. But even with short timeouts there is one group who are
+**always** out of session: **people who never replied to the opener at all.**
+They never opened the window, so every message to them is business-initiated and
+a free-form close fails with 63016.
+
+Those are exactly the people the closing template exists for. Somebody contacted
+once who did not answer is left not knowing whether something is still expected
+of them. IPA closes that loop: thank them, say no reply is needed, say they will
+not be contacted again. **An approved template is the only mechanism that
+reaches them**, which is what the bookend rule is really buying.
+
+So the shape of a flow's closes is usually:
+
+| Outcome | Window | Close |
+| --- | --- | --- |
+| Completed, declined, stopped midway | open - replied recently | free-form body, as long as the outcome needs |
+| **Never replied** | never opened | **approved template** |
+| Undeliverable | first message never arrived | nothing - neither would this one |
+
+Keeping the in-session closes free-form is deliberate: each carries its own
+longer, outcome-specific text, and none of it is frozen by a submission.
+
+### Consent belongs in session, not in a template
+
+It is tempting to fold consent into the opener - one message instead of two,
+one fewer break-off point. Do not.
+
+- **IRB protocols are explicit about consent wording**, and where they specify
+  it, that text wins. A submitted template freezes it: any protocol amendment
+  means a new template and a new review.
+- **Consent text is long.** In session it can be as long as the protocol
+  requires and can link the full information sheet. As a template it is fighting
+  a length budget and a reviewer.
+- **Tapping "Start" is not informed consent.** It opens a channel. Keeping the
+  two separate means the opener does the mechanical job of opening the 24-hour
+  window, and consent is an explicit act taken with the information in front of
+  them.
+
+The pattern that works: a **single quick-reply Start button** on the approved
+opener, then the full consent message in session with Yes/No buttons. The
+opener stays short and easy to approve; the consent stays free.
 
 For a closing template, plain `twilio/text` is usually right - there is nothing
 left to ask. Follow the house formula: thank, close warmly, sign off as

@@ -142,6 +142,20 @@ who said no is not missing data.
 Where the IRB protocol specifies consent wording, that text wins over anything
 that reads better.
 
+**Consent is its own message, in session - never folded into the opener.**
+Merging them saves a message and looks tempting. Three reasons not to:
+
+- IRB protocols are explicit about consent wording, and a submitted template
+  freezes it. Any amendment then means a new template and a new review.
+- Consent text is long and often needs to link the information sheet. In
+  session it is unconstrained; as a template it fights a length budget.
+- Tapping "Start" is not informed consent. It opens a channel.
+
+So: a **single quick-reply Start button** on the approved opener, whose real job
+is opening the 24-hour window, then the full consent message in session with
+Yes/No buttons. The opener stays short and easy to approve, and the consent text
+stays free to change.
+
 ## Stage 2 - questions
 
 **Prefer buttons and lists. Avoid open text unless the question genuinely needs
