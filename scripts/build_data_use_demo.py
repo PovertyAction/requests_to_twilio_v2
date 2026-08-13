@@ -124,6 +124,12 @@ PUBLISH_URL = f"https://{FUNCTIONS_DOMAIN}/publish-motherduck"
 
 QUESTION_KEYS = ("P1", "P2", "P3", "P4")
 
+#: Studio has no `now` variable - `{{flow.variables.now}}` renders empty, which
+#: is how set_time_fin came to be blank on every row of the first live test. The
+#: Liquid date filter does accept the literal string 'now', which is the
+#: documented way to stamp a time.
+NOW = "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
+
 
 # ---------------------------------------------------------------------------
 # Language tables.
@@ -1230,8 +1236,14 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 # ends the execution at the trigger without sending anything,
                 # and the launcher still reports it as "active".
                 {"event": "incomingRequest", "next": "intro"},
-                # Someone messaging the number cold gets the same opening.
-                {"event": "incomingMessage", "next": "intro"},
+                # Someone messaging the number cold gets the same opening, but
+                # is flagged first. They arrive with no preloaded data at all -
+                # no caseid, so nothing to join back to the sampling frame -
+                # and the first live test produced exactly such a row: every
+                # field null but the outcome. At a conference a walk-up is
+                # welcome, in a real round it is contamination, and either way
+                # the analyst has to be able to tell which rows are which.
+                {"event": "incomingMessage", "next": "mark_unsolicited"},
                 {"event": "incomingCall"},
                 {"event": "incomingConversationMessage"},
                 {"event": "incomingParent"},
@@ -1241,6 +1253,13 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         # It is the only business-initiated message in the flow, so it is the
         # only one Meta reviews. Waiting means the respondent's reply opens the
         # 24-hour window, after which the buttons and lists below are free.
+        set_vars(
+            "mark_unsolicited",
+            [("set_unsolicited", "1")],
+            "intro",
+            x=-500,
+            y=-1000,
+        ),
         ask_content(
             "intro",
             content_sids[table["intro_template"]],
@@ -1290,7 +1309,18 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             y=-700,
             condition="regex",
         ),
-        set_vars("record_consent", [("set_consent", "yes")], "split_arm", x=0, y=-580),
+        # Stamped here rather than at the trigger: the interval that matters is
+        # how long the questions took, and time spent deciding whether to
+        # consent is not part of that. With set_time_fin it gives a duration,
+        # and implausibly fast completion is the standard flag for inattentive
+        # responding.
+        set_vars(
+            "record_consent",
+            [("set_consent", "yes"), ("set_time_start", NOW)],
+            "split_arm",
+            x=0,
+            y=-580,
+        ),
         set_vars(
             "record_declined",
             [("set_consent", "no"), ("outcome", "declined")],
@@ -1387,7 +1417,7 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             # out or undeliverable.
             set_vars(
                 "finish",
-                [("set_time_fin", "{{flow.variables.now}}")],
+                [("set_time_fin", NOW)],
                 "function_encrypt",
                 x=0,
                 y=1320,
@@ -1430,7 +1460,12 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         ("set_complete", "{{flow.variables.set_complete}}"),
         ("set_no_reply", "{{flow.variables.set_no_reply}}"),
         ("set_fail", "{{flow.variables.set_fail}}"),
+        ("set_unsolicited", "{{flow.variables.set_unsolicited}}"),
         ("outcome", "{{flow.variables.outcome}}"),
+        # Both were set but never published, so the duration they exist to
+        # measure was not in the data at all.
+        ("set_time_start", "{{flow.variables.set_time_start}}"),
+        ("set_time_fin", "{{flow.variables.set_time_fin}}"),
     ]
     for arm in ("ARM1", "ARM2"):
         for key in QUESTION_KEYS:

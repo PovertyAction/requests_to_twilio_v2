@@ -17,7 +17,7 @@
         },
         {
           "event": "incomingMessage",
-          "next": "intro"
+          "next": "mark_unsolicited"
         },
         {
           "event": "incomingCall"
@@ -27,6 +27,28 @@
         },
         {
           "event": "incomingParent"
+        }
+      ]
+    },
+    {
+      "name": "mark_unsolicited",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": -1000
+        },
+        "variables": [
+          {
+            "key": "set_unsolicited",
+            "value": "1"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "intro"
         }
       ]
     },
@@ -149,6 +171,10 @@
           {
             "key": "set_consent",
             "value": "yes"
+          },
+          {
+            "key": "set_time_start",
+            "value": "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
           }
         ]
       },
@@ -1341,7 +1367,7 @@
         "variables": [
           {
             "key": "set_time_fin",
-            "value": "{{flow.variables.now}}"
+            "value": "{{ 'now' | date: \"%Y-%m-%d %H:%M:%S\" }}"
           }
         ]
       },
@@ -1436,8 +1462,20 @@
             "value": "{{flow.variables.set_fail}}"
           },
           {
+            "key": "set_unsolicited",
+            "value": "{{flow.variables.set_unsolicited}}"
+          },
+          {
             "key": "outcome",
             "value": "{{flow.variables.outcome}}"
+          },
+          {
+            "key": "set_time_start",
+            "value": "{{flow.variables.set_time_start}}"
+          },
+          {
+            "key": "set_time_fin",
+            "value": "{{flow.variables.set_time_fin}}"
           },
           {
             "key": "ARM1_P1",
