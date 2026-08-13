@@ -479,7 +479,7 @@
                 "{{widgets.ARM2_P1.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:0 times|\\(?1[.)]?|1-2 times|\\(?2[.)]?|3-5 times|\\(?3[.)]?|6-10 times|\\(?4[.)]?|More than 10 times|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:p1_0|0 times|\\(?1[.)]?|p1_1_2|1-2 times|\\(?2[.)]?|p1_3_5|3-5 times|\\(?3[.)]?|p1_6_10|6-10 times|\\(?4[.)]?|p1_gt10|More than 10 times|\\(?5[.)]?)\\s*)"
             }
           ]
         }
@@ -500,7 +500,7 @@
           },
           {
             "key": "ARM2_P1_code",
-            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"0 times\" or \"1\" %}1{% when \"1-2 times\" or \"2\" %}2{% when \"3-5 times\" or \"3\" %}3{% when \"6-10 times\" or \"4\" %}4{% when \"more than 10 times\" or \"5\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p1_0\" or \"0 times\" or \"1\" %}1{% when \"p1_1_2\" or \"1-2 times\" or \"2\" %}2{% when \"p1_3_5\" or \"3-5 times\" or \"3\" %}3{% when \"p1_6_10\" or \"6-10 times\" or \"4\" %}4{% when \"p1_gt10\" or \"more than 10 times\" or \"5\" %}5{% else %}other{% endcase %}"
           }
         ]
       },
@@ -679,7 +679,7 @@
                 "{{widgets.ARM2_P2.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:0 projects|\\(?1[.)]?|1 project|\\(?2[.)]?|2-3 projects|\\(?3[.)]?|4-5 projects|\\(?4[.)]?|More than 5 projects|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:p2_0|0 projects|\\(?1[.)]?|p2_1|1 project|\\(?2[.)]?|p2_2_3|2-3 projects|\\(?3[.)]?|p2_4_5|4-5 projects|\\(?4[.)]?|p2_gt5|More than 5 projects|\\(?5[.)]?)\\s*)"
             }
           ]
         }
@@ -700,7 +700,7 @@
           },
           {
             "key": "ARM2_P2_code",
-            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"0 projects\" or \"1\" %}1{% when \"1 project\" or \"2\" %}2{% when \"2-3 projects\" or \"3\" %}3{% when \"4-5 projects\" or \"4\" %}4{% when \"more than 5 projects\" or \"5\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p2_0\" or \"0 projects\" or \"1\" %}1{% when \"p2_1\" or \"1 project\" or \"2\" %}2{% when \"p2_2_3\" or \"2-3 projects\" or \"3\" %}3{% when \"p2_4_5\" or \"4-5 projects\" or \"4\" %}4{% when \"p2_gt5\" or \"more than 5 projects\" or \"5\" %}5{% else %}other{% endcase %}"
           }
         ]
       },
@@ -879,7 +879,7 @@
                 "{{widgets.ARM2_P3.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:We never collect data|\\(?1[.)]?|A few projects|\\(?2[.)]?|About half|\\(?3[.)]?|Most projects|\\(?4[.)]?|Almost all projects|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:p3_never|We never collect data|\\(?1[.)]?|p3_lt25|A few projects|\\(?2[.)]?|p3_25_50|About half|\\(?3[.)]?|p3_51_75|Most projects|\\(?4[.)]?|p3_gt75|Almost all projects|\\(?5[.)]?)\\s*)"
             }
           ]
         }
@@ -900,7 +900,7 @@
           },
           {
             "key": "ARM2_P3_code",
-            "value": "{% assign reply = widgets.ARM2_P3.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"we never collect data\" or \"1\" %}1{% when \"a few projects\" or \"2\" %}2{% when \"about half\" or \"3\" %}3{% when \"most projects\" or \"4\" %}4{% when \"almost all projects\" or \"5\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P3.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p3_never\" or \"we never collect data\" or \"1\" %}1{% when \"p3_lt25\" or \"a few projects\" or \"2\" %}2{% when \"p3_25_50\" or \"about half\" or \"3\" %}3{% when \"p3_51_75\" or \"most projects\" or \"4\" %}4{% when \"p3_gt75\" or \"almost all projects\" or \"5\" %}5{% else %}other{% endcase %}"
           }
         ]
       },
@@ -1079,7 +1079,7 @@
                 "{{widgets.ARM2_P4.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:In person \\(CAPI\\)|\\(?1[.)]?|Phone \\(CATI\\)|\\(?2[.)]?|Web or online|\\(?3[.)]?|WhatsApp|\\(?4[.)]?|Another mode|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:p4_capi|In person \\(CAPI\\)|\\(?1[.)]?|p4_cati|Phone \\(CATI\\)|\\(?2[.)]?|p4_web|Web or online|\\(?3[.)]?|p4_whatsapp|WhatsApp|\\(?4[.)]?|p4_other|Another mode|\\(?5[.)]?)\\s*)"
             }
           ]
         }
@@ -1100,7 +1100,7 @@
           },
           {
             "key": "ARM2_P4_code",
-            "value": "{% assign reply = widgets.ARM2_P4.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"in person capi\" or \"1\" %}1{% when \"phone cati\" or \"2\" %}2{% when \"web or online\" or \"3\" %}3{% when \"whatsapp\" or \"4\" %}4{% when \"another mode\" or \"5\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P4.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p4_capi\" or \"in person capi\" or \"1\" %}1{% when \"p4_cati\" or \"phone cati\" or \"2\" %}2{% when \"p4_web\" or \"web or online\" or \"3\" %}3{% when \"p4_whatsapp\" or \"whatsapp\" or \"4\" %}4{% when \"p4_other\" or \"another mode\" or \"5\" %}5{% else %}other{% endcase %}"
           }
         ]
       },

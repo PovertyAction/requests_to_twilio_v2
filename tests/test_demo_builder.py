@@ -202,7 +202,8 @@ class TestCodeMapping:
         assert demo.expected_code(likert, "5 - Very satisfied") == "5"
         assert demo.expected_code(likert, "Prefer not to say") == "-99"
         assert demo.expected_code(likert, "6") == "-99"
-        assert '{% when "prefer not to say" or "6" %}-99' in demo.code_mapping(
+        assert demo.expected_code(likert, "rna") == "-99"
+        assert '{% when "rna" or "prefer not to say" or "6" %}-99' in demo.code_mapping(
             "q", likert
         )
 
@@ -213,10 +214,11 @@ class TestCodeMapping:
 
     def test_the_liquid_normalises_before_comparing(self):
         """Otherwise the tolerant split and the strict mapping disagree."""
-        liquid = demo.code_mapping("q", [("a", "Yes", "d")])
+        liquid = demo.code_mapping("q", [("opt_a", "Yes", "d")])
         assert "| strip | downcase" in liquid
         assert '| replace: ".", ""' in liquid
-        assert '{% when "yes" or "1" %}1' in liquid
+        # id first: a tapped list row sends the id, not the label.
+        assert '{% when "opt_a" or "yes" or "1" %}1' in liquid
 
 
 class TestTemplateDefinitions:

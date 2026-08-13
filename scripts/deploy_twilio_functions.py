@@ -112,6 +112,28 @@ def environment_variables() -> dict[str, str]:
     return variables
 
 
+#: How the Functions are exposed. The three settings are not shades of the same
+#: thing:
+#:
+#:   private    not reachable over HTTP at all - only from another Function in
+#:              the same service. A Studio Run Function widget calling one gets
+#:              403 "Unauthorized", which reads like a credentials problem and
+#:              is not.
+#:   protected  reachable over HTTP, but only with a valid X-Twilio-Signature.
+#:              Studio signs the requests it makes, so this is the setting that
+#:              works for a flow.
+#:   public     reachable by anyone who knows the URL.
+#:
+#: `protected` rather than `public` because publish_motherduck writes rows to
+#: the warehouse: public would leave an unauthenticated write endpoint open to
+#: anyone who saw the URL in a flow definition.
+#:
+#: This was `private` for the first live test, so every execution reached the
+#: end of the survey and then failed to encrypt or publish anything. The
+#: respondent saw a normal closing message; the data never existed.
+FUNCTION_VISIBILITY = "protected"
+
+
 def upload_version(auth, service_sid: str, function_sid: str, path: str, source: Path):
     """Upload function source and return the new version SID.
 
@@ -120,7 +142,7 @@ def upload_version(auth, service_sid: str, function_sid: str, path: str, source:
     response = requests.post(
         f"{UPLOAD_HOST}/Services/{service_sid}/Functions/{function_sid}/Versions",
         auth=auth,
-        data={"Path": path, "Visibility": "private"},
+        data={"Path": path, "Visibility": FUNCTION_VISIBILITY},
         files={"Content": (source.name, source.read_bytes(), "application/javascript")},
         timeout=60,
     )

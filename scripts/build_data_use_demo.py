@@ -616,8 +616,18 @@ def _check_options_are_matchable(lang: str) -> list[str]:
         pattern = answer_pattern(options)
 
         for index, option in enumerate(options, start=1):
-            item = option[1]
-            for reply in (item, str(index), f"{index}.", f" {item} ", item.upper()):
+            option_id, item = option[0], option[1]
+            # option_id first: that is what a tapped list row actually sends.
+            # Discovered the hard way - the first live test answered `p1_0`
+            # where this expected "0 times", so every tap fell to the retry.
+            for reply in (
+                option_id,
+                item,
+                str(index),
+                f"{index}.",
+                f" {item} ",
+                item.upper(),
+            ):
                 if not evaluate_condition("regex", pattern, reply):
                     problems.append(
                         f"{lang}: ARM2 {key} would not accept {reply!r}, so the "
@@ -979,6 +989,11 @@ def answer_pattern(options) -> str:
     """
     alternatives: list[str] = []
     for index, option in enumerate(options, start=1):
+        # The id first, because that is what a tapped list row actually
+        # returns. The label second, because a tapped quick-reply button
+        # returns *its* title instead - the two interactive types disagree.
+        # The position last, for anyone who ignores the menu and types.
+        alternatives.append(escape_literal(option[0]))
         alternatives.append(escape_literal(option[1]))
         alternatives.append(rf"\(?{index}[.)]?")
     return r"(?:\s*(?:" + "|".join(alternatives) + r")\s*)"
@@ -1029,7 +1044,11 @@ def expected_code(options, reply: str) -> str:
     """Return the code the flow will store for this reply, or "other"."""
     normalised = normalise_reply(reply)
     for index, option in enumerate(options, start=1):
-        if normalised in (normalise_reply(option[1]), str(index)):
+        if normalised in (
+            normalise_reply(option[0]),
+            normalise_reply(option[1]),
+            str(index),
+        ):
             return option_code(option, index)
     return "other"
 
@@ -1051,7 +1070,8 @@ def code_mapping(widget: str, options) -> str:
     clauses = []
     for index, option in enumerate(options, start=1):
         clauses.append(
-            f'{{% when "{normalise_reply(option[1])}" or "{index}" %}}'
+            f'{{% when "{normalise_reply(option[0])}" '
+            f'or "{normalise_reply(option[1])}" or "{index}" %}}'
             f"{option_code(option, index)}"
         )
     return (
