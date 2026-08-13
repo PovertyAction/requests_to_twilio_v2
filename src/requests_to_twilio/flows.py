@@ -255,6 +255,136 @@ def unpublished_paths(definition: dict) -> list[tuple[str, str, str]]:
     return stranded
 
 
+def evaluate_condition(kind: str, value: str, reply: str) -> bool:
+    """Decide a single Studio split condition the way Studio decides it.
+
+    Args:
+        kind: The condition type, e.g. ``equal_to`` or ``regex``.
+        value: The condition's configured value.
+        reply: The text being tested.
+
+    Returns:
+        Whether the condition matches. Unknown condition types return False.
+
+    Studio's documented semantics, which are not obvious and matter here:
+
+    * Conditions are **case-insensitive** and **trim leading and trailing
+      whitespace** from the value being tested. So neither casing nor a stray
+      space is the reason an option fails to match.
+    * ``matches_any_of`` takes its alternatives as **one comma-delimited
+      string**. A comma inside an option label therefore splits it into two
+      alternatives that can never match - silently.
+    * ``regex`` is written without slashes, is case-insensitive, and **must
+      match the entire string**. Because the anchoring is applied around
+      whatever pattern you supply, bare alternation (``a|b``) can bind as
+      ``(^a)|(b$)``; patterns must wrap themselves in ``(?:...)``.
+
+    This exists so option routing can be *executed* in a test rather than read
+    and hoped about. A condition that looks right and matches nothing is the
+    same defect as a break-off that publishes no row: invisible in the editor,
+    obvious only in the data.
+
+    """
+    reply = reply.strip()
+    folded = reply.casefold()
+
+    if kind == "equal_to":
+        return folded == value.strip().casefold()
+    if kind == "not_equal_to":
+        return folded != value.strip().casefold()
+    if kind == "matches_any_of":
+        return folded in {part.strip().casefold() for part in value.split(",")}
+    if kind == "does_not_match_any_of":
+        return folded not in {part.strip().casefold() for part in value.split(",")}
+    if kind == "regex":
+        try:
+            return re.fullmatch(value, reply, re.IGNORECASE | re.DOTALL) is not None
+        except re.error:
+            return False
+    if kind == "contains":
+        return value.strip().casefold() in folded
+    if kind == "starts_with":
+        return folded.startswith(value.strip().casefold())
+    if kind == "is_blank":
+        return not folded
+    if kind == "is_not_blank":
+        return bool(folded)
+    return False
+
+
+def route_split(state: dict, reply: str) -> str | None:
+    """Return the widget a split sends this reply to.
+
+    Args:
+        state: A ``split-based-on`` widget definition.
+        reply: The text being tested.
+
+    Returns:
+        The destination widget name, or None if the split dead-ends.
+
+    Match transitions are evaluated in order, as Studio does, and the noMatch
+    branch is the fallback.
+
+    """
+    fallback = None
+    for transition in state.get("transitions", []):
+        if transition.get("event") == "noMatch":
+            fallback = transition.get("next")
+
+    for transition in state.get("transitions", []):
+        if transition.get("event") != "match":
+            continue
+        conditions = transition.get("conditions") or []
+        if conditions and all(
+            evaluate_condition(c.get("type", ""), c.get("value", ""), reply)
+            for c in conditions
+        ):
+            return transition.get("next")
+    return fallback
+
+
+def unmatchable_conditions(definition: dict) -> list[str]:
+    """Find split conditions that cannot match anything.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        Descriptions of conditions that are broken rather than merely unmet.
+
+    Two failures are worth catching, because both look fine on the canvas and
+    simply route every respondent down the noMatch branch:
+
+    * A regex that does not compile. Studio does not reject it.
+    * A ``matches_any_of`` with an empty alternative, which is what a trailing
+      comma or a comma inside an option label leaves behind.
+
+    """
+    problems = []
+    for state in definition.get("states", []):
+        if state.get("type") != "split-based-on":
+            continue
+        for transition in state.get("transitions", []):
+            for condition in transition.get("conditions") or []:
+                kind = condition.get("type", "")
+                value = condition.get("value", "")
+                where = f"{state.get('name')} / {condition.get('friendly_name', kind)}"
+
+                if kind == "regex":
+                    try:
+                        re.compile(value)
+                    except re.error as exc:
+                        problems.append(f"{where}: regex does not compile ({exc})")
+                elif kind in ("matches_any_of", "does_not_match_any_of") and any(
+                    not part.strip() for part in value.split(",")
+                ):
+                    problems.append(
+                        f"{where}: empty alternative in a comma-delimited list, "
+                        "usually a comma inside an option label"
+                    )
+    return problems
+
+
 #: Widget types that put a message on the wire.
 _SENDING_TYPES = frozenset({"send-message", "send-and-wait-for-reply"})
 
@@ -424,9 +554,76 @@ class Finding:
 #: conversation. They are perfectly good replies; they just cannot open the door.
 _CANNOT_OPEN_SESSION = frozenset({"twilio/list-picker", "twilio/location"})
 
+#: Hard ceiling on a list picker's options. Twilio rejects more than this.
+MAX_LIST_ITEMS = 10
+
+#: Ceiling on quick-reply buttons for the way this repo uses them. Twilio allows
+#: up to 10, but only on a template Meta has approved; sent in session without
+#: approval, WhatsApp permits 3. Every question template here is deliberately
+#: never submitted, so 3 is the real limit for anything after the opener. Past
+#: it, WhatsApp does not truncate politely - the send fails.
+MAX_SESSION_BUTTONS = 3
+
+
+def oversized_option_sets(
+    definition: dict, content_types: dict[str, dict[str, Any]]
+) -> list[str]:
+    """Find interactive messages with more options than WhatsApp will render.
+
+    Args:
+        definition: The flow's JSON definition.
+        content_types: Content SID to its ``types`` mapping.
+
+    Returns:
+        Descriptions of widgets whose template exceeds a channel limit.
+
+    A list picker takes at most :data:`MAX_LIST_ITEMS` rows. Quick replies take
+    at most :data:`MAX_SESSION_BUTTONS` in session; the opener may carry more,
+    because it is approved.
+
+    Beyond the API limit there is a research reason to stay well under both:
+    every option past the first few is one more scroll on a phone, and options
+    people do not scroll to are options nobody picks. If a question needs more
+    than ten answers it needs splitting, not a longer list.
+
+    """
+    openers = set(opening_sends(definition))
+    problems = []
+
+    for state in definition.get("states", []):
+        sid = state.get("properties", {}).get("content_sid")
+        if not sid or sid not in content_types:
+            continue
+        name = state.get("name", "")
+        types = content_types[sid]
+        if not isinstance(types, dict):
+            continue
+
+        def _entries(type_name: str, key: str) -> list:
+            """Read a list out of one content type, tolerating odd shapes."""
+            config = types.get(type_name)
+            entries = config.get(key) if isinstance(config, dict) else None
+            return entries if isinstance(entries, list) else []
+
+        items = _entries("twilio/list-picker", "items")
+        if len(items) > MAX_LIST_ITEMS:
+            problems.append(
+                f"{name}: list picker has {len(items)} options, "
+                f"the maximum is {MAX_LIST_ITEMS}"
+            )
+
+        actions = _entries("twilio/quick-reply", "actions")
+        if actions and name not in openers and len(actions) > MAX_SESSION_BUTTONS:
+            problems.append(
+                f"{name}: quick reply has {len(actions)} buttons and is sent in "
+                f"session, where WhatsApp permits {MAX_SESSION_BUTTONS}. Use a "
+                "list picker instead - it needs no approval either"
+            )
+    return problems
+
 
 def check_flow(
-    definition: dict, content_types: dict[str, list[str]] | None = None
+    definition: dict, content_types: dict[str, dict[str, Any]] | None = None
 ) -> list[Finding]:
     """Run the structural checks over a flow definition.
 
@@ -538,7 +735,7 @@ def check_flow(
         if not sid:
             plain_opening.append(name)
             continue
-        blocked = sorted(set((content_types or {}).get(sid, [])) & _CANNOT_OPEN_SESSION)
+        blocked = sorted(set((content_types or {}).get(sid, {})) & _CANNOT_OPEN_SESSION)
         if blocked:
             cannot_open.append(f"{name} ({sid}: {', '.join(blocked)})")
 
@@ -561,6 +758,31 @@ def check_flow(
                 f"{len(cannot_open)} opening message(s) use a content type "
                 "that cannot start a conversation",
                 cannot_open[:10],
+            )
+        )
+
+    oversized = oversized_option_sets(definition, content_types or {})
+    if oversized:
+        findings.append(
+            Finding(
+                "error",
+                "too-many-options",
+                f"{len(oversized)} interactive message(s) exceed what WhatsApp "
+                "will render",
+                oversized[:10],
+            )
+        )
+
+    # A condition that cannot match anything routes every respondent down the
+    # noMatch branch while looking correct on the canvas.
+    broken = unmatchable_conditions(definition)
+    if broken:
+        findings.append(
+            Finding(
+                "error",
+                "unmatchable-condition",
+                f"{len(broken)} split condition(s) can never match",
+                broken[:10],
             )
         )
 
@@ -651,7 +873,9 @@ def validate_remote(client: Client, name: str, definition: dict) -> list[str]:
     ]
 
 
-def referenced_content_types(client: Client, definition: dict) -> dict[str, list[str]]:
+def referenced_content_types(
+    client: Client, definition: dict
+) -> dict[str, dict[str, Any]]:
     """Look up what every content template the flow references actually is.
 
     Args:
@@ -659,19 +883,21 @@ def referenced_content_types(client: Client, definition: dict) -> dict[str, list
         definition: The flow's JSON definition.
 
     Returns:
-        Content SID to the list of content types it declares. SIDs that cannot
-        be fetched are omitted, so the checks that use this skip them rather
-        than treating an unreachable template as a broken one.
+        Content SID to its ``types`` mapping, as the Content API returns it -
+        type name to that type's configuration, so the options inside a list or
+        the buttons on a quick reply can be counted. SIDs that cannot be
+        fetched are omitted, so the checks that use this skip them rather than
+        treating an unreachable template as a broken one.
 
     """
     sids = {
         state.get("properties", {}).get("content_sid")
         for state in definition.get("states", [])
     }
-    types: dict[str, list[str]] = {}
+    types: dict[str, dict[str, Any]] = {}
     for sid in sorted(s for s in sids if s):
         try:
-            types[sid] = list(client.content.v1.contents(sid).fetch().types or {})
+            types[sid] = dict(client.content.v1.contents(sid).fetch().types or {})
         except Exception:  # noqa: BLE001 - a missing template is not our error
             logger.warning("Could not fetch content template %s", sid)
     return types

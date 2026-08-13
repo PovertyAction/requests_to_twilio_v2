@@ -166,7 +166,7 @@ class TestOpeningChecks:
                 template_question("intro", sid="HXlist"),
             ]
         }
-        types = {"HXlist": ["twilio/text", "twilio/list-picker"]}
+        types = {"HXlist": {"twilio/text": {}, "twilio/list-picker": {}}}
         assert "opening-cannot-open-session" in codes(definition, types)
 
     def test_quick_reply_can_open_a_session(self):
@@ -177,7 +177,7 @@ class TestOpeningChecks:
                 template_question("intro", sid="HXqr"),
             ]
         }
-        types = {"HXqr": ["twilio/text", "twilio/quick-reply"]}
+        types = {"HXqr": {"twilio/text": {}, "twilio/quick-reply": {}}}
         assert "opening-cannot-open-session" not in codes(definition, types)
 
     def test_unknown_content_types_are_skipped_not_guessed(self):
@@ -200,10 +200,77 @@ class TestOpeningChecks:
             ]
         }
         types = {
-            "HXqr": ["twilio/quick-reply"],
-            "HXlist": ["twilio/list-picker"],
+            "HXqr": {"twilio/quick-reply": {}},
+            "HXlist": {"twilio/list-picker": {}},
         }
         assert "opening-cannot-open-session" not in codes(definition, types)
 
     def test_a_flow_with_no_trigger_reports_nothing(self):
         assert opening_sends({"states": []}) == []
+
+
+class TestOptionLimits:
+    """WhatsApp renders at most 10 list rows, and 3 buttons in session.
+
+    Both are house rules as much as API limits. A question needing more than ten
+    answers needs splitting, and options past the first few are options nobody
+    scrolls to.
+    """
+
+    def flow_with(self, sid, **types):
+        return (
+            {
+                "states": [
+                    trigger(incomingRequest="intro"),
+                    template_question("intro", sid="HXopener", incomingMessage="q2"),
+                    template_question("q2", sid=sid),
+                ]
+            },
+            {"HXopener": {"twilio/quick-reply": {}}, sid: types},
+        )
+
+    def test_eleven_list_rows_is_an_error(self):
+        items = [{"id": str(i), "item": str(i), "description": "d"} for i in range(11)]
+        definition, types = self.flow_with(
+            "HXlist", **{"twilio/list-picker": {"items": items}}
+        )
+        assert "too-many-options" in codes(definition, types)
+
+    def test_ten_list_rows_is_fine(self):
+        items = [{"id": str(i), "item": str(i), "description": "d"} for i in range(10)]
+        definition, types = self.flow_with(
+            "HXlist", **{"twilio/list-picker": {"items": items}}
+        )
+        assert "too-many-options" not in codes(definition, types)
+
+    def test_four_buttons_in_session_is_an_error(self):
+        actions = [{"title": str(i), "id": str(i)} for i in range(4)]
+        definition, types = self.flow_with(
+            "HXqr", **{"twilio/quick-reply": {"actions": actions}}
+        )
+        assert "too-many-options" in codes(definition, types)
+
+    def test_three_buttons_in_session_is_fine(self):
+        actions = [{"title": str(i), "id": str(i)} for i in range(3)]
+        definition, types = self.flow_with(
+            "HXqr", **{"twilio/quick-reply": {"actions": actions}}
+        )
+        assert "too-many-options" not in codes(definition, types)
+
+    def test_the_opener_may_carry_more_buttons(self):
+        """It is approved, so the in-session ceiling does not apply to it."""
+        actions = [{"title": str(i), "id": str(i)} for i in range(6)]
+        definition = {
+            "states": [
+                trigger(incomingRequest="intro"),
+                template_question("intro", sid="HXopener"),
+            ]
+        }
+        types = {"HXopener": {"twilio/quick-reply": {"actions": actions}}}
+        assert "too-many-options" not in codes(definition, types)
+
+    def test_a_malformed_content_type_does_not_crash_the_check(self):
+        definition, types = self.flow_with(
+            "HXodd", **{"twilio/list-picker": "nonsense"}
+        )
+        assert "too-many-options" not in codes(definition, types)

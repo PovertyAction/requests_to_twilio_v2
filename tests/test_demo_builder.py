@@ -16,7 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import build_data_use_demo as demo  # noqa: E402
 
-from requests_to_twilio.flows import check_flow  # noqa: E402
+from requests_to_twilio.flows import (  # noqa: E402
+    check_flow,
+    evaluate_condition,
+    route_split,
+)
 
 LANGS = sorted(demo.LANGS)
 
@@ -64,13 +68,27 @@ class TestLanguageTables:
         monkeypatch.setitem(table["arm2"]["P1"], "options", options)
         assert any("cap is 24" in p for p in demo.check_language(lang))
 
-    def test_a_comma_in_a_label_is_reported(self, lang, monkeypatch):
-        """matches_any_of is comma-delimited, so this never matches."""
+    def test_a_comma_in_a_label_is_now_harmless(self, lang, monkeypatch):
+        """The reason for banning commas was matches_any_of. Regex has none."""
         table = demo.LANGS[lang]
         options = list(table["arm2"]["P1"]["options"])
         options[0] = (options[0][0], "yes, often", options[0][2])
         monkeypatch.setitem(table["arm2"]["P1"], "options", options)
-        assert any("comma" in p for p in demo.check_language(lang))
+        assert demo.check_language(lang) == []
+        pattern = demo.answer_pattern(options)
+        assert evaluate_condition("regex", pattern, "yes, often")
+
+    def test_a_label_with_regex_metacharacters_still_matches_itself(
+        self, lang, monkeypatch
+    ):
+        """Escaping is the whole reason this is generated and not hand-written."""
+        table = demo.LANGS[lang]
+        options = list(table["arm2"]["P1"]["options"])
+        options[0] = (options[0][0], "a+b (c) [d]", options[0][2])
+        monkeypatch.setitem(table["arm2"]["P1"], "options", options)
+        pattern = demo.answer_pattern(options)
+        assert evaluate_condition("regex", pattern, "a+b (c) [d]")
+        assert not evaluate_condition("regex", pattern, "aab c d")
 
     def test_an_emoji_in_a_label_is_reported(self, lang, monkeypatch):
         """Warmth goes in the body; labels are compared byte for byte."""
@@ -93,19 +111,43 @@ class TestLanguageTables:
         assert not demo._has_emoji("Más de 10 veces")
 
 
-class TestAcceptedAnswers:
-    def test_accepts_both_the_label_and_its_number(self):
-        options = [("a", "Yes", "d"), ("b", "No", "d")]
-        assert demo.accepted_answers(options) == "Yes,1,No,2"
+class TestAnswerPattern:
+    """The pattern is executed here, not read.
 
-    def test_every_option_is_reachable(self, lang):
-        """An option nobody can select is the defect this repo refuses to ship."""
+    An option that cannot be selected looks identical to one that can, right up
+    until the data comes back with a column of noMatch.
+    """
+
+    def test_the_alternation_is_wrapped(self):
+        """Studio anchors the whole pattern, so bare a|b binds as (^a)|(b$)."""
+        pattern = demo.answer_pattern([("a", "Yes", "d"), ("b", "No", "d")])
+        assert not evaluate_condition("regex", pattern, "say Yes")
+        assert not evaluate_condition("regex", pattern, "No thank you")
+
+    def test_every_label_and_position_is_accepted(self, lang):
         for key in demo.QUESTION_KEYS:
             options = demo.LANGS[lang]["arm2"][key]["options"]
-            accepted = demo.accepted_answers(options).split(",")
+            pattern = demo.answer_pattern(options)
             for index, (_, item, _) in enumerate(options, start=1):
-                assert item in accepted
-                assert str(index) in accepted
+                assert evaluate_condition("regex", pattern, item), (key, item)
+                assert evaluate_condition("regex", pattern, str(index)), (key, index)
+
+    def test_typed_punctuation_and_casing_are_tolerated(self, lang):
+        for key in demo.QUESTION_KEYS:
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            pattern = demo.answer_pattern(options)
+            for reply in ("1.", "1)", "(1)", " 1 "):
+                assert evaluate_condition("regex", pattern, reply), (key, reply)
+            label = options[0][1]
+            assert evaluate_condition("regex", pattern, label.upper())
+
+    def test_junk_is_rejected(self, lang):
+        """A pattern that accepts anything is worse than one that accepts too little."""
+        for key in demo.QUESTION_KEYS:
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            pattern = demo.answer_pattern(options)
+            for junk in ("banana", "", "0", "99", "yes please", "times"):
+                assert not evaluate_condition("regex", pattern, junk), (key, junk)
 
 
 class TestCodeMapping:
@@ -113,13 +155,37 @@ class TestCodeMapping:
         """The stored value must not depend on how the respondent answered."""
         for key in demo.QUESTION_KEYS:
             options = demo.LANGS[lang]["arm2"][key]["options"]
-            liquid = demo.code_mapping(f"ARM2_{key}", options)
             for index, (_, item, _) in enumerate(options, start=1):
-                assert f'{{% when "{item}" or "{index}" %}}{index}' in liquid
+                assert demo.expected_code(options, item) == str(index)
+                assert demo.expected_code(options, str(index)) == str(index)
+
+    def test_the_split_and_the_mapping_agree(self, lang):
+        """Anything accepted as an answer must code as one, or the row lies."""
+        for key in demo.QUESTION_KEYS:
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            pattern = demo.answer_pattern(options)
+            for index, (_, item, _) in enumerate(options, start=1):
+                for reply in (
+                    item,
+                    item.upper(),
+                    str(index),
+                    f"{index}.",
+                    f"({index})",
+                ):
+                    if evaluate_condition("regex", pattern, reply):
+                        assert demo.expected_code(options, reply) == str(index), reply
 
     def test_unrecognised_input_is_not_coded_as_an_answer(self):
         options = [("a", "Yes", "d")]
+        assert demo.expected_code(options, "banana") == "other"
         assert "{% else %}other{% endcase %}" in demo.code_mapping("q", options)
+
+    def test_the_liquid_normalises_before_comparing(self):
+        """Otherwise the tolerant split and the strict mapping disagree."""
+        liquid = demo.code_mapping("q", [("a", "Yes", "d")])
+        assert "| strip | downcase" in liquid
+        assert '| replace: ".", ""' in liquid
+        assert '{% when "yes" or "1" %}1' in liquid
 
 
 class TestTemplateDefinitions:
@@ -225,6 +291,45 @@ class TestBuild:
         for state in errors:
             assert button in state["properties"]["body"]
             assert "{button}" not in state["properties"]["body"]
+
+    def test_every_option_routes_to_store_in_the_real_flow(self, lang):
+        """End to end on the built definition, not on the pattern in isolation.
+
+        This is the check that would have caught the defect the account already
+        has: an answer that looks handled but sends the respondent somewhere
+        that never publishes.
+        """
+        definition = demo.build(lang, fake_sids(lang))
+        states = {s["name"]: s for s in definition["states"]}
+
+        for key in demo.QUESTION_KEYS:
+            split = states[f"split_ARM2_{key}"]
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            for index, (_, item, _) in enumerate(options, start=1):
+                for reply in (item, str(index), f"{index}."):
+                    assert route_split(split, reply) == f"store_ARM2_{key}", (
+                        key,
+                        reply,
+                    )
+            for junk in ("banana", "0", "99"):
+                assert route_split(split, junk) == f"retry_ARM2_{key}", (key, junk)
+
+    def test_consent_routes_both_ways_in_the_real_flow(self, lang):
+        definition = demo.build(lang, fake_sids(lang))
+        split = next(s for s in definition["states"] if s["name"] == "split_consent")
+        consent = demo.LANGS[lang]["consent"]
+
+        for reply in [consent["button_yes"], *consent["typed_yes"].split("|")]:
+            assert route_split(split, reply) == "record_consent", reply
+        for reply in [consent["button_no"], *consent["typed_no"].split("|")]:
+            assert route_split(split, reply) == "record_declined", reply
+
+    def test_an_unreadable_consent_reply_does_not_enrol_anyone(self, lang):
+        """Ambiguity must never be read as agreement."""
+        definition = demo.build(lang, fake_sids(lang))
+        split = next(s for s in definition["states"] if s["name"] == "split_consent")
+        for reply in ("maybe", "what is this", ""):
+            assert route_split(split, reply) == "record_declined", reply
 
     def test_the_flow_records_which_language_it_was(self, lang):
         """Two flows write to one table; the rows have to be separable."""

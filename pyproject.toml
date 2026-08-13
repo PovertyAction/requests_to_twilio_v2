@@ -90,13 +90,19 @@ docstring-code-line-length = 88
 
 [tool.codespell]
 builtin = "clear,rare,informal,usage,code,names"
-ignore-words-list = "jupyter,ipa,keypair,master"
-# flows/ holds definitions fetched from Twilio, and .claude/ quotes approved
-# template copy verbatim - both carry respondent-facing survey text in Spanish.
-# They are records of what was deployed, not prose we author, so spell-checking
-# them only produces false positives on ordinary Spanish words. markdownlint is
-# excluded from .claude/ for the same reason.
-skip = "uv.lock,*.js,flows/*,.claude/*"
+# The last three are Spanish words in the demo flow's language table, which
+# lives in a script whose English docstrings are worth spell-checking, so they
+# are ignored by word rather than by skipping the file. If this list keeps
+# growing, move the language tables out into data files and skip the Spanish
+# one, the way templates/ and flows/ are skipped below.
+ignore-words-list = "jupyter,ipa,keypair,master,momento,varios,que,responde"
+# flows/ holds definitions fetched from Twilio, .claude/ quotes approved template
+# copy verbatim, and templates/ carries the respondent-facing message text
+# itself - including the Spanish half of the bilingual demo. All are records of
+# what was or will be sent, not prose we author, so spell-checking them only
+# produces false positives on ordinary Spanish words. markdownlint is excluded
+# from .claude/ for the same reason.
+skip = "uv.lock,*.js,flows/*,.claude/*,templates/generated/*,templates/*_es.json"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -58,8 +58,25 @@ error 63016 - `check_flow` has a check for exactly that.
 
 Answers still arrive as text, so the splits accept **tap or type**: a respondent
 who ignores the menu and writes "1" is matched just the same. That also keeps the
-retry machinery meaningful - it now only fires for genuinely unparseable typed
+retry machinery meaningful - it now only fires for genuinely unparsable typed
 input, which is itself one of the findings the demo shows off.
+
+Why the splits use `regex` and not `matches_any_of`
+---------------------------------------------------
+Because `matches_any_of` takes its alternatives as a single comma-delimited
+string. A comma inside an option label silently becomes two alternatives,
+neither of which is the label, and the respondent taps a real option and lands
+on noMatch. In a regex a comma is just a character. Regex also lets the digit
+form tolerate the punctuation people actually type - "1.", "1)", "(1)".
+
+Both predicates are already case-insensitive and already trim surrounding
+whitespace, so neither is what breaks.
+
+The deeper fix is not the predicate though. It is that `check_language` **runs**
+every condition it generates - every label, every digit, and a handful of things
+nobody would ever tap - and checks where each one lands. A condition that looks
+right and matches nothing is the same class of defect as a break-off that
+publishes no row: invisible in the editor, obvious only in the data.
 
 Run with `just build-demo-flow`.
 """
@@ -77,7 +94,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from requests_to_twilio import config as cfg  # noqa: E402
 from requests_to_twilio import templates as tpl  # noqa: E402
-from requests_to_twilio.flows import check_flow  # noqa: E402
+from requests_to_twilio.flows import check_flow, evaluate_condition  # noqa: E402
 
 FLOW_DIR = REPO_ROOT / "flows"
 TEMPLATE_DIR = REPO_ROOT / "templates" / "generated"
@@ -112,18 +129,29 @@ QUESTION_KEYS = ("P1", "P2", "P3", "P4")
 # used for the list-picker item, the split condition and the code mapping, so
 # the message a respondent sees and the value stored for them cannot disagree.
 #
-# Three hard limits shape the option text, all enforced by check_language():
-#   * A list-picker item title is capped at 24 characters, its description at
-#     72, and a quick-reply button title at 25.
-#   * NO OPTION LABEL MAY CONTAIN A COMMA. Studio's matches_any_of condition
-#     takes its alternatives as one comma-delimited string, so a comma inside a
-#     label silently splits it into two conditions that never match.
-#   * NO EMOJI IN AN OPTION LABEL. Labels are the strings the split matches
-#     literally against the reply body, so every byte has to survive a round
-#     trip through WhatsApp, Studio and the condition. Emoji do that badly -
-#     skin-tone and variation selectors make two visually identical labels
-#     different strings. Warmth belongs in the message body, which nothing
-#     matches on; the labels stay boring on purpose.
+# check_language() enforces the limits on this text, and does it by *executing*
+# the conditions it generates rather than by checking style rules:
+#
+#   * Length. A list-picker item title caps at 24 characters, its description at
+#     72, a quick-reply button title at 25, and the list button at 20.
+#   * Reachability. Every label and every position typed as a digit is pushed
+#     through the generated pattern and must route to the store widget; junk
+#     must not. A pattern loose enough to accept anything is worse than one that
+#     accepts too little - it stores junk as a real answer and never re-asks.
+#   * Agreement. Whatever the split accepts, the code mapping must code as that
+#     option, not as `other`.
+#
+# Commas in labels are fine. They were not when the splits used matches_any_of,
+# whose alternatives are one comma-delimited string; the regex predicate has no
+# delimiter, which is the main reason for the switch.
+#
+# The one thing still forbidden by rule rather than by test is EMOJI IN A LABEL.
+# Labels are compared literally against the reply body, so every byte has to
+# survive a round trip through WhatsApp, Studio and the condition - and
+# skin-tone and variation selectors make two visually identical labels different
+# strings. A test cannot catch that, because it compares the string to itself.
+# Warmth belongs in the message body, which nothing matches on; labels stay
+# boring on purpose.
 # ---------------------------------------------------------------------------
 
 EN: dict[str, Any] = {
@@ -506,8 +534,6 @@ def check_language(lang: str) -> list[str]:
                 f"{lang}: consent {field_name} is {len(title)} chars, "
                 f"quick-reply titles cap at 25: {title!r}"
             )
-        if "," in title:
-            problems.append(f"{lang}: consent {field_name} contains a comma: {title!r}")
         if _has_emoji(title):
             problems.append(
                 f"{lang}: consent {field_name} contains an emoji; button "
@@ -535,11 +561,6 @@ def check_language(lang: str) -> list[str]:
                     f"{lang}: ARM2 {key} description is {len(description)} "
                     f"chars, cap is 72: {description!r}"
                 )
-            if "," in item:
-                problems.append(
-                    f"{lang}: ARM2 {key} item contains a comma, which "
-                    f"matches_any_of would split: {item!r}"
-                )
             if _has_emoji(item):
                 problems.append(
                     f"{lang}: ARM2 {key} item contains an emoji; item labels "
@@ -559,6 +580,96 @@ def check_language(lang: str) -> list[str]:
         problems.append(
             f"{lang}: list button {table['arm2']['button']!r} exceeds 20 chars"
         )
+
+    problems.extend(_check_options_are_matchable(lang))
+    problems.extend(_check_consent_is_matchable(lang))
+    return problems
+
+
+def _check_options_are_matchable(lang: str) -> list[str]:
+    """Run every option through its own split condition and see where it lands.
+
+    Reading a condition and believing it is how an unreachable option survives
+    review. This executes it instead, using the same semantics Studio uses, and
+    checks all three things that have to hold: every label routes to the store
+    widget, every position typed as a digit routes there too, and something
+    nobody would ever tap does *not*.
+
+    That last one matters as much as the first two. A pattern loose enough to
+    match anything accepts junk as a real answer, which is worse than rejecting
+    a real one - the respondent is never asked again and the row looks complete.
+    """
+    problems = []
+    for key in QUESTION_KEYS:
+        options = LANGS[lang]["arm2"][key]["options"]
+        pattern = answer_pattern(options)
+
+        for index, (_, item, _) in enumerate(options, start=1):
+            for reply in (item, str(index), f"{index}.", f" {item} ", item.upper()):
+                if not evaluate_condition("regex", pattern, reply):
+                    problems.append(
+                        f"{lang}: ARM2 {key} would not accept {reply!r}, so the "
+                        f"option {item!r} is unreachable"
+                    )
+
+        for junk in ("banana", "", "0", str(len(options) + 1), "yes please"):
+            if evaluate_condition("regex", pattern, junk):
+                problems.append(
+                    f"{lang}: ARM2 {key} accepts {junk!r} as a valid answer, so "
+                    "junk would be stored as a real response"
+                )
+
+        # The split and the code mapping must agree. If the split is the more
+        # tolerant of the two, a respondent is recorded as having answered
+        # while their answer codes as `other` - which reads in the data as a
+        # broken option rather than as the tolerance working.
+        for index, (_, item, _) in enumerate(options, start=1):
+            for reply in (item, str(index), f"{index}.", f"({index})", item.upper()):
+                accepted = evaluate_condition("regex", pattern, reply)
+                code = expected_code(options, reply)
+                if accepted and code == "other":
+                    problems.append(
+                        f"{lang}: ARM2 {key} accepts {reply!r} but codes it as "
+                        "'other'; the split is more tolerant than the mapping"
+                    )
+                if accepted and code not in ("other", str(index)):
+                    problems.append(
+                        f"{lang}: ARM2 {key} codes {reply!r} as option {code}, "
+                        f"expected {index}"
+                    )
+    return problems
+
+
+def _check_consent_is_matchable(lang: str) -> list[str]:
+    """Check consent routes yes to yes, no to no, and nothing to both."""
+    consent = LANGS[lang]["consent"]
+    yes = word_pattern([consent["button_yes"]] + consent["typed_yes"].split("|"))
+    no = word_pattern([consent["button_no"]] + consent["typed_no"].split("|"))
+
+    problems = []
+    for label, pattern, replies in (
+        ("yes", yes, [consent["button_yes"], *consent["typed_yes"].split("|")]),
+        ("no", no, [consent["button_no"], *consent["typed_no"].split("|")]),
+    ):
+        for reply in replies:
+            if not evaluate_condition("regex", pattern, reply):
+                problems.append(f"{lang}: consent {label} would not accept {reply!r}")
+
+    # Consent is the one place an ambiguous match is unacceptable: a reply that
+    # satisfies both branches would enrol someone by transition order.
+    for reply in [
+        consent["button_yes"],
+        consent["button_no"],
+        *consent["typed_yes"].split("|"),
+        *consent["typed_no"].split("|"),
+    ]:
+        if evaluate_condition("regex", yes, reply) and evaluate_condition(
+            "regex", no, reply
+        ):
+            problems.append(
+                f"{lang}: consent reply {reply!r} matches both yes and no, so "
+                "participation would be decided by transition order"
+            )
     return problems
 
 
@@ -790,35 +901,108 @@ def arm_x(arm):
     return -700 if arm == "ARM1" else 500
 
 
-def accepted_answers(options) -> str:
-    """Comma-delimited list of every reply that counts as answering.
+#: Characters that mean something to every regex flavour and so must be escaped
+#: in a literal. Deliberately not Python's `re.escape`, which also escapes a
+#: space as "\ " - valid in Python, an error in a JavaScript unicode-mode regex,
+#: and we do not control which engine Studio runs.
+_REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
 
-    Both the tapped item label and its position as a typed digit, because a
+
+def escape_literal(text: str) -> str:
+    """Escape a string so a regex matches it literally."""
+    return "".join("\\" + char if char in _REGEX_SPECIAL else char for char in text)
+
+
+def answer_pattern(options) -> str:
+    """Build the regex that recognises any valid answer to a list question.
+
+    Args:
+        options: ``(id, item, description)`` triples in display order.
+
+    Returns:
+        A Studio `regex` condition value.
+
+    Accepts the tapped item label *or* its position typed as a digit, because a
     respondent who ignores the menu and writes "3" has still answered. Storing
     only one of the two forms is how a flow ends up with an answer column that
     is half labels and half numbers.
+
+    Regex rather than `matches_any_of` for one structural reason: that predicate
+    takes its alternatives as a single comma-delimited string, so a comma inside
+    an option label silently becomes two alternatives that never match. Here a
+    comma is just a character. It also lets the digit form tolerate the
+    punctuation people actually type - "1.", "1)", "(1)".
+
+    Studio anchors the pattern to the whole string, so the alternation must be
+    wrapped: an unwrapped `a|b` can bind as `(^a)|(b$)` and match "xxb".
+
     """
-    accepted: list[str] = []
+    alternatives: list[str] = []
     for index, (_, item, _) in enumerate(options, start=1):
-        accepted.append(item)
-        accepted.append(str(index))
-    return ",".join(accepted)
+        alternatives.append(escape_literal(item))
+        alternatives.append(rf"\(?{index}[.)]?")
+    return r"(?:\s*(?:" + "|".join(alternatives) + r")\s*)"
+
+
+def word_pattern(words) -> str:
+    """Build a regex matching any of these literal words, tolerating padding."""
+    return (
+        r"(?:\s*(?:"
+        + "|".join(escape_literal(word) for word in words if word)
+        + r")\s*)"
+    )
+
+
+#: Punctuation people add around a typed option number: "1.", "1)", "(1)".
+#: Stripped before coding so the split and the code agree about what counts.
+_STRIPPED_PUNCTUATION = (".", ")", "(")
+
+
+def normalise_reply(reply: str) -> str:
+    """Reduce a reply to the form the code mapping compares against.
+
+    This is the Python twin of the Liquid filter chain in :func:`code_mapping`.
+    Both exist so the two can be checked against each other: the split decides
+    whether a reply counts as an answer, the mapping decides which answer it
+    was, and if they disagree a respondent gets credited with answering while
+    their answer codes as `other`.
+    """
+    text = reply.strip().casefold()
+    for char in _STRIPPED_PUNCTUATION:
+        text = text.replace(char, "")
+    return text.strip()
+
+
+def expected_code(options, reply: str) -> str:
+    """Return the code the flow will store for this reply, or "other"."""
+    normalised = normalise_reply(reply)
+    for index, (_, item, _) in enumerate(options, start=1):
+        if normalised in (normalise_reply(item), str(index)):
+            return str(index)
+    return "other"
 
 
 def code_mapping(widget: str, options) -> str:
-    """Liquid that normalises a reply to its option number.
+    """Build Liquid that normalises a reply to its option number.
 
     The stored answer must not depend on whether the respondent tapped or
     typed. A tap puts the item's label in the message body; a typed reply puts
     a digit there. This collapses both to the option's position, and leaves
     anything else as `other` rather than silently coding it as a real answer.
+
+    The filter chain mirrors :func:`normalise_reply` exactly, because the split
+    condition is deliberately tolerant of casing and trailing punctuation - and
+    a mapping that were stricter would quietly code those replies as `other`
+    while the split had already recorded them as answered.
     """
+    removals = "".join(f' | replace: "{char}", ""' for char in _STRIPPED_PUNCTUATION)
     clauses = []
     for index, (_, item, _) in enumerate(options, start=1):
-        clauses.append(f'{{% when "{item}" or "{index}" %}}{index}')
-    body = "".join(clauses)
+        clauses.append(f'{{% when "{normalise_reply(item)}" or "{index}" %}}{index}')
     return (
-        f"{{% case widgets.{widget}.inbound.Body %}}{body}"
+        f"{{% assign reply = widgets.{widget}.inbound.Body "
+        f"| strip | downcase{removals} | strip %}}"
+        f"{{% case reply %}}{''.join(clauses)}"
         "{% else %}other{% endcase %}"
     )
 
@@ -864,7 +1048,7 @@ def list_question(arm, key, content_sid, options, error_body, *, y, next_state):
             f"{{{{widgets.{name}.inbound.Body}}}}",
             [
                 (
-                    accepted_answers(options),
+                    answer_pattern(options),
                     f"store_{name}",
                     f"tapped or typed one of {len(options)} options",
                 )
@@ -872,7 +1056,7 @@ def list_question(arm, key, content_sid, options, error_body, *, y, next_state):
             retry,
             x=x,
             y=y + 80,
-            condition="matches_any_of",
+            condition="regex",
         ),
         set_vars(
             f"store_{name}",
@@ -998,7 +1182,7 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             "{{widgets.consent.inbound.Body}}",
             [
                 (
-                    ",".join(
+                    word_pattern(
                         [table["consent"]["button_yes"]]
                         + table["consent"]["typed_yes"].split("|")
                     ),
@@ -1006,7 +1190,7 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                     "consented",
                 ),
                 (
-                    ",".join(
+                    word_pattern(
                         [table["consent"]["button_no"]]
                         + table["consent"]["typed_no"].split("|")
                     ),
@@ -1017,7 +1201,7 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             "record_declined",
             x=0,
             y=-700,
-            condition="matches_any_of",
+            condition="regex",
         ),
         set_vars("record_consent", [("set_consent", "yes")], "split_arm", x=0, y=-580),
         set_vars(

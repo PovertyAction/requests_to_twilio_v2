@@ -147,10 +147,35 @@ that reads better.
 **Prefer buttons and lists. Avoid open text unless the question genuinely needs
 prose.**
 
+### The option-count rule: 3 buttons, 10 list rows
+
+**Never more than 3 quick-reply buttons, never more than 10 list rows.** Both
+are hard, and `rtt flow check` reports `too-many-options` if a flow breaks
+either.
+
+- **10 rows** is Twilio's limit on `twilio/list-picker`. There is no way around
+  it.
+- **3 buttons** is the limit that applies to *us*. Twilio allows up to 10
+  quick-reply buttons, but only on a template Meta has approved; sent in session
+  without approval, WhatsApp permits 3. Since every question template here is
+  deliberately never submitted, 3 is the real ceiling for anything after the
+  opener. Do not "fix" this rule after reading 10 in Twilio's docs - the 10 case
+  is one we never use. The opener is the exception, because it is approved.
+
+Past the limit WhatsApp does not truncate politely; the send fails.
+
+There is also a research reason to sit well under both. Every option past the
+first few is another scroll on a phone, and options nobody scrolls to are
+options nobody picks - which shows up as a skew in the marginals, not as an
+error. **A question needing more than ten answers needs splitting, not a longer
+list.** If the option set is genuinely long (districts, occupations), ask a
+coarse question first and branch to a shorter list.
+
 | Answer type | Use | Limits |
 | --- | --- | --- |
-| 2-3 options | `twilio/quick-reply` buttons | **3 buttons** in session; 10 only if the template is approved. Title 25 chars |
-| 4-10 options | `twilio/list-picker` | 10 rows. Item 24 chars, description 72 (required), button 20 |
+| 2-3 options | `twilio/quick-reply` buttons | **3 max** in session. Title 25 chars |
+| 4-10 options | `twilio/list-picker` | **10 max**. Item 24 chars, description 72 (required), button 20 |
+| More than 10 | Split the question | Branch to a second, shorter list |
 | Scale 1-10 | List picker, or a validated numeric split | Both work; the list removes typos |
 | Genuinely open | `send-and-wait-for-reply` with free text | Only when the answer cannot be enumerated |
 
@@ -195,31 +220,79 @@ A tap does not return a special event. It returns an ordinary inbound message:
 | Typed instead | whatever they wrote | - |
 
 Branching on `ButtonPayload` only works for quick replies and only for people
-who tapped. **Split on `inbound.Body` with `matches_any_of`, listing both the
-label and its position**, so the person who ignores the menu and writes `3` is
-matched identically:
+who tapped. So **split on `inbound.Body`, accepting both the label and its
+position**, and the person who ignores the menu and writes `3` is matched
+identically.
+
+**Use the `regex` predicate for option lists, not `matches_any_of`.** This is a
+correctness rule, not a preference:
 
 ```
-type:  matches_any_of
-value: 0 times,1,1-2 times,2,3-5 times,3,6-10 times,4,More than 10 times,5
+type:  regex
+value: (?:\s*(?:0 times|\(?1[.)]?|1-2 times|\(?2[.)]?|More than 10 times|\(?5[.)]?)\s*)
 ```
 
-Two traps in that one line, both silent:
+`matches_any_of` takes its alternatives as **one comma-delimited string**. A
+comma inside an option label silently becomes two alternatives, neither of which
+is the label - the respondent taps a real option and lands on noMatch. That is
+the "answer looks fine, respondent gets stranded" defect in its purest form, and
+it is invisible on the canvas. In a regex a comma is just a character.
 
-- **`matches_any_of` is comma-delimited.** A comma inside a label splits it into
-  two alternatives that never match - so no label may contain a comma. This is
-  the "answer looks fine, respondent gets stranded" defect in its purest form.
-- **No emoji in a label.** It is compared byte for byte after a round trip
-  through WhatsApp; variation selectors make two identical-looking labels
-  different strings. Put the warmth in the body, which nothing matches on.
+Three things about Studio's predicates that are not obvious, all documented:
+
+- Conditions are **already case-insensitive** and **already trim surrounding
+  whitespace**. Neither is what breaks; do not add machinery for them.
+- `regex` is written **without slashes**, is case-insensitive, and **must match
+  the entire string**.
+- Because the anchoring wraps whatever you supply, **bare alternation binds
+  wrongly**: `a|b` can behave as `(^a)|(b$)` and match `xxb`. Always wrap the
+  whole pattern in `(?:...)`.
+
+Two more rules for option labels:
+
+- **Escape regex metacharacters** when building the pattern - `(CAPI)` is a
+  group, not a literal. Escape only the universally special characters; Python's
+  `re.escape` also escapes a space as `\ `, which is an error in a JavaScript
+  unicode-mode regex, and you do not control Studio's engine.
+- **No emoji in a label.** It is compared literally after a round trip through
+  WhatsApp; variation selectors make two identical-looking labels different
+  strings. Put the warmth in the body, which nothing matches on.
+
+### Do not read conditions - run them
+
+`rtt flow check` reports `unmatchable-condition` for a regex that does not
+compile or a `matches_any_of` with an empty alternative (the fingerprint of a
+comma inside a label). Studio accepts both and simply never fires them.
+
+Better, `requests_to_twilio.flows` exposes `evaluate_condition` and
+`route_split`, which implement Studio's semantics, so a test can push every
+possible reply through the real split widget and assert where it lands:
+
+```python
+split = states["split_ARM2_P1"]
+for index, (_, label, _) in enumerate(options, start=1):
+    assert route_split(split, label) == "store_ARM2_P1"
+    assert route_split(split, str(index)) == "store_ARM2_P1"
+assert route_split(split, "banana") == "retry_ARM2_P1"
+```
+
+Assert the negative case too. A pattern loose enough to match anything is worse
+than one that matches too little: junk is stored as a real answer, the
+respondent is never re-asked, and the row looks complete.
 
 **Store a normalised code, not the raw reply.** Otherwise the column is half
 labels and half digits depending on how each person answered. Publish both: the
 raw `inbound.Body` and a `_code` derived in a `set-variables` widget.
 
 ```liquid
-{% case widgets.ARM2_P1.inbound.Body %}{% when "0 times" or "1" %}1{% when "1-2 times" or "2" %}2{% else %}other{% endcase %}
+{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: ".", "" | replace: ")", "" | replace: "(", "" | strip %}{% case reply %}{% when "0 times" or "1" %}1{% when "1-2 times" or "2" %}2{% else %}other{% endcase %}
 ```
+
+**The mapping must be exactly as tolerant as the split.** Liquid `case` is an
+exact comparison, so if the regex accepts `1.` and the mapping does not, the
+respondent is recorded as having answered while their answer codes as `other` -
+which reads in the data as a broken option rather than as the tolerance working.
+Normalise with the same filter chain, and assert the two agree.
 
 Publishing both matters because the code is *derived*: if the Liquid ever fails
 to render, the answer itself is still in the row.
@@ -499,6 +572,8 @@ It exits non-zero on any error, so it can gate a deployment.
 | `unhandled-delivery-failure` | error | Same, for numbers that cannot receive |
 | `opening-not-a-template` | error | A free-form first message fails with 63016 for the whole round at once |
 | `opening-cannot-open-session` | error | A list picker or location cannot start a conversation, only continue one |
+| `too-many-options` | error | More than 10 list rows, or more than 3 buttons in session - the send fails |
+| `unmatchable-condition` | error | A regex that does not compile, or a comma-broken `matches_any_of`; both route everyone to noMatch |
 | `credentials` | error | A definition is meant to be committed |
 | `split-without-nomatch` | warning | An unexpected answer has nowhere to go |
 | `no-encryption` | warning | Publishing identifiers to Sheets in clear |
