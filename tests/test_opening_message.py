@@ -7,6 +7,10 @@ makes it the one defect worth catching structurally rather than from the error
 logs afterwards.
 """
 
+import json
+
+import pytest
+
 from requests_to_twilio.flows import check_flow, opening_sends
 
 
@@ -383,22 +387,67 @@ class TestInboundRouting:
             incoming_phone_numbers=SimpleNamespace(list=lambda limit=200: [number])
         )
 
-    def test_reads_the_flow_out_of_the_webhook(self):
+    def test_a_plain_number_reads_the_sms_webhook(self):
+        """Only for SMS. A whatsapp: address goes to the sender instead."""
         from requests_to_twilio.flows import inbound_flow_sid
 
         sid = "FW" + "a" * 32
         client = self.client_with(
             "+13185522132", f"https://webhooks.twilio.com/v1/Accounts/ACx/Flows/{sid}"
         )
-        assert inbound_flow_sid(client, "whatsapp:+13185522132") == sid
+        assert inbound_flow_sid(client, "+13185522132") == sid
 
-    def test_strips_the_whatsapp_prefix(self):
+    def whatsapp_client(self, sender_id, callback_url):
+        """Build a client whose senders endpoint returns one WhatsApp sender."""
+        from types import SimpleNamespace
+
+        payload = {
+            "senders": [
+                {"sender_id": sender_id, "webhook": {"callback_url": callback_url}}
+            ]
+        }
+        return SimpleNamespace(
+            request=lambda method, url, params=None: SimpleNamespace(
+                status_code=200, text=json.dumps(payload)
+            )
+        )
+
+    def test_a_whatsapp_address_reads_the_sender_not_the_number(self):
+        """The number's sms_url governs SMS. Checking it for WhatsApp is a
+        wrong answer dressed as a green light - the bug that let a broken
+        round report "inbound routing OK".
+        """
         from requests_to_twilio.flows import inbound_flow_sid
 
-        sid = "FW" + "b" * 32
-        client = self.client_with("+15550100", f"/Flows/{sid}")
-        assert inbound_flow_sid(client, "whatsapp:+15550100") == sid
-        assert inbound_flow_sid(client, "+15550100") == sid
+        sender_flow = "FW" + "b" * 32
+        client = self.whatsapp_client("whatsapp:+13185522132", f"/Flows/{sender_flow}")
+        assert inbound_flow_sid(client, "whatsapp:+13185522132") == sender_flow
+
+    def test_an_unknown_whatsapp_sender_is_none(self):
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        client = self.whatsapp_client("whatsapp:+19999999", "/Flows/FW" + "e" * 32)
+        assert inbound_flow_sid(client, "whatsapp:+13185522132") is None
+
+    def test_a_sender_with_no_studio_webhook_is_none(self):
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        client = self.whatsapp_client("whatsapp:+15550100", "https://example.org/in")
+        assert inbound_flow_sid(client, "whatsapp:+15550100") is None
+
+    def test_a_senders_api_failure_is_a_flow_error(self):
+        """Better to say the check could not run than to guess."""
+        from types import SimpleNamespace
+
+        from requests_to_twilio.flows import FlowError, inbound_flow_sid
+
+        client = SimpleNamespace(
+            request=lambda method, url, params=None: SimpleNamespace(
+                status_code=500, text=""
+            )
+        )
+        with pytest.raises(FlowError, match="Could not list WhatsApp senders"):
+            inbound_flow_sid(client, "whatsapp:+15550100")
 
     def test_a_non_studio_webhook_is_unknown_not_wrong(self):
         """A Messaging Service or custom URL means we cannot tell."""

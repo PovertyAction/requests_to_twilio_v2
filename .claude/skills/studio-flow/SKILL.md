@@ -79,9 +79,38 @@ The webhook Twilio writes for a flow looks like:
 https://webhooks.twilio.com/v1/Accounts/<AC...>/Flows/<FW...>
 ```
 
-If the number has no Studio flow there at all - a Messaging Service, a custom
-URL - the check warns rather than blocks, because it cannot tell where replies
-go. Verify by hand in that case.
+If there is no Studio flow there at all - a Messaging Service, a custom URL -
+the check warns rather than blocks, because it cannot tell where replies go.
+Verify by hand in that case.
+
+### A WhatsApp sender is not the phone number
+
+**This is the part that cost us an afternoon.** `whatsapp:+1318…` and
+`+1318…` are two different Twilio resources that happen to share digits, and
+they have **separate inbound webhooks**:
+
+| Resource | Console | Governs |
+| --- | --- | --- |
+| Phone number, `sms_url` | Phone Numbers → Manage → Active numbers | **SMS only** |
+| WhatsApp sender, `webhook.callback_url` | Messaging → Senders → WhatsApp senders | **WhatsApp** |
+
+Repointing the *number* for a WhatsApp round changes nothing about WhatsApp. We
+did exactly that, watched replies keep going to the wrong flow, and only found
+it by tracing the message log: every `Start` was answered within one second by a
+flow that had created no execution on either of the two flows we were looking at.
+
+Reading it back:
+
+```bash
+curl -u $SID:$TOKEN \
+  "https://messaging.twilio.com/v2/Channels/Senders?Channel=whatsapp&PageSize=50"
+```
+
+`Channel` is required; without it the endpoint 400s. `rtt launch` follows the
+`whatsapp:` prefix and checks the sender, not the number - an earlier version
+checked the number for both and reported `inbound routing OK` on a round that
+was completely broken. **A check that answers the wrong question is worse than
+no check**, because it is a green light.
 
 ## Stage 0 - preloaded data, and the sample file
 

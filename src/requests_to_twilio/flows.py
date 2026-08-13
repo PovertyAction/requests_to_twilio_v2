@@ -981,34 +981,69 @@ def validate_remote(client: Client, name: str, definition: dict) -> list[str]:
 _FLOW_WEBHOOK_PATTERN = re.compile(r"/Flows/(FW[0-9a-fA-F]{32})")
 
 
+#: Where WhatsApp senders live. They are NOT the same resource as the phone
+#: number that shares their digits.
+_SENDERS_URL = "https://messaging.twilio.com/v2/Channels/Senders"
+
+
+def _whatsapp_sender_flow(client: Client, address: str) -> str | None:
+    """Return the flow on a WhatsApp sender's inbound webhook."""
+    try:
+        response = client.request(
+            "GET", _SENDERS_URL, params={"Channel": "whatsapp", "PageSize": 100}
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as a FlowError below
+        raise FlowError(f"Could not list WhatsApp senders: {exc}") from exc
+
+    if response.status_code >= 300:
+        raise FlowError(f"Could not list WhatsApp senders: HTTP {response.status_code}")
+
+    for sender in json.loads(response.text).get("senders", []):
+        if (sender.get("sender_id") or "") != address:
+            continue
+        webhook = sender.get("webhook") or {}
+        match = _FLOW_WEBHOOK_PATTERN.search(webhook.get("callback_url") or "")
+        return match.group(1) if match else None
+    return None
+
+
 def inbound_flow_sid(client: Client, from_number: str) -> str | None:
-    """Return the flow that owns the inbound webhook for a sending number.
+    """Return the flow that owns the inbound webhook for a sending address.
 
     Args:
         client: An authenticated Twilio client.
-        from_number: The sending address, with or without a ``whatsapp:`` prefix.
+        from_number: The sending address. A ``whatsapp:`` prefix selects the
+            WhatsApp sender rather than the phone number of the same digits.
 
     Returns:
-        The flow SID handling replies to this number, or None if the number is
-        not found or its webhook does not point at a Studio flow (a Messaging
-        Service or a custom URL, for instance).
+        The flow SID handling replies, or None if the address is not found or
+        its webhook does not point at a Studio flow (a Messaging Service or a
+        custom URL, for instance).
 
     This is the routing rule that is easy to miss and expensive to miss: a
-    Studio execution only receives a reply if the inbound webhook on the number
-    it sent from points at **that flow**. Send from a number wired to a
+    Studio execution only receives a reply if the inbound webhook on the address
+    it sent from points at **that flow**. Send from an address wired to a
     different flow and every message goes out perfectly, every respondent
     replies, and the other flow answers them - while your executions sit
     untouched until they time out. The send side looks completely healthy and
     the round collects nothing.
 
-    On a shared account this is the normal state of affairs rather than an edge
-    case: one number can only route to one flow, so whoever launched last owns
-    it.
+    **A WhatsApp sender is a different resource from the phone number whose
+    digits it shares, and carries its own webhook.** The number's ``sms_url``
+    governs SMS only. Checking the number for a WhatsApp round reports whatever
+    SMS is wired to and is simply the wrong answer - which is worse than no
+    check, because it is a green light. This function follows the prefix.
+
+    On a shared account, one address routes to exactly one flow, so whoever
+    launched last owns it. Expect to have to repoint it every round.
 
     """
-    bare = from_number.replace("whatsapp:", "").strip()
-    if not bare:
+    address = from_number.strip()
+    if not address:
         return None
+
+    if address.startswith("whatsapp:"):
+        return _whatsapp_sender_flow(client, address)
 
     try:
         numbers = client.incoming_phone_numbers.list(limit=200)
@@ -1019,7 +1054,7 @@ def inbound_flow_sid(client: Client, from_number: str) -> str | None:
         ) from exc
 
     for number in numbers:
-        if number.phone_number != bare:
+        if number.phone_number != address:
             continue
         match = _FLOW_WEBHOOK_PATTERN.search(number.sms_url or "")
         return match.group(1) if match else None
