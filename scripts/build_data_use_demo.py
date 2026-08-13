@@ -92,6 +92,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from twilio.rest import Client  # noqa: E402
+
 from requests_to_twilio import config as cfg  # noqa: E402
 from requests_to_twilio import templates as tpl  # noqa: E402
 from requests_to_twilio.flows import check_flow, evaluate_condition  # noqa: E402
@@ -1558,7 +1560,8 @@ def resolve_sids(lang: str) -> tuple[dict[str, str], list[str]]:
 
     """
     cfg.load_env()
-    client = cfg.twilio_client()
+    conf = cfg.TwilioConfig.from_env()
+    client = Client(conf.account_sid, conf.auth_token)
 
     table = LANGS[lang]
     wanted = [

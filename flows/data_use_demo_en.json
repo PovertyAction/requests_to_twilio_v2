@@ -1,0 +1,1735 @@
+{
+  "description": "Data use demo (ARM1/ARM2 experiment) - English, RST Jaipur 2026",
+  "states": [
+    {
+      "name": "Trigger",
+      "type": "trigger",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -1100
+        }
+      },
+      "transitions": [
+        {
+          "event": "incomingRequest",
+          "next": "intro"
+        },
+        {
+          "event": "incomingMessage",
+          "next": "intro"
+        },
+        {
+          "event": "incomingCall"
+        },
+        {
+          "event": "incomingConversationMessage"
+        },
+        {
+          "event": "incomingParent"
+        }
+      ]
+    },
+    {
+      "name": "intro",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -950
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX601b99cf0efe836736ed10baae6188df",
+        "timeout": "3600",
+        "content_variables": [
+          {
+            "key": "1",
+            "value": "{{flow.data.name}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "consent"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_never_started"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "consent",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -820
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX35e7503a420fb2131dc5fc8b914f4f1f",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_consent"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_consent",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -700
+        },
+        "input": "{{widgets.consent.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "record_declined"
+        },
+        {
+          "event": "match",
+          "next": "record_consent",
+          "conditions": [
+            {
+              "friendly_name": "consented",
+              "arguments": [
+                "{{widgets.consent.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:Yes, I'll take part|1|yes|y)\\s*)"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "record_declined",
+          "conditions": [
+            {
+              "friendly_name": "declined",
+              "arguments": [
+                "{{widgets.consent.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:No, thanks|2|no|n)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_consent",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -580
+        },
+        "variables": [
+          {
+            "key": "set_consent",
+            "value": "yes"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "split_arm"
+        }
+      ]
+    },
+    {
+      "name": "record_declined",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 400,
+          "y": -580
+        },
+        "variables": [
+          {
+            "key": "set_consent",
+            "value": "no"
+          },
+          {
+            "key": "outcome",
+            "value": "declined"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "split_arm",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -460
+        },
+        "input": "{{flow.data.arm}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "ARM1_P1"
+        },
+        {
+          "event": "match",
+          "next": "ARM1_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.data.arm}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.data.arm}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P1",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": -300
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "In the last four (4) weeks, on how many occasions have you drawn on quantitative or qualitative data (for example databases, administrative records, statistical reports, surveys, dashboards) as an input to decisions related to your work?\n\n_Reply with an exact number (e.g. 0, 3, 12)._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "store_ARM1_P1"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": -220
+        },
+        "variables": [
+          {
+            "key": "ARM1_P1_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P2"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P2",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 40
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "In the last four (4) weeks, in how many projects, tasks or formal processes you took part in was data or empirical evidence used as explicit support for decision making (for example adjusting strategy, allocating resources, redesigning a process)?\n\n_Reply with an exact number (e.g. 0, 3, 12)._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "store_ARM1_P2"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 120
+        },
+        "variables": [
+          {
+            "key": "ARM1_P2_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P3"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P3",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 380
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Over the last year, how often did you, or the organisation you work for, carry out systematic data collection (for example running surveys, filling in forms, extracting information from internal systems, updating databases) that was then used as an input for decisions in your work?\n\n_Reply with a short phrase (e.g. \"never\", \"sometimes\", \"almost always\", or an approximate percentage)._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "store_ARM1_P3"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 460
+        },
+        "variables": [
+          {
+            "key": "ARM1_P3_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P4"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P4",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 720
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Over the last year, when you needed to collect information or data to support decisions in your work, what was the main mode of data collection you used?\n\n_For example: online surveys, paper forms, phone interviews, internal administrative records, analysis of existing databases._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "store_ARM1_P4"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 800
+        },
+        "variables": [
+          {
+            "key": "ARM1_P4_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P1",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -300
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX77d5103b1a36cb99b5def7c579944c2c",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_ARM2_P1"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -220
+        },
+        "input": "{{widgets.ARM2_P1.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P1"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P1.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:0 times|\\(?1[.)]?|1-2 times|\\(?2[.)]?|3-5 times|\\(?3[.)]?|6-10 times|\\(?4[.)]?|More than 10 times|\\(?5[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -140
+        },
+        "variables": [
+          {
+            "key": "ARM2_P1_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P1_code",
+            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"0 times\" or \"1\" %}1{% when \"1-2 times\" or \"2\" %}2{% when \"3-5 times\" or \"3\" %}3{% when \"6-10 times\" or \"4\" %}4{% when \"more than 10 times\" or \"5\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": -220
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P1",
+            "value": "{% assign current = flow.variables.tries_ARM2_P1 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P1"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": -140
+        },
+        "input": "{{flow.variables.tries_ARM2_P1}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P1"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P1}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P1}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P1",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": -140
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P1"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P1"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": -60
+        },
+        "variables": [
+          {
+            "key": "ARM2_P1_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P1_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P2",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 40
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX4a9d532e22493a9e3cc93da860064218",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_ARM2_P2"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 120
+        },
+        "input": "{{widgets.ARM2_P2.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P2"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P2",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P2.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:0 projects|\\(?1[.)]?|1 project|\\(?2[.)]?|2-3 projects|\\(?3[.)]?|4-5 projects|\\(?4[.)]?|More than 5 projects|\\(?5[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 200
+        },
+        "variables": [
+          {
+            "key": "ARM2_P2_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P2_code",
+            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"0 projects\" or \"1\" %}1{% when \"1 project\" or \"2\" %}2{% when \"2-3 projects\" or \"3\" %}3{% when \"4-5 projects\" or \"4\" %}4{% when \"more than 5 projects\" or \"5\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 120
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P2",
+            "value": "{% assign current = flow.variables.tries_ARM2_P2 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 200
+        },
+        "input": "{{flow.variables.tries_ARM2_P2}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P2"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P2",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P2}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P2",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P2}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P2",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 200
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P2"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 280
+        },
+        "variables": [
+          {
+            "key": "ARM2_P2_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P2_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P3",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 380
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX5ef0187c1635994f1501a907dbbcea74",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_ARM2_P3"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 460
+        },
+        "input": "{{widgets.ARM2_P3.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P3"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P3",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P3.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:We never collect data|\\(?1[.)]?|A few projects|\\(?2[.)]?|About half|\\(?3[.)]?|Most projects|\\(?4[.)]?|Almost all projects|\\(?5[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 540
+        },
+        "variables": [
+          {
+            "key": "ARM2_P3_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P3_code",
+            "value": "{% assign reply = widgets.ARM2_P3.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"we never collect data\" or \"1\" %}1{% when \"a few projects\" or \"2\" %}2{% when \"about half\" or \"3\" %}3{% when \"most projects\" or \"4\" %}4{% when \"almost all projects\" or \"5\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 460
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P3",
+            "value": "{% assign current = flow.variables.tries_ARM2_P3 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 540
+        },
+        "input": "{{flow.variables.tries_ARM2_P3}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P3"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P3",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P3}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P3",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P3}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P3",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 540
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P3"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 620
+        },
+        "variables": [
+          {
+            "key": "ARM2_P3_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P3_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P4",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 720
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX742e0756705dc593bda1bc47a1b42339",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_ARM2_P4"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 800
+        },
+        "input": "{{widgets.ARM2_P4.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P4"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P4",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P4.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:In person \\(CAPI\\)|\\(?1[.)]?|Phone \\(CATI\\)|\\(?2[.)]?|Web or online|\\(?3[.)]?|WhatsApp|\\(?4[.)]?|Another mode|\\(?5[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 880
+        },
+        "variables": [
+          {
+            "key": "ARM2_P4_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P4_code",
+            "value": "{% assign reply = widgets.ARM2_P4.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"in person capi\" or \"1\" %}1{% when \"phone cati\" or \"2\" %}2{% when \"web or online\" or \"3\" %}3{% when \"whatsapp\" or \"4\" %}4{% when \"another mode\" or \"5\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 800
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P4",
+            "value": "{% assign current = flow.variables.tries_ARM2_P4 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 880
+        },
+        "input": "{{flow.variables.tries_ARM2_P4}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P4"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P4",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P4}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P4",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P4}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P4",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 880
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P4"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 960
+        },
+        "variables": [
+          {
+            "key": "ARM2_P4_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P4_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "mark_complete",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_complete",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "complete"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "mark_no_reply",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 900,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_no_reply",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "incomplete"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "mark_never_started",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1700,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_no_reply",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "unreachable"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "mark_delivery_failed",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1300,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_fail",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "undeliverable"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "finish",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1320
+        },
+        "variables": [
+          {
+            "key": "set_time_fin",
+            "value": "{{flow.variables.now}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "function_encrypt"
+        }
+      ]
+    },
+    {
+      "name": "function_encrypt",
+      "type": "run-function",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1440
+        },
+        "service_sid": "ZS04f75bf125e71003387d709e77f1f6ad",
+        "environment_sid": "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92",
+        "function_sid": "ZH477834617e55e948fc9149388bf1ef63",
+        "url": "https://rtt-survey-2647-prod.twil.io/encrypt-fields",
+        "parameters": [
+          {
+            "key": "enc_name",
+            "value": "{{flow.data.name}}"
+          },
+          {
+            "key": "enc_p_number_original",
+            "value": "{{contact.channel.address}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "success",
+          "next": "publish_motherduck"
+        },
+        {
+          "event": "fail",
+          "next": "publish_motherduck"
+        }
+      ]
+    },
+    {
+      "name": "publish_motherduck",
+      "type": "run-function",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1560
+        },
+        "service_sid": "ZS04f75bf125e71003387d709e77f1f6ad",
+        "environment_sid": "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92",
+        "function_sid": "ZH08a4b1579e90c2e3a6ea7829a153e842",
+        "url": "https://rtt-survey-2647-prod.twil.io/publish-motherduck",
+        "parameters": [
+          {
+            "key": "caseid",
+            "value": "{{flow.data.caseid}}"
+          },
+          {
+            "key": "lang",
+            "value": "en"
+          },
+          {
+            "key": "arm",
+            "value": "{{flow.data.arm}}"
+          },
+          {
+            "key": "enc_name",
+            "value": "{{widgets.function_encrypt.parsed.enc_name}}"
+          },
+          {
+            "key": "enc_p_number_original",
+            "value": "{{widgets.function_encrypt.parsed.enc_p_number_original}}"
+          },
+          {
+            "key": "set_consent",
+            "value": "{{flow.variables.set_consent}}"
+          },
+          {
+            "key": "set_complete",
+            "value": "{{flow.variables.set_complete}}"
+          },
+          {
+            "key": "set_no_reply",
+            "value": "{{flow.variables.set_no_reply}}"
+          },
+          {
+            "key": "set_fail",
+            "value": "{{flow.variables.set_fail}}"
+          },
+          {
+            "key": "outcome",
+            "value": "{{flow.variables.outcome}}"
+          },
+          {
+            "key": "ARM1_P1",
+            "value": "{{widgets.ARM1_P1.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P1_status",
+            "value": "{{flow.variables.ARM1_P1_status}}"
+          },
+          {
+            "key": "ARM1_P2",
+            "value": "{{widgets.ARM1_P2.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P2_status",
+            "value": "{{flow.variables.ARM1_P2_status}}"
+          },
+          {
+            "key": "ARM1_P3",
+            "value": "{{widgets.ARM1_P3.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P3_status",
+            "value": "{{flow.variables.ARM1_P3_status}}"
+          },
+          {
+            "key": "ARM1_P4",
+            "value": "{{widgets.ARM1_P4.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P4_status",
+            "value": "{{flow.variables.ARM1_P4_status}}"
+          },
+          {
+            "key": "ARM2_P1",
+            "value": "{{widgets.ARM2_P1.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P1_status",
+            "value": "{{flow.variables.ARM2_P1_status}}"
+          },
+          {
+            "key": "ARM2_P1_code",
+            "value": "{{flow.variables.ARM2_P1_code}}"
+          },
+          {
+            "key": "ARM2_P2",
+            "value": "{{widgets.ARM2_P2.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P2_status",
+            "value": "{{flow.variables.ARM2_P2_status}}"
+          },
+          {
+            "key": "ARM2_P2_code",
+            "value": "{{flow.variables.ARM2_P2_code}}"
+          },
+          {
+            "key": "ARM2_P3",
+            "value": "{{widgets.ARM2_P3.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P3_status",
+            "value": "{{flow.variables.ARM2_P3_status}}"
+          },
+          {
+            "key": "ARM2_P3_code",
+            "value": "{{flow.variables.ARM2_P3_code}}"
+          },
+          {
+            "key": "ARM2_P4",
+            "value": "{{widgets.ARM2_P4.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P4_status",
+            "value": "{{flow.variables.ARM2_P4_status}}"
+          },
+          {
+            "key": "ARM2_P4_code",
+            "value": "{{flow.variables.ARM2_P4_code}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "success",
+          "next": "split_closing"
+        },
+        {
+          "event": "fail",
+          "next": "split_closing"
+        }
+      ]
+    },
+    {
+      "name": "split_closing",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1680
+        },
+        "input": "{{flow.variables.outcome}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "end_without_message"
+        },
+        {
+          "event": "match",
+          "next": "close_complete",
+          "conditions": [
+            {
+              "friendly_name": "is complete",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "complete"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_declined",
+          "conditions": [
+            {
+              "friendly_name": "is declined",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "declined"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_incomplete",
+          "conditions": [
+            {
+              "friendly_name": "is incomplete",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "incomplete"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_never_started",
+          "conditions": [
+            {
+              "friendly_name": "is unreachable",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "unreachable"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "end_without_message",
+          "conditions": [
+            {
+              "friendly_name": "is undeliverable",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "undeliverable"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "close_never_started",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 900,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HXeb1f9134afbe33cdb0c1ac69513deda2",
+        "content_variables": [
+          {
+            "key": "1",
+            "value": "{{flow.data.name}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "end_without_message",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1400,
+          "y": 1800
+        },
+        "variables": [
+          {
+            "key": "set_closed_silently",
+            "value": "1"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next"
+        }
+      ]
+    },
+    {
+      "name": "close_complete",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": -400,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "🙏 Thank you for completing the survey.\n\nYou took part in an experiment with two versions of the same survey: one asking openly in dense prose, and one asking the same things in plain language with tappable answers. You saw one of them.\n\nThe second version is the one we recommend, and in the session we will show what your group's answers looked like - and how much the format alone changed them.\n\nSee you there."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "close_declined",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Thank you for your reply. We understand and respect your decision not to take part in the exercise.\n\nYou are still very welcome in the session, where we will look at how WhatsApp data collection works and where it goes wrong."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "close_incomplete",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 400,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Thank you for the answers you gave - they are recorded.\n\nWe will look at how the format of a question changes the answers it gets, live in the session. See you there."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    }
+  ],
+  "initial_state": "Trigger",
+  "flags": {
+    "allow_concurrent_calls": true
+  }
+}

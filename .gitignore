@@ -229,7 +229,11 @@ output/
 #                           be regenerated here anyway - it came from a
 #                           different Twilio account, where its templates and
 #                           Functions services 404.
-flows/
+# NOTE the trailing /* rather than a bare `flows/`. Git cannot re-include a file
+# inside an excluded *directory*, so `flows/` would make every negation below
+# silently dead - the files simply never appear in `git status`, which is how
+# this was originally written and why it took a while to notice.
+flows/*
 !flows/data_use_demo_en.json
 !flows/data_use_demo_es.json
 !flows/foro_nacional_datos_source.json
