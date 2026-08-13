@@ -203,3 +203,17 @@ output/
 *.xls
 *.csv
 !sample_input.xlsx
+
+# Pulled and generated flow definitions are not tracked. They are snapshots of
+# state that lives in Twilio - `just flow-pull <name>` re-fetches any of them and
+# `just build-rst-flow` regenerates the RST 2026 one - and they are large enough
+# to bury a real change in a diff.
+#
+# The Foro flow is the deliberate exception: it is the worked example this repo
+# ships. It was built as a conference demonstration of A/B testing question
+# format over WhatsApp, not as a study instrument, so it is teaching material
+# rather than internal work product - which is what a public template needs. It
+# also cannot be regenerated here: it came from a different Twilio account,
+# where its templates and Functions services 404.
+flows/
+!flows/foro_nacional_datos_source.json

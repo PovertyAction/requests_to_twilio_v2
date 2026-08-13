@@ -280,7 +280,8 @@ and it is silent - nothing errors, the row simply never appears.
 
 `rtt flow pull` checks this by walking the graph backwards from the publish
 widget and reporting any `timeout` or `deliveryFailure` transition that cannot
-reach it:
+reach it. `flows/` is gitignored - pulled definitions are snapshots of Twilio
+state, re-fetchable at any time:
 
 ```text
   6 break-off path(s) never reach the publish widget:
@@ -419,7 +420,7 @@ just flow-check                       # every flow on the account
 just flow-check "edutainment_bl"      # one flow
 just flow-check "--errors-only"       # suppress warnings
 just flow-list                        # what exists, status, revision
-just flow-pull <name>                 # into flows/, committed and diffable
+just flow-pull <name>                 # into flows/ (gitignored) for review
 ```
 
 It exits non-zero on any error, so it can gate a deployment.

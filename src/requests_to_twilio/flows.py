@@ -6,12 +6,16 @@ nobody can diff it, review it, or say what a respondent was actually asked six
 months ago. Flow revision numbers in the hundreds or thousands are normal, and
 none of those edits are recorded anywhere a researcher can see.
 
-The definition is plain JSON over the API, so it can simply be checked in.
+The definition is plain JSON over the API, so it can be pulled, diffed and
+reviewed. `flows/` is gitignored: a pulled definition is a snapshot of state
+that lives in Twilio and can be re-fetched at any time, and the files are large
+enough to bury a real change in a diff.
 
-Definitions are scanned for credentials before they are written. A flow can
+Definitions are still scanned for credentials before being written. A flow can
 legitimately reference service SIDs, but a Function widget's parameters are
-free-form and people do paste keys into them - and this repository has already
-published one live private key.
+free-form and people do paste keys into them; a pulled file gets shared, pasted
+into tickets and read by other tools even when it is not committed. This
+repository has already published one live private key.
 """
 
 from __future__ import annotations
