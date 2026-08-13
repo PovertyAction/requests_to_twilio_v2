@@ -1,0 +1,47 @@
+{
+  "_comment": [
+    "OPENING template for the Spanish half of the data-use demo flow.",
+    "",
+    "This is hand-written rather than generated, unlike everything in",
+    "templates/generated/, because it is the one message in the flow that Meta",
+    "reviews and it is worth reading word by word before it is frozen. It is",
+    "also the only template here that is ever submitted: consent and all four",
+    "ARM 2 questions are sent inside the 24-hour window the reply to this",
+    "message opens, so they need no approval at all.",
+    "",
+    "Copy matches the `intro` widget that scripts/build_data_use_demo.py emits",
+    "for Spanish. Submission is irreversible - Meta has no edit operation - so",
+    "review it here first.",
+    "",
+    "Framed for UTILITY, not MARKETING. It names the event the participant is",
+    "already attending and states plainly what will happen, with no persuasion",
+    "and no incentive. Every approved opening on this account that led with",
+    "excitement or a reward landed in MARKETING, which carries per-user limits",
+    "and worse delivery. See",
+    ".claude/skills/whatsapp-template/references/ipa-examples.md.",
+    "",
+    "The quick-reply button matters mechanically, not just for tone: the flow's",
+    "intro widget is send-and-wait-for-reply, so tapping Empezar is what opens",
+    "the 24-hour window and lets every later message be free-form - including",
+    "the list pickers, which cannot open a session themselves.",
+    "",
+    "'confidenciales' is a claim the pipeline actually keeps - encrypt_fields",
+    "encrypts name and phone before anything is stored."
+  ],
+  "friendly_name": "data_use_demo_intro_es",
+  "language": "es",
+  "variables": {
+    "1": "Ana"
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Hola {{1}}, te damos la bienvenida a la sesión sobre encuestas por WhatsApp.\n\nDurante la sesión participarás en una encuesta corta - y también harás parte del ejemplo.\n\nToma unos 3 minutos. Tus respuestas son confidenciales y solo se usarán para ilustrar la recolección de datos por WhatsApp durante la sesión.\n\nToca Empezar cuando estés listo.",
+      "actions": [
+        {
+          "title": "Empezar",
+          "id": "Start_payload"
+        }
+      ]
+    }
+  }
+}

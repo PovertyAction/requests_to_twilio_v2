@@ -222,7 +222,7 @@ for negative user feedback.
 | Type | Business-initiated? | Notes |
 | --- | --- | --- |
 | `twilio/text` | Yes, with approval | Simplest, most likely to be approved. Good default for closing messages |
-| `twilio/quick-reply` | Yes, with approval | Up to 10 buttons; only 3 if used unapproved in-session. Titles max 20 chars. Good default for opening messages |
+| `twilio/quick-reply` | Yes, with approval | Up to 10 buttons; only 3 if used unapproved in-session. Titles max 25 chars. Good default for opening messages |
 | `twilio/media` | Yes, with approval | Media type frozen at approval - a template approved with an image can never send a video |
 | `twilio/card` | Yes, with approval | All buttons must be the same action type |
 | `twilio/list-picker` | **No** | Cannot start a conversation |
@@ -231,6 +231,28 @@ for negative user feedback.
 For an opening template, `twilio/quick-reply` with a single Start button is
 usually best: one tap opens the 24-hour window, and the payload is readable in
 Studio via `widgets.<name>.inbound.ButtonPayload` for a Split widget.
+
+### Most of a survey's templates should never be submitted
+
+Approval is only ever about the message that *starts* a conversation. Once the
+respondent has replied, the 24-hour customer service window is open and buttons
+and lists are free - create the template, use it, never submit it.
+
+A typical flow therefore has **one** template in front of Meta (the opener) and
+any number of unsubmitted ones behind it. In this repo:
+
+- `templates/*.json` - hand-written, reviewed word by word, submitted.
+- `templates/generated/*.json` - emitted by the flow builder, created with
+  `just template-create`, **never** submitted.
+
+`rtt template submit` refuses a `twilio/list-picker` outright. WhatsApp does not
+reject that request - it never resolves, which is indistinguishable from a slow
+approval on the morning a round is waiting for it.
+
+The exception is the **closing** message. A survey with 4-hour timeouts can run
+past the 24-hour window, so by the time the close is sent the window may have
+shut. That is why the bookend rule below asks for an approved closing template
+even though the close is nominally "in session".
 
 For a closing template, plain `twilio/text` is usually right - there is nothing
 left to ask. Follow the house formula: thank, close warmly, sign off as

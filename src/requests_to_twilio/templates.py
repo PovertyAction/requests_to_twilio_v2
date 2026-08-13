@@ -39,6 +39,21 @@ logger = get_logger()
 #: can disagree with whatever is requested here.
 CATEGORIES = ("UTILITY", "MARKETING", "AUTHENTICATION")
 
+#: Content types WhatsApp will not review, mapped to why. Submitting one is not
+#: a slow no - Twilio accepts the request and it sits unresolved, which reads
+#: exactly like a template still in review and can burn the days before a round.
+UNSUBMITTABLE_TYPES = {
+    "twilio/list-picker": (
+        "list pickers cannot be approved and cannot open a session; they only "
+        "work inside the 24-hour customer service window, so they need no "
+        "approval in the first place"
+    ),
+    "twilio/location": (
+        "location messages cannot be approved and are not supported for "
+        "business-initiated sends"
+    ),
+}
+
 #: Keys in a definition file that are documentation, not payload.
 _COMMENT_KEYS = ("_comment", "_comments", "_note")
 
@@ -157,6 +172,31 @@ def find_by_name(client: Client, name: str) -> Any | None:
     return None
 
 
+def unsubmittable_types(client: Client, sid: str) -> list[tuple[str, str]]:
+    """Return the template's content types that Meta will not review.
+
+    Args:
+        client: An authenticated Twilio client.
+        sid: The content SID, starting ``HX``.
+
+    Returns:
+        ``(type_name, reason)`` pairs, empty if the template is submittable.
+
+    A network failure here returns empty rather than raising: this exists to
+    stop a pointless submission, and it should not be the reason a legitimate
+    one cannot go out.
+
+    """
+    try:
+        content = client.content.v1.contents(sid).fetch()
+    except TwilioRestException:
+        logger.warning("Could not fetch %s to check its content types", sid)
+        return []
+
+    present = set(content.types or {})
+    return [(name, why) for name, why in UNSUBMITTABLE_TYPES.items() if name in present]
+
+
 def create(client: Client, definition: dict[str, Any]) -> Any:
     """Create a content template in Twilio.
 
@@ -214,6 +254,16 @@ def submit(client: Client, sid: str, name: str, category: str) -> Any:
     if category not in CATEGORIES:
         raise TemplateError(
             f"category must be one of {', '.join(CATEGORIES)}, got {category!r}"
+        )
+
+    blocked = unsubmittable_types(client, sid)
+    if blocked:
+        detail = "\n".join(f"  {name}: {why}" for name, why in blocked)
+        raise TemplateError(
+            f"Refusing to submit {sid}: it contains a content type WhatsApp "
+            f"does not review.\n{detail}\n\n"
+            "Create it and use it in session instead - it works today and "
+            "needs no approval."
         )
 
     request = ApprovalCreateList.ContentApprovalRequest(

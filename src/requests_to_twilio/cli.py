@@ -29,6 +29,7 @@ from .flows import (
     check_preloaded,
     list_flows,
     published_columns,
+    referenced_content_types,
     resolve_flow,
     summarize,
     unpaired_answers,
@@ -637,7 +638,14 @@ def flow_check(
     for flow in targets:
         if not flow.definition:
             continue
-        findings = check_flow(flow.definition)
+        # Knowing whether a template is a list picker takes one Content API
+        # call per template. Worth it for a single flow; not worth 100 calls
+        # when sweeping the whole account, where the checks that need it are
+        # skipped rather than guessed at.
+        content_types = (
+            referenced_content_types(client, flow.definition) if identifier else None
+        )
+        findings = check_flow(flow.definition, content_types)
         if errors_only:
             findings = [f for f in findings if f.severity == "error"]
 
@@ -815,6 +823,14 @@ def template_create(
     yes: Annotated[
         bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
     ] = False,
+    skip_existing: Annotated[
+        bool,
+        typer.Option(
+            "--skip-existing",
+            help="Report and exit 0 if the name is already taken, instead of "
+            "failing. For scripting over a directory of definitions.",
+        ),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Create a template in Twilio from a version-controlled definition."""
@@ -831,6 +847,9 @@ def template_create(
 
     existing = find_by_name(client, name)
     if existing is not None:
+        if skip_existing:
+            typer.echo(f"exists  {name}  ({existing.sid})")
+            return
         _fail(
             f"A template named {name!r} already exists ({existing.sid}). "
             "Template names should be unique; pick a new name in the definition."

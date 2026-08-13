@@ -147,22 +147,86 @@ that reads better.
 **Prefer buttons and lists. Avoid open text unless the question genuinely needs
 prose.**
 
-| Answer type | Use | Why |
+| Answer type | Use | Limits |
 | --- | --- | --- |
-| Categorical | Quick-reply buttons (up to 10) | One tap, no validation needed, no spelling variants |
-| Many options | WhatsApp list picker | Up to 10 rows, scrollable, in-session only |
-| Scale 1-10 | Buttons or a validated numeric split | Both work; buttons remove typos |
+| 2-3 options | `twilio/quick-reply` buttons | **3 buttons** in session; 10 only if the template is approved. Title 25 chars |
+| 4-10 options | `twilio/list-picker` | 10 rows. Item 24 chars, description 72 (required), button 20 |
+| Scale 1-10 | List picker, or a validated numeric split | Both work; the list removes typos |
 | Genuinely open | `send-and-wait-for-reply` with free text | Only when the answer cannot be enumerated |
 
 Open text costs three ways: it needs a validation split and an error counter, it
 arrives with typos and mixed languages that require cleaning, and it is far more
 likely to contain incidental PII a respondent volunteers - which then has to be
-encrypted or scrubbed. Buttons return a stable `ButtonPayload` you can branch on
-directly:
+encrypted or scrubbed.
+
+**Interactive messages are nearly free, and this is the single most useful thing
+to know here.** Both types are Content templates, but *neither needs Meta
+approval to be used as a reply*:
+
+| Content type | In session (24h window) | Business-initiated (opener) |
+| --- | --- | --- |
+| `twilio/text` | free | needs approval |
+| `twilio/quick-reply` | free, max 3 buttons | needs approval, up to 10 |
+| `twilio/list-picker` | free | **not supported at all** |
+
+So only the **opening message** ever goes to Meta. Everything after the
+respondent's first reply - consent, every question, every nudge - can be a
+button or a list created this afternoon and used immediately. Create the
+template with `just template-create` and simply never submit it.
+
+Two consequences worth internalising:
+
+- A list picker **cannot open a conversation**. Put one on the first widget and
+  every respondent in the round gets error 63016 and nothing else runs. `rtt
+  flow check` catches this as `opening-cannot-open-session`, and
+  `opening-not-a-template` catches a free-form body in the same position.
+- `rtt template submit` **refuses** a list picker. WhatsApp does not reject the
+  request, it simply never resolves - which looks exactly like a slow approval
+  on the morning you need it.
+
+### Reading the answer: tap or type
+
+A tap does not return a special event. It returns an ordinary inbound message:
+
+| Interaction | `inbound.Body` | `inbound.ButtonPayload` |
+| --- | --- | --- |
+| Quick-reply tapped | the button's **title** | the button's `id` |
+| List row tapped | the row's **item** text | - |
+| Typed instead | whatever they wrote | - |
+
+Branching on `ButtonPayload` only works for quick replies and only for people
+who tapped. **Split on `inbound.Body` with `matches_any_of`, listing both the
+label and its position**, so the person who ignores the menu and writes `3` is
+matched identically:
 
 ```
-widgets.<widget_name>.inbound.ButtonPayload
+type:  matches_any_of
+value: 0 times,1,1-2 times,2,3-5 times,3,6-10 times,4,More than 10 times,5
 ```
+
+Two traps in that one line, both silent:
+
+- **`matches_any_of` is comma-delimited.** A comma inside a label splits it into
+  two alternatives that never match - so no label may contain a comma. This is
+  the "answer looks fine, respondent gets stranded" defect in its purest form.
+- **No emoji in a label.** It is compared byte for byte after a round trip
+  through WhatsApp; variation selectors make two identical-looking labels
+  different strings. Put the warmth in the body, which nothing matches on.
+
+**Store a normalised code, not the raw reply.** Otherwise the column is half
+labels and half digits depending on how each person answered. Publish both: the
+raw `inbound.Body` and a `_code` derived in a `set-variables` widget.
+
+```liquid
+{% case widgets.ARM2_P1.inbound.Body %}{% when "0 times" or "1" %}1{% when "1-2 times" or "2" %}2{% else %}other{% endcase %}
+```
+
+Publishing both matters because the code is *derived*: if the Liquid ever fails
+to render, the answer itself is still in the row.
+
+`scripts/build_data_use_demo.py` generates all of this - template, split
+condition and code mapping - from one option table, so the message a respondent
+sees and the value stored for them cannot disagree.
 
 **Every question wires all three transitions.** In the corpus, `timeout` and
 `deliveryFailure` appear exactly once per question widget - there are no
@@ -433,10 +497,17 @@ It exits non-zero on any error, so it can gate a deployment.
 | `no-final-status` | error | A published row that cannot say how the survey ended cannot support a response rate |
 | `unhandled-timeout` | error | A question with no timeout branch strands non-responders |
 | `unhandled-delivery-failure` | error | Same, for numbers that cannot receive |
+| `opening-not-a-template` | error | A free-form first message fails with 63016 for the whole round at once |
+| `opening-cannot-open-session` | error | A list picker or location cannot start a conversation, only continue one |
 | `credentials` | error | A definition is meant to be committed |
 | `split-without-nomatch` | warning | An unexpected answer has nowhere to go |
 | `no-encryption` | warning | Publishing identifiers to Sheets in clear |
 | `unpaired-answers` | warning | A blank cell cannot be read as timed-out vs not-asked vs failed |
+
+`opening-cannot-open-session` needs to know what each content template actually
+is, which costs one Content API call per template. It runs when you check a
+single flow or deploy one, and is skipped on a whole-account sweep rather than
+guessed at.
 
 ### What it found on this account
 

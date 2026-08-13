@@ -156,9 +156,22 @@ flow-pull NAME *ARGS:
 flow-check *ARGS:
     uv run rtt flow check {{ ARGS }}
 
-# Build the RST Jaipur 2026 flow definition from the Foro flow
-build-rst-flow:
-    uv run python scripts/build_rst2026_flow.py
+# Build the data-use demo flow in both languages, plus the content templates
+# its interactive questions need. Pass --lang en or --lang es for just one.
+build-demo-flow *ARGS:
+    uv run python scripts/build_data_use_demo.py {{ ARGS }}
+
+# Create every content template the demo flow needs that does not exist yet.
+# These are in-session only (quick-reply buttons and list pickers), so none of
+# them is ever submitted to Meta - only the opener needs approval. Safe to
+# re-run: --skip-existing leaves a template that is already there alone rather
+# than creating a second one with the same name.
+demo-templates-create:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for file in templates/generated/*.json; do
+        uv run rtt template create "$file" --skip-existing --yes
+    done
 
 # Deploy encrypt_fields.js and publish_motherduck.js as Twilio Functions
 deploy-functions:

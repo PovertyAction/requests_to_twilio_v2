@@ -255,6 +255,68 @@ def unpublished_paths(definition: dict) -> list[tuple[str, str, str]]:
     return stranded
 
 
+#: Widget types that put a message on the wire.
+_SENDING_TYPES = frozenset({"send-message", "send-and-wait-for-reply"})
+
+
+def opening_sends(definition: dict) -> list[str]:
+    """Find the first message an API-launched execution puts on the wire.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        Widget names that can be the first message sent when the flow is
+        started over the REST API. Usually one; more if a split precedes it.
+
+    `rtt launch` starts a business-initiated conversation: nobody has messaged
+    us, so the 24-hour customer service window is shut. WhatsApp only accepts an
+    approved template as the message that opens it. A free-form body there fails
+    with error 63016 for every respondent in the round, and it fails at the very
+    first message, so nothing else in the flow ever runs.
+
+    Only the path from `incomingRequest` is walked. The `incomingMessage` path
+    means the respondent wrote first, which opens the window by itself.
+
+    """
+    states = {s.get("name"): s for s in definition.get("states", [])}
+    trigger = next(
+        (s for s in states.values() if s.get("type") == "trigger"),
+        None,
+    )
+    if trigger is None:
+        return []
+
+    start = [
+        t.get("next")
+        for t in trigger.get("transitions", [])
+        if t.get("event") == "incomingRequest" and t.get("next")
+    ]
+
+    first: list[str] = []
+    seen: set[str] = set()
+    queue = list(start)
+    while queue:
+        name = queue.pop(0)
+        if name in seen or name not in states:
+            continue
+        seen.add(name)
+        state = states[name]
+
+        if state.get("type") in _SENDING_TYPES:
+            # This one sends. Stop here - anything after it is either a reply
+            # (window open) or unreachable until this message succeeds.
+            first.append(name)
+            continue
+
+        # Everything else - splits, variables, functions - is silent, so keep
+        # walking until an actual message is found.
+        for transition in state.get("transitions", []):
+            if transition.get("next"):
+                queue.append(transition["next"])
+    return first
+
+
 #: Suffixes that mark a column as the status belonging to the answer before it.
 STATUS_SUFFIXES = ("_status", "_err", "_error", "_state", "_outcome")
 
@@ -358,7 +420,14 @@ class Finding:
     detail: list[str] = field(default_factory=list)
 
 
-def check_flow(definition: dict) -> list[Finding]:
+#: Content types that cannot be the first message of a business-initiated
+#: conversation. They are perfectly good replies; they just cannot open the door.
+_CANNOT_OPEN_SESSION = frozenset({"twilio/list-picker", "twilio/location"})
+
+
+def check_flow(
+    definition: dict, content_types: dict[str, list[str]] | None = None
+) -> list[Finding]:
     """Run the structural checks over a flow definition.
 
     This is the high-frequency-check equivalent for a Studio flow: it does not
@@ -368,12 +437,18 @@ def check_flow(definition: dict) -> list[Finding]:
 
     Args:
         definition: The flow's JSON definition.
+        content_types: Optional map of content SID to the content types it
+            declares, as returned by the Content API. Supplying it enables the
+            checks that depend on what a template actually is rather than on
+            the shape of the flow; without it those checks are skipped rather
+            than guessed at.
 
     Returns:
         Findings, errors first. An empty list means every check passed.
 
     """
     states = definition.get("states", [])
+    by_name = {s.get("name"): s for s in states}
     findings: list[Finding] = []
     publishes = any(_is_publish_widget(s) for s in states)
 
@@ -451,6 +526,43 @@ def check_flow(definition: dict) -> list[Finding]:
                     "created by `rtt launch` end immediately without sending",
                 )
             )
+
+    # The message that opens a business-initiated conversation must be an
+    # approved template. This fails at the very first message, for everyone in
+    # the round at once, so it is worth catching before the round and not from
+    # the error logs afterwards.
+    plain_opening, cannot_open = [], []
+    for name in opening_sends(definition):
+        properties = by_name.get(name, {}).get("properties", {})
+        sid = properties.get("content_sid")
+        if not sid:
+            plain_opening.append(name)
+            continue
+        blocked = sorted(set((content_types or {}).get(sid, [])) & _CANNOT_OPEN_SESSION)
+        if blocked:
+            cannot_open.append(f"{name} ({sid}: {', '.join(blocked)})")
+
+    if plain_opening:
+        findings.append(
+            Finding(
+                "error",
+                "opening-not-a-template",
+                f"{len(plain_opening)} opening message(s) send a free-form "
+                "body, which WhatsApp rejects with 63016 outside the 24-hour "
+                "window",
+                plain_opening[:10],
+            )
+        )
+    if cannot_open:
+        findings.append(
+            Finding(
+                "error",
+                "opening-cannot-open-session",
+                f"{len(cannot_open)} opening message(s) use a content type "
+                "that cannot start a conversation",
+                cannot_open[:10],
+            )
+        )
 
     # Splits that cannot handle an unexpected answer strand the respondent.
     no_fallback = [
@@ -539,6 +651,32 @@ def validate_remote(client: Client, name: str, definition: dict) -> list[str]:
     ]
 
 
+def referenced_content_types(client: Client, definition: dict) -> dict[str, list[str]]:
+    """Look up what every content template the flow references actually is.
+
+    Args:
+        client: An authenticated Twilio client.
+        definition: The flow's JSON definition.
+
+    Returns:
+        Content SID to the list of content types it declares. SIDs that cannot
+        be fetched are omitted, so the checks that use this skip them rather
+        than treating an unreachable template as a broken one.
+
+    """
+    sids = {
+        state.get("properties", {}).get("content_sid")
+        for state in definition.get("states", [])
+    }
+    types: dict[str, list[str]] = {}
+    for sid in sorted(s for s in sids if s):
+        try:
+            types[sid] = list(client.content.v1.contents(sid).fetch().types or {})
+        except Exception:  # noqa: BLE001 - a missing template is not our error
+            logger.warning("Could not fetch content template %s", sid)
+    return types
+
+
 def deploy(
     *,
     client: Client,
@@ -574,7 +712,7 @@ def deploy(
     import requests
     from requests.auth import HTTPBasicAuth
 
-    findings = check_flow(definition)
+    findings = check_flow(definition, referenced_content_types(client, definition))
     errors = [f for f in findings if f.severity == "error"]
     if errors and not force:
         detail = "\n".join(f"  [{f.code}] {f.summary}" for f in errors)
