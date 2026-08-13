@@ -12,6 +12,7 @@ gone out, with no way to tell which respondents had been contacted.
 from __future__ import annotations
 
 import csv
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -32,6 +33,11 @@ from .log import get_logger, mask_phone
 
 #: The one column an input file must have.
 NUMBER_COLUMN = "Number"
+
+#: Above this many recipients, per-respondent success lines drop to DEBUG and
+#: progress is reported per batch instead. A round of several hundred otherwise
+#: buries its own failures in a wall of successes.
+_VERBOSE_ROW_LIMIT = 25
 
 #: Columns of the delivery tracker, in order.
 TRACKER_COLUMNS = [
@@ -281,6 +287,16 @@ def launch(
     succeeded = 0
     failed = 0
 
+    # One line per respondent is what you want while testing five numbers and
+    # noise once there are five hundred. Below the threshold every send is
+    # reported; above it, successes drop to DEBUG (still there under --verbose)
+    # and progress is reported per batch instead. Failures are ERROR either way
+    # - those are never noise.
+    per_row_level = (
+        logging.INFO if len(pending) <= _VERBOSE_ROW_LIMIT else logging.DEBUG
+    )
+    started = time.monotonic()
+
     with _TrackerWriter(tracker) as writer:
         for position, row in enumerate(pending, start=1):
             to_number = str(row[NUMBER_COLUMN]).strip()
@@ -307,7 +323,8 @@ def launch(
                 record.contact = execution.contact_channel_address or ""
                 record.url = execution.url or ""
                 succeeded += 1
-                logger.info(
+                logger.log(
+                    per_row_level,
                     "%s -> %s (%s)  [%d/%d]",
                     mask_phone(to_number),
                     record.status,
@@ -320,8 +337,17 @@ def launch(
 
             sent_in_batch += 1
             if sent_in_batch == batch_size and position < len(pending):
+                rate = position / max(time.monotonic() - started, 0.001)
+                remaining = (len(pending) - position) / max(rate, 0.001)
                 logger.info(
-                    "Batch of %d done, pausing %.1fs", batch_size, sec_between_batches
+                    "%d/%d done (%d failed), %.1f/s, ~%.0fs left. "
+                    "Pausing %.1fs between batches.",
+                    position,
+                    len(pending),
+                    failed,
+                    rate,
+                    remaining,
+                    sec_between_batches,
                 )
                 time.sleep(sec_between_batches)
                 sent_in_batch = 0
