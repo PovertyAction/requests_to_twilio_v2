@@ -14,17 +14,17 @@
   "language": "en",
   "types": {
     "twilio/text": {
-      "body": "👋 Before we start - would you like to take part?\n\nIt takes about 3 minutes. Taking part is voluntary, you can stop at any time by not replying, and your answers are confidential.\n\n1 - Yes I will take part\n2 - No thanks"
+      "body": "👋 Before we start - would you like to take part?\n\nIt takes about 3 minutes. Taking part is voluntary, you can stop at any time by not replying, and your answers are confidential.\n\n1 - Yes, I'll take part\n2 - No, thanks"
     },
     "twilio/quick-reply": {
       "body": "👋 Before we start - would you like to take part?\n\nIt takes about 3 minutes. Taking part is voluntary, you can stop at any time by not replying, and your answers are confidential.",
       "actions": [
         {
-          "title": "Yes I will take part",
+          "title": "Yes, I'll take part",
           "id": "consent_yes"
         },
         {
-          "title": "No thanks",
+          "title": "No, thanks",
           "id": "consent_no"
         }
       ]

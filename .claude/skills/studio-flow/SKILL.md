@@ -279,8 +279,8 @@ midpoint in the **item** and put the full wording in the **description**, which
 allows 72 characters and is displayed underneath:
 
 ```python
-("agree_3", "Neither", "Neither agree nor disagree"),
-("agree_3", "Ni una cosa ni otra", "Ni de acuerdo ni en desacuerdo"),
+(("agree_3", "Neither", "Neither agree nor disagree"),)
+(("agree_3", "Ni una cosa ni otra", "Ni de acuerdo ni en desacuerdo"),)
 ```
 
 Numbering the row buys headroom here too: `3 - Neither` is 11 characters and
@@ -316,8 +316,8 @@ into a published mean.
 In the demo builder, give the option an explicit code as a fourth element:
 
 ```python
-("sat_5", "5 - Very satisfied", "Completely satisfied"),
-("sat_na", "Prefer not to say", "Not counted in the scale", -99),
+(("sat_5", "5 - Very satisfied", "Completely satisfied"),)
+(("sat_na", "Prefer not to say", "Not counted in the scale", -99),)
 ```
 
 which emits Liquid that codes it out of range rather than by position:

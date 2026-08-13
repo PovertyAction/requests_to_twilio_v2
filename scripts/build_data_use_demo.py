@@ -168,8 +168,10 @@ EN: dict[str, Any] = {
             "It takes about 3 minutes. Taking part is voluntary, you can stop "
             "at any time by not replying, and your answers are confidential."
         ),
-        "button_yes": "Yes I will take part",
-        "button_no": "No thanks",
+        # Commas are fine in a label now that the splits use regex; under
+        # matches_any_of these had to read "Yes I will take part".
+        "button_yes": "Yes, I'll take part",
+        "button_no": "No, thanks",
         "typed_yes": "1|yes|y",
         "typed_no": "2|no|n",
     },
@@ -326,8 +328,8 @@ ES: dict[str, Any] = {
             "dejar de responder en cualquier momento y tus respuestas son "
             "confidenciales."
         ),
-        "button_yes": "Sí participo",
-        "button_no": "No gracias",
+        "button_yes": "Sí, participo",
+        "button_no": "No, gracias",
         "typed_yes": "1|si|sí|s",
         "typed_no": "2|no|n",
     },
@@ -828,7 +830,9 @@ def ask(name, body, on_reply, *, x=0, y=0, on_timeout="mark_no_reply"):
     }
 
 
-def ask_content(name, content_sid, on_reply, *, x=0, y=0, variables=None):
+def ask_content(
+    name, content_sid, on_reply, *, x=0, y=0, variables=None, on_timeout="mark_no_reply"
+):
     """Build a question that sends a content template instead of a body.
 
     Used for the interactive messages - the consent buttons and the ARM 2
@@ -850,7 +854,7 @@ def ask_content(name, content_sid, on_reply, *, x=0, y=0, variables=None):
         "properties": properties,
         "transitions": [
             {"event": "incomingMessage", "next": on_reply},
-            {"event": "timeout", "next": "mark_no_reply"},
+            {"event": "timeout", "next": on_timeout},
             {"event": "deliveryFailure", "next": "mark_delivery_failed"},
         ],
     }
@@ -1190,6 +1194,12 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             x=0,
             y=-950,
             variables=[{"key": "1", "value": "{{flow.data.name}}"}],
+            # Someone who never answers the opener has never opened the 24-hour
+            # window, so every later message to them is business-initiated and
+            # fails with 63016. They get a published row and no closing message
+            # - which is also the right thing to do rather than merely the only
+            # possible one: there is nothing to thank a non-participant for.
+            on_timeout="mark_never_started",
         ),
         ask_content(
             "consent",
@@ -1300,9 +1310,20 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 x=900,
                 y=1200,
             ),
+            # Never answered the opener: the window never opened, so no closing
+            # message is possible. The row is still published.
+            set_vars(
+                "mark_never_started",
+                [("set_no_reply", "1"), ("outcome", "unreachable")],
+                "finish",
+                x=1700,
+                y=1200,
+            ),
+            # The message did not arrive. Sending another one would fail the
+            # same way, so this path gets no closing message either.
             set_vars(
                 "mark_delivery_failed",
-                [("set_fail", "1"), ("outcome", "incomplete")],
+                [("set_fail", "1"), ("outcome", "undeliverable")],
                 "finish",
                 x=1300,
                 y=1200,
@@ -1394,6 +1415,10 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
 
     states.extend(
         [
+            # noMatch is the "say nothing" branch, and it is where `unreachable`
+            # and `undeliverable` land. Those are the two outcomes where a
+            # closing message cannot be delivered, so the flow ends quietly
+            # rather than queuing a send that is certain to fail with 63016.
             split(
                 "split_closing",
                 "{{flow.variables.outcome}}",
@@ -1402,10 +1427,19 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                     ("declined", "close_declined"),
                     ("incomplete", "close_incomplete"),
                 ],
-                "close_incomplete",
+                "end_without_message",
                 x=0,
                 y=1680,
             ),
+            {
+                "name": "end_without_message",
+                "type": "set-variables",
+                "properties": {
+                    "offset": {"x": 900, "y": 1800},
+                    "variables": [{"key": "set_closed_silently", "value": "1"}],
+                },
+                "transitions": [{"event": "next"}],
+            },
             send(
                 "close_complete",
                 table["close_complete"],

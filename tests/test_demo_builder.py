@@ -351,6 +351,53 @@ class TestBuild:
         for reply in [consent["button_no"], *consent["typed_no"].split("|")]:
             assert route_split(split, reply) == "record_declined", reply
 
+    def test_someone_who_never_replies_gets_a_row_and_no_message(self, lang):
+        """The window never opened, so any close would fail with 63016.
+
+        It is also the right thing to do rather than merely the only possible
+        one - there is nothing to thank a non-participant for. What must still
+        happen is the row.
+        """
+        definition = demo.build(lang, fake_sids(lang))
+        states = {s["name"]: s for s in definition["states"]}
+
+        node, event, path = "intro", "timeout", []
+        while node and node not in path:
+            path.append(node)
+            following = [
+                t.get("next")
+                for t in states[node]["transitions"]
+                if t.get("event") == event and t.get("next")
+            ]
+            node = following[0] if following else None
+            if node is None:
+                node = next(
+                    (
+                        t.get("next")
+                        for t in states[path[-1]]["transitions"]
+                        if t.get("next")
+                    ),
+                    None,
+                )
+            event = "next"
+
+        assert "publish_motherduck" in path, path
+        assert not any(p.startswith("close_") for p in path), path
+        assert path[-1] == "end_without_message", path
+
+    def test_a_close_is_only_sent_where_the_window_is_open(self, lang):
+        """Every outcome that reaches a close must have had an inbound reply."""
+        definition = demo.build(lang, fake_sids(lang))
+        split = next(s for s in definition["states"] if s["name"] == "split_closing")
+        for outcome, expected in (
+            ("complete", "close_complete"),
+            ("declined", "close_declined"),
+            ("incomplete", "close_incomplete"),
+            ("unreachable", "end_without_message"),
+            ("undeliverable", "end_without_message"),
+        ):
+            assert route_split(split, outcome) == expected, outcome
+
     def test_an_unreadable_consent_reply_does_not_enrol_anyone(self, lang):
         """Ambiguity must never be read as agreement."""
         definition = demo.build(lang, fake_sids(lang))
