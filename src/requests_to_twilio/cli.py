@@ -27,6 +27,7 @@ from .flows import (
     FlowError,
     check_flow,
     check_preloaded,
+    inbound_flow_sid,
     list_flows,
     published_columns,
     published_revision,
@@ -181,6 +182,74 @@ def _check_preloaded_data(
         raise typer.Exit(code=1)
 
 
+def _check_inbound_routing(
+    client: Client, flow_id: str, from_number: str, *, force: bool
+) -> None:
+    """Verify replies to this number will actually reach this flow.
+
+    A Studio execution only receives a reply if the sending number's inbound
+    webhook points at the same flow. Get this wrong and the send side looks
+    perfect - every message delivered, every respondent replying - while a
+    different flow answers them and these executions sit untouched until they
+    time out. The round collects nothing and nothing reports an error.
+    """
+    try:
+        owner = inbound_flow_sid(client, from_number)
+    except FlowError as exc:
+        typer.secho(
+            f"  warning: could not check inbound routing ({exc})",
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    if owner == flow_id:
+        typer.secho(
+            "  inbound routing OK: replies to this number reach this flow",
+            fg=typer.colors.GREEN,
+        )
+        return
+
+    if owner is None:
+        typer.secho(
+            f"  warning: {from_number} has no Studio flow on its inbound "
+            "webhook (a Messaging Service or custom URL?). Replies may not "
+            "reach this flow - check before sending a real round.",
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    typer.secho(
+        f"\nReplies to {from_number} go to a different flow.\n",
+        fg=typer.colors.RED,
+        bold=True,
+    )
+    try:
+        other = resolve_flow(client, owner)
+        typer.echo(
+            f"  that number's inbound webhook -> {other.friendly_name} ({owner})"
+        )
+    except FlowError:
+        typer.echo(f"  that number's inbound webhook -> {owner}")
+    typer.echo(f"  you are launching              -> {flow_id}\n")
+    typer.secho(
+        "  Messages will send fine and respondents will reply, but those\n"
+        "  replies reach the other flow. These executions will sit untouched\n"
+        "  until they time out, and the round will collect nothing.\n\n"
+        "  Repoint the number's inbound webhook at this flow first. Note that\n"
+        "  a number can only route to one flow, so this takes it away from\n"
+        "  whatever owns it now.",
+        fg=typer.colors.YELLOW,
+    )
+
+    if force:
+        typer.secho("\n  (dry run, continuing)", fg=typer.colors.YELLOW)
+        return
+
+    if not typer.confirm("\nSend anyway?"):
+        typer.echo("Aborted.")
+        raise typer.Exit(code=1)
+
+
 def _private_key():
     """Load the private key from the environment or the file it points at."""
     inline = cfg.optional("ENCRYPTION_PRIVATE_KEY")
@@ -296,6 +365,7 @@ def launch_cmd(
 
     if not skip_preload_check:
         _check_preloaded_data(client, resolved_flow, column_list, force=dry_run)
+        _check_inbound_routing(client, resolved_flow, resolved_from, force=dry_run)
 
     try:
         launch(

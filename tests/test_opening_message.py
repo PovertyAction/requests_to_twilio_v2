@@ -365,3 +365,56 @@ class TestTextLimits:
         detail = " ".join(finding.detail)
         assert "Neither agree nor disagree" in detail
         assert "26" in detail
+
+
+class TestInboundRouting:
+    """Which flow owns a number's inbound webhook decides where replies land.
+
+    Getting this wrong produces no error anywhere: messages send, respondents
+    reply, a different flow answers them, and the tracker reports total success
+    while the round collects nothing.
+    """
+
+    def client_with(self, phone, sms_url):
+        from types import SimpleNamespace
+
+        number = SimpleNamespace(phone_number=phone, sms_url=sms_url)
+        return SimpleNamespace(
+            incoming_phone_numbers=SimpleNamespace(list=lambda limit=200: [number])
+        )
+
+    def test_reads_the_flow_out_of_the_webhook(self):
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        sid = "FW" + "a" * 32
+        client = self.client_with(
+            "+13185522132", f"https://webhooks.twilio.com/v1/Accounts/ACx/Flows/{sid}"
+        )
+        assert inbound_flow_sid(client, "whatsapp:+13185522132") == sid
+
+    def test_strips_the_whatsapp_prefix(self):
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        sid = "FW" + "b" * 32
+        client = self.client_with("+15550100", f"/Flows/{sid}")
+        assert inbound_flow_sid(client, "whatsapp:+15550100") == sid
+        assert inbound_flow_sid(client, "+15550100") == sid
+
+    def test_a_non_studio_webhook_is_unknown_not_wrong(self):
+        """A Messaging Service or custom URL means we cannot tell."""
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        client = self.client_with("+15550100", "https://example.org/inbound")
+        assert inbound_flow_sid(client, "+15550100") is None
+
+    def test_an_unknown_number_is_none(self):
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        client = self.client_with("+15550100", "/Flows/FW" + "c" * 32)
+        assert inbound_flow_sid(client, "+19999999") is None
+
+    def test_a_blank_number_is_none(self):
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        client = self.client_with("+15550100", "/Flows/FW" + "d" * 32)
+        assert inbound_flow_sid(client, "") is None

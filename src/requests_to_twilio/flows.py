@@ -976,6 +976,56 @@ def validate_remote(client: Client, name: str, definition: dict) -> list[str]:
     ]
 
 
+#: Matches the flow SID out of a Studio webhook URL, which is the shape Twilio
+#: writes into a phone number's sms_url when you wire it to a flow in the console.
+_FLOW_WEBHOOK_PATTERN = re.compile(r"/Flows/(FW[0-9a-fA-F]{32})")
+
+
+def inbound_flow_sid(client: Client, from_number: str) -> str | None:
+    """Return the flow that owns the inbound webhook for a sending number.
+
+    Args:
+        client: An authenticated Twilio client.
+        from_number: The sending address, with or without a ``whatsapp:`` prefix.
+
+    Returns:
+        The flow SID handling replies to this number, or None if the number is
+        not found or its webhook does not point at a Studio flow (a Messaging
+        Service or a custom URL, for instance).
+
+    This is the routing rule that is easy to miss and expensive to miss: a
+    Studio execution only receives a reply if the inbound webhook on the number
+    it sent from points at **that flow**. Send from a number wired to a
+    different flow and every message goes out perfectly, every respondent
+    replies, and the other flow answers them - while your executions sit
+    untouched until they time out. The send side looks completely healthy and
+    the round collects nothing.
+
+    On a shared account this is the normal state of affairs rather than an edge
+    case: one number can only route to one flow, so whoever launched last owns
+    it.
+
+    """
+    bare = from_number.replace("whatsapp:", "").strip()
+    if not bare:
+        return None
+
+    try:
+        numbers = client.incoming_phone_numbers.list(limit=200)
+    except TwilioRestException as exc:
+        raise FlowError(
+            f"Could not list phone numbers: HTTP {exc.status} "
+            f"(code {exc.code}): {exc.msg}"
+        ) from exc
+
+    for number in numbers:
+        if number.phone_number != bare:
+            continue
+        match = _FLOW_WEBHOOK_PATTERN.search(number.sms_url or "")
+        return match.group(1) if match else None
+    return None
+
+
 def published_revision(client: Client, flow_id: str) -> int | None:
     """Return the flow's latest published revision, or None if never published.
 

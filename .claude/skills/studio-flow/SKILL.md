@@ -26,6 +26,7 @@ encrypted, the publish payload shape.
 Every IPA survey flow follows this spine. Design against it; audit against it.
 
 ```
+0. ROUTE          the sending number's inbound webhook must point at THIS flow
 1. CONSENT        identify, state the basis, link the document, record the answer
 2. QUESTIONS      each one wrapped in validation + timeout + delivery-failure
 3. AGGREGATE      count errors per section, decide when to stop asking
@@ -38,6 +39,49 @@ Stages 3 to 6 are what guarantee the data is both **protected where it needs to
 be** and **actually retrievable**. Skipping stage 3 gives a dataset that cannot
 distinguish "refused" from "never asked". Skipping stage 4 puts PII in a shared
 spreadsheet. Skipping stage 6 leaves respondents in silence and rows unflagged.
+
+## Stage -1 - who owns the number's inbound webhook
+
+**Before anything else: does the number you are sending from route replies back
+to the flow you are launching?**
+
+A Studio execution only receives a reply if the sending number's **inbound
+webhook points at that same flow**. This is not negotiable and it is not
+inferred from which flow created the execution.
+
+Get it wrong and there is no error anywhere. Every message sends, every
+respondent replies, and a *different* flow answers them - usually with whatever
+boilerplate it has for unexpected input. Your executions sit untouched until
+they time out, the round collects nothing, and the delivery tracker reports
+`5 sent, 0 failed`. It looks like a total success from the send side.
+
+This bit us on the first live test of the demo flow: replies came back with
+"Por el momento no estamos recibiendo mensajes. El canal de comunicación no se
+encuentra habilitado" - the boilerplate of `Te cuidadores`, a flow last edited in
+December 2021 that happened to own the webhook on the sending number.
+
+**On a shared account this is the normal state, not an edge case.** A number can
+route to exactly one flow, so whoever launched last owns it. Check every time.
+
+```bash
+just launch "sample.xlsx --columns caseid,name --dry-run"
+#   inbound routing OK: replies to this number reach this flow
+```
+
+`rtt launch` verifies it before sending and blocks if it does not match, naming
+both flows. Repointing the webhook takes the number away from whatever owns it
+now, so it is a decision, not a formality - check what that other flow is before
+you take it, and hand the number back when your round is over.
+
+The webhook Twilio writes for a flow looks like:
+
+```
+https://webhooks.twilio.com/v1/Accounts/<AC...>/Flows/<FW...>
+```
+
+If the number has no Studio flow there at all - a Messaging Service, a custom
+URL - the check warns rather than blocks, because it cannot tell where replies
+go. Verify by hand in that case.
 
 ## Stage 0 - preloaded data, and the sample file
 
