@@ -60,8 +60,11 @@ This bit us on the first live test of the demo flow: replies came back with
 encuentra habilitado" - the boilerplate of `Te cuidadores`, a flow last edited in
 December 2021 that happened to own the webhook on the sending number.
 
-**On a shared account this is the normal state, not an edge case.** A number can
-route to exactly one flow, so whoever launched last owns it. Check every time.
+**A sender routes to exactly one flow at a time.** Which number a study may use
+is an IPA process question and is deliberately outside this template - assume
+the number is yours to point before you point it. What is in scope here is
+verifying that it *is* pointed where you think, every time, because nothing
+downstream will tell you otherwise.
 
 ```bash
 just launch "sample.xlsx --columns caseid,name --dry-run"
@@ -69,9 +72,7 @@ just launch "sample.xlsx --columns caseid,name --dry-run"
 ```
 
 `rtt launch` verifies it before sending and blocks if it does not match, naming
-both flows. Repointing the webhook takes the number away from whatever owns it
-now, so it is a decision, not a formality - check what that other flow is before
-you take it, and hand the number back when your round is over.
+both flows so you can see what you would be taking it from.
 
 The webhook Twilio writes for a flow looks like:
 
