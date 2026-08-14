@@ -125,7 +125,7 @@
       "transitions": [
         {
           "event": "noMatch",
-          "next": "record_declined"
+          "next": "consent_unclear"
         },
         {
           "event": "match",
@@ -149,6 +149,101 @@
               "friendly_name": "declined",
               "arguments": [
                 "{{widgets.consent.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:No, thanks|2|no|n)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "consent_unclear",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": -700
+        },
+        "variables": [
+          {
+            "key": "set_consent",
+            "value": "unclear"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "consent_retry"
+        }
+      ]
+    },
+    {
+      "name": "consent_retry",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": -620
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX35e7503a420fb2131dc5fc8b914f4f1f",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_consent_retry"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_consent_retry",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": -540
+        },
+        "input": "{{widgets.consent_retry.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "match",
+          "next": "record_consent",
+          "conditions": [
+            {
+              "friendly_name": "consented",
+              "arguments": [
+                "{{widgets.consent_retry.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:Yes, I'll take part|1|yes|y)\\s*)"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "record_declined",
+          "conditions": [
+            {
+              "friendly_name": "declined",
+              "arguments": [
+                "{{widgets.consent_retry.inbound.Body}}"
               ],
               "type": "regex",
               "value": "(?:\\s*(?:No, thanks|2|no|n)\\s*)"
@@ -218,7 +313,7 @@
       "transitions": [
         {
           "event": "noMatch",
-          "next": "ARM1_P1"
+          "next": "mark_arm_missing"
         },
         {
           "event": "match",
@@ -251,6 +346,28 @@
       ]
     },
     {
+      "name": "mark_arm_missing",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -400,
+          "y": -400
+        },
+        "variables": [
+          {
+            "key": "set_arm_missing",
+            "value": "1"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P1"
+        }
+      ]
+    },
+    {
       "name": "ARM1_P1",
       "type": "send-and-wait-for-reply",
       "properties": {
@@ -265,7 +382,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "store_ARM1_P1"
+          "next": "stopcheck_ARM1_P1"
         },
         {
           "event": "timeout",
@@ -278,12 +395,43 @@
       ]
     },
     {
+      "name": "stopcheck_ARM1_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": -240
+        },
+        "input": "{{widgets.ARM1_P1.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P1"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P1.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "store_ARM1_P1",
       "type": "set-variables",
       "properties": {
         "offset": {
           "x": -700,
-          "y": -220
+          "y": -160
         },
         "variables": [
           {
@@ -314,7 +462,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "store_ARM1_P2"
+          "next": "stopcheck_ARM1_P2"
         },
         {
           "event": "timeout",
@@ -327,12 +475,43 @@
       ]
     },
     {
+      "name": "stopcheck_ARM1_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 100
+        },
+        "input": "{{widgets.ARM1_P2.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P2"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P2.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "store_ARM1_P2",
       "type": "set-variables",
       "properties": {
         "offset": {
           "x": -700,
-          "y": 120
+          "y": 180
         },
         "variables": [
           {
@@ -363,7 +542,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "store_ARM1_P3"
+          "next": "stopcheck_ARM1_P3"
         },
         {
           "event": "timeout",
@@ -376,12 +555,43 @@
       ]
     },
     {
+      "name": "stopcheck_ARM1_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 440
+        },
+        "input": "{{widgets.ARM1_P3.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P3"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P3.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "store_ARM1_P3",
       "type": "set-variables",
       "properties": {
         "offset": {
           "x": -700,
-          "y": 460
+          "y": 520
         },
         "variables": [
           {
@@ -412,7 +622,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "store_ARM1_P4"
+          "next": "stopcheck_ARM1_P4"
         },
         {
           "event": "timeout",
@@ -425,12 +635,43 @@
       ]
     },
     {
+      "name": "stopcheck_ARM1_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 780
+        },
+        "input": "{{widgets.ARM1_P4.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P4"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P4.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "store_ARM1_P4",
       "type": "set-variables",
       "properties": {
         "offset": {
           "x": -700,
-          "y": 800
+          "y": 860
         },
         "variables": [
           {
@@ -462,7 +703,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "split_ARM2_P1"
+          "next": "stopcheck_ARM2_P1"
         },
         {
           "event": "timeout",
@@ -471,6 +712,37 @@
         {
           "event": "deliveryFailure",
           "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -260
+        },
+        "input": "{{widgets.ARM2_P1.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P1"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P1.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
         }
       ]
     },
@@ -499,7 +771,7 @@
                 "{{widgets.ARM2_P1.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:p1_0|0 times|\\(?1[.)]?|p1_1_2|1-2 times|\\(?2[.)]?|p1_3_5|3-5 times|\\(?3[.)]?|p1_6_10|6-10 times|\\(?4[.)]?|p1_gt10|More than 10 times|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:p1_0|0 times|p1_1_2|1-2 times|p1_3_5|3-5 times|p1_6_10|6-10 times|p1_gt10|More than 10 times)\\s*)"
             }
           ]
         }
@@ -520,7 +792,7 @@
           },
           {
             "key": "ARM2_P1_code",
-            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p1_0\" or \"0 times\" or \"1\" %}1{% when \"p1_1_2\" or \"1-2 times\" or \"2\" %}2{% when \"p1_3_5\" or \"3-5 times\" or \"3\" %}3{% when \"p1_6_10\" or \"6-10 times\" or \"4\" %}4{% when \"p1_gt10\" or \"more than 10 times\" or \"5\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p1_0\" or \"0 times\" %}1{% when \"p1_1_2\" or \"1-2 times\" %}2{% when \"p1_3_5\" or \"3-5 times\" %}3{% when \"p1_6_10\" or \"6-10 times\" %}4{% when \"p1_gt10\" or \"more than 10 times\" %}5{% else %}other{% endcase %}"
           }
         ]
       },
@@ -607,7 +879,7 @@
           "y": -140
         },
         "from": "{{flow.channel.address}}",
-        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list, or type the option exactly as it appears.\n\nI am a bot, so I only understand the options."
       },
       "transitions": [
         {
@@ -662,7 +934,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "split_ARM2_P2"
+          "next": "stopcheck_ARM2_P2"
         },
         {
           "event": "timeout",
@@ -671,6 +943,37 @@
         {
           "event": "deliveryFailure",
           "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 80
+        },
+        "input": "{{widgets.ARM2_P2.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P2"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P2.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
         }
       ]
     },
@@ -699,7 +1002,7 @@
                 "{{widgets.ARM2_P2.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:p2_0|0 projects|\\(?1[.)]?|p2_1|1 project|\\(?2[.)]?|p2_2_3|2-3 projects|\\(?3[.)]?|p2_4_5|4-5 projects|\\(?4[.)]?|p2_gt5|More than 5 projects|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:p2_0|0 projects|p2_1|1 project|p2_2_3|2-3 projects|p2_4_5|4-5 projects|p2_gt5|More than 5 projects)\\s*)"
             }
           ]
         }
@@ -720,7 +1023,7 @@
           },
           {
             "key": "ARM2_P2_code",
-            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p2_0\" or \"0 projects\" or \"1\" %}1{% when \"p2_1\" or \"1 project\" or \"2\" %}2{% when \"p2_2_3\" or \"2-3 projects\" or \"3\" %}3{% when \"p2_4_5\" or \"4-5 projects\" or \"4\" %}4{% when \"p2_gt5\" or \"more than 5 projects\" or \"5\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p2_0\" or \"0 projects\" %}1{% when \"p2_1\" or \"1 project\" %}2{% when \"p2_2_3\" or \"2-3 projects\" %}3{% when \"p2_4_5\" or \"4-5 projects\" %}4{% when \"p2_gt5\" or \"more than 5 projects\" %}5{% else %}other{% endcase %}"
           }
         ]
       },
@@ -807,7 +1110,7 @@
           "y": 200
         },
         "from": "{{flow.channel.address}}",
-        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list, or type the option exactly as it appears.\n\nI am a bot, so I only understand the options."
       },
       "transitions": [
         {
@@ -862,7 +1165,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "split_ARM2_P3"
+          "next": "stopcheck_ARM2_P3"
         },
         {
           "event": "timeout",
@@ -871,6 +1174,37 @@
         {
           "event": "deliveryFailure",
           "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 420
+        },
+        "input": "{{widgets.ARM2_P3.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P3"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P3.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
         }
       ]
     },
@@ -1062,7 +1396,7 @@
       "transitions": [
         {
           "event": "incomingMessage",
-          "next": "split_ARM2_P4"
+          "next": "stopcheck_ARM2_P4"
         },
         {
           "event": "timeout",
@@ -1071,6 +1405,37 @@
         {
           "event": "deliveryFailure",
           "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 760
+        },
+        "input": "{{widgets.ARM2_P4.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P4"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P4.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
         }
       ]
     },
@@ -1299,6 +1664,32 @@
       ]
     },
     {
+      "name": "mark_optout",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1300,
+          "y": 1080
+        },
+        "variables": [
+          {
+            "key": "set_optout",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "optout"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
       "name": "mark_never_started",
       "type": "set-variables",
       "properties": {
@@ -1362,6 +1753,10 @@
           {
             "key": "set_reached_finish",
             "value": "1"
+          },
+          {
+            "key": "enc_status",
+            "value": "ok"
           }
         ]
       },
@@ -1402,6 +1797,28 @@
         },
         {
           "event": "fail",
+          "next": "mark_encrypt_failed"
+        }
+      ]
+    },
+    {
+      "name": "mark_encrypt_failed",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": 1500
+        },
+        "variables": [
+          {
+            "key": "enc_status",
+            "value": "encrypt_failed"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
           "next": "publish_motherduck"
         }
       ]
@@ -1440,8 +1857,16 @@
             "value": "{{widgets.function_encrypt.parsed.enc_p_number_original}}"
           },
           {
+            "key": "enc_status",
+            "value": "{{flow.variables.enc_status}}"
+          },
+          {
             "key": "set_consent",
             "value": "{{flow.variables.set_consent}}"
+          },
+          {
+            "key": "set_arm_missing",
+            "value": "{{flow.variables.set_arm_missing}}"
           },
           {
             "key": "set_complete",
@@ -1556,7 +1981,28 @@
         },
         {
           "event": "fail",
-          "next": "split_closing"
+          "next": "record_publish_failure"
+        }
+      ]
+    },
+    {
+      "name": "record_publish_failure",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -1000,
+          "y": 1680
+        },
+        "variables": [
+          {
+            "key": "set_publish_failed",
+            "value": "1"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next"
         }
       ]
     },
@@ -1642,6 +2088,20 @@
               ],
               "type": "equal_to",
               "value": "undeliverable"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_optout",
+          "conditions": [
+            {
+              "friendly_name": "is optout",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "optout"
             }
           ]
         }
@@ -1745,6 +2205,26 @@
         },
         "from": "{{flow.channel.address}}",
         "body": "Thank you for the answers you gave - they are recorded.\n\nWe will look at how the format of a question changes the answers it gets, live in the session. See you there."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "close_optout",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": -900,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Understood - I have stopped here and will not send anything else about this survey.\n\nThe answers you already gave are kept; nothing further is asked. Thank you for your time."
       },
       "transitions": [
         {

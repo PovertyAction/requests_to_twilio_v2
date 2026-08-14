@@ -86,6 +86,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -109,18 +110,20 @@ TIMEOUT = "3600"  # 1 hour, as in the source flow
 #: Deployed Functions service. Both languages share it: the encryption and
 #: publish code is language-independent, and duplicating it would reintroduce
 #: exactly the drift this builder exists to prevent.
-ENCRYPT_SERVICE_SID = "ZS04f75bf125e71003387d709e77f1f6ad"
-ENCRYPT_ENVIRONMENT_SID = "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92"
-ENCRYPT_FUNCTION_SID = "ZH477834617e55e948fc9149388bf1ef63"
-PUBLISH_SERVICE_SID = "ZS04f75bf125e71003387d709e77f1f6ad"
-PUBLISH_ENVIRONMENT_SID = "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92"
-PUBLISH_FUNCTION_SID = "ZH08a4b1579e90c2e3a6ea7829a153e842"
+#: The Functions service `just deploy-functions` creates. Everything about the
+#: deployment is looked up from this one name at build time rather than pasted
+#: in as SIDs: a `ZS`/`ZE`/`ZH` triple and a `*.twil.io` host are per-account,
+#: and the domain carries a random suffix that cannot even be guessed. Hard-
+#: coding them meant `just build-demo-flow` emitted a flow pointing at the
+#: author's own subaccount, which 404s for everybody else - the single thing
+#: that stopped another team running this.
+FUNCTIONS_SERVICE_NAME = "rtt-survey"
+ENCRYPT_FUNCTION_NAME = "encrypt_fields"
+PUBLISH_FUNCTION_NAME = "publish_motherduck"
 
-#: Studio requires the deployed URL on a run-function widget, not just the SIDs;
-#: validation rejects the flow without it.
-FUNCTIONS_DOMAIN = "rtt-survey-2647-prod.twil.io"
-ENCRYPT_URL = f"https://{FUNCTIONS_DOMAIN}/encrypt-fields"
-PUBLISH_URL = f"https://{FUNCTIONS_DOMAIN}/publish-motherduck"
+#: The paths those functions are deployed at, from `deploy_twilio_functions.py`.
+ENCRYPT_PATH = "/encrypt-fields"
+PUBLISH_PATH = "/publish-motherduck"
 
 QUESTION_KEYS = ("P1", "P2", "P3", "P4")
 
@@ -204,6 +207,17 @@ EN: dict[str, Any] = {
         "typed_yes": "1|yes|y",
         "typed_no": "2|no|n",
     },
+    # Recognised at every question, in either arm. Twilio's own opt-out handling
+    # covers the carrier keywords for SMS; inside a WhatsApp session a "STOP"
+    # arrives as an ordinary reply, and without this it is stored as the answer
+    # to whatever was asked - then the next question is sent anyway.
+    "stop_words": ["stop", "quit", "unsubscribe", "cancel", "end"],
+    "stop_ack": (
+        "Understood - I have stopped here and will not send anything else "
+        "about this survey.\n\n"
+        "The answers you already gave are kept; nothing further is asked. "
+        "Thank you for your time."
+    ),
     # ARM 1 - open and dense. Deliberately harder to answer; this is the arm
     # whose break-off and unusable-answer rates the session compares against.
     "arm1": {
@@ -321,6 +335,16 @@ EN: dict[str, Any] = {
         "also just reply with the number of your answer.\n\n"
         "I am a bot, so I only understand the options."
     ),
+    # For questions whose options are themselves numbers. Inviting "reply with
+    # the number" there asks for exactly the reply the split has to refuse: on
+    # a 0/1/2-3 projects scale a "1" could be the position or the label, and
+    # they are different options.
+    "error_option_labels": (
+        "No problem - I could not read that one.\n\n"
+        "Tap *{button}* on the message above and pick from the list, or type "
+        "the option exactly as it appears.\n\n"
+        "I am a bot, so I only understand the options."
+    ),
     "close_complete": (
         "🙏 Thank you for completing the survey.\n\n"
         "You took part in an experiment with two versions of the same survey: "
@@ -372,6 +396,23 @@ ES: dict[str, Any] = {
         "typed_yes": "1|si|sí|s",
         "typed_no": "2|no|n",
     },
+    # Los términos en inglés también se reconocen: mucha gente escribe "stop"
+    # sin importar el idioma de la encuesta.
+    "stop_words": [
+        "stop",
+        "parar",
+        "cancelar",
+        "salir",
+        "baja",
+        "no molestar",
+        "quit",
+    ],
+    "stop_ack": (
+        "Entendido - me detengo aquí y no te enviaré nada más sobre esta "
+        "encuesta.\n\n"
+        "Las respuestas que ya diste se conservan; no se pregunta nada más. "
+        "Gracias por tu tiempo."
+    ),
     "arm1": {
         "P1": (
             "Durante las últimas cuatro (4) semanas, ¿en cuántas "
@@ -487,6 +528,16 @@ ES: dict[str, Any] = {
         "Toca *{button}* en el mensaje anterior y selecciona de la lista. "
         "También puedes responder con el número de tu "
         "respuesta.\n\n"
+        "Soy un robot, así que solo entiendo las opciones."
+    ),
+    # Para preguntas cuyas opciones ya son números. Invitar "responde con el
+    # número" ahí pide justo la respuesta que el split tiene que rechazar: en
+    # una escala de 0/1/2-3 proyectos, un "1" puede ser la posición o la
+    # etiqueta, y son opciones distintas.
+    "error_option_labels": (
+        "Sin problema - no pude leer esa respuesta.\n\n"
+        "Toca *{button}* en el mensaje anterior y selecciona de la lista, o "
+        "escribe la opción tal como aparece.\n\n"
         "Soy un robot, así que solo entiendo las opciones."
     ),
     "close_complete": (
@@ -644,36 +695,49 @@ def _check_options_are_matchable(lang: str) -> list[str]:
 
     Reading a condition and believing it is how an unreachable option survives
     review. This executes it instead, using the same semantics Studio uses, and
-    checks all three things that have to hold: every label routes to the store
-    widget, every position typed as a digit routes there too, and something
-    nobody would ever tap does *not*.
+    checks four things that have to hold: every label routes to the store
+    widget, every position typed as a digit routes there too *where a digit is
+    unambiguous*, a digit that is ambiguous is refused rather than guessed at,
+    and something nobody would ever tap does not match.
 
-    That last one matters as much as the first two. A pattern loose enough to
+    The last two matter as much as the first two. A pattern loose enough to
     match anything accepts junk as a real answer, which is worse than rejecting
     a real one - the respondent is never asked again and the row looks complete.
+    And a pattern that accepts an ambiguous digit stores the wrong answer, which
+    is worse still, because it is indistinguishable from a right one.
     """
     problems = []
     for key in QUESTION_KEYS:
         options = LANGS[lang]["arm2"][key]["options"]
         pattern = answer_pattern(options)
+        ambiguous = positions_are_ambiguous(options)
 
         for index, option in enumerate(options, start=1):
             option_id, item = option[0], option[1]
             # option_id first: that is what a tapped list row actually sends.
             # Discovered the hard way - the first live test answered `p1_0`
             # where this expected "0 times", so every tap fell to the retry.
-            for reply in (
-                option_id,
-                item,
-                str(index),
-                f"{index}.",
-                f" {item} ",
-                item.upper(),
-            ):
+            must_accept = [option_id, item, f" {item} ", item.upper()]
+            if not ambiguous:
+                must_accept += [str(index), f"{index}."]
+            for reply in must_accept:
                 if not evaluate_condition("regex", pattern, reply):
                     problems.append(
                         f"{lang}: ARM2 {key} would not accept {reply!r}, so the "
                         f"option {item!r} is unreachable"
+                    )
+
+        # The collision itself. On a scale whose labels are numbers, position N
+        # and label N mean different options, and accepting the bare digit picks
+        # the wrong one silently.
+        if ambiguous:
+            for index in range(1, len(options) + 1):
+                if evaluate_condition("regex", pattern, str(index)):
+                    problems.append(
+                        f"{lang}: ARM2 {key} has numeric option labels and still "
+                        f"accepts the bare digit {index!r}. A respondent typing "
+                        f"it means the label, not the position, and would be "
+                        f"coded as the wrong option"
                     )
 
         for junk in ("banana", "", "0", str(len(options) + 1), "yes please"):
@@ -1005,6 +1069,55 @@ def escape_literal(text: str) -> str:
     return "".join("\\" + char if char in _REGEX_SPECIAL else char for char in text)
 
 
+#: A label that opens with a number, e.g. "0 projects", "1-2 times", "5 - Very
+#: satisfied". The captured digits are what a respondent typing that number
+#: would mean.
+_LEADING_NUMBER = re.compile(r"^\s*(\d+)")
+
+
+def positions_are_ambiguous(options) -> bool:
+    """Whether accepting a bare typed digit would miscode an answer.
+
+    Options are normally matched three ways: the row id, the label, and the
+    option's position typed as a digit. That last one is only safe while the
+    two readings of a number cannot disagree.
+
+    Take a frequency scale reading ``0 projects / 1 project / 2-3 projects``.
+    A respondent who means *one project* types ``1``. As a position, ``1`` is
+    the first option - ``0 projects``. The answer is recorded, the status says
+    answered, and it is off by one for exactly the respondents who typed rather
+    than tapped. Nothing anywhere reports a problem.
+
+    The test is a *mismatch*, not merely the presence of a number: a Likert
+    running ``1 - Very dissatisfied`` … ``5 - Very satisfied`` puts label 5 at
+    position 5, so both readings agree and the digit stays useful. Only when
+    some label's own number differs from where it sits does the position
+    alternative get dropped - from the split regex, from the Liquid that codes
+    the reply, and from the Python twin that tests them. A bare digit then
+    matches nothing and the respondent is asked again, which is the right
+    outcome for an input that genuinely has two readings.
+    """
+    for index, option in enumerate(options, start=1):
+        found = _LEADING_NUMBER.match(normalise_reply(option[1]))
+        if found and int(found.group(1)) != index:
+            return True
+    return False
+
+
+def error_body_for(table, options) -> str:
+    """Pick the retry nudge that matches what this question can accept.
+
+    The nudge is the one place the instrument tells a respondent how to answer,
+    so it has to agree with the split. Inviting "just reply with the number"
+    on a question whose labels are numbers asks for precisely the reply that
+    :func:`positions_are_ambiguous` requires the split to refuse - the
+    respondent does as they are told, is not understood, and is nudged again
+    with the same instruction.
+    """
+    key = "error_option_labels" if positions_are_ambiguous(options) else "error_option"
+    return table[key].format(button=table["arm2"]["button"])
+
+
 def answer_pattern(options) -> str:
     """Build the regex that recognises any valid answer to a list question.
 
@@ -1029,15 +1142,19 @@ def answer_pattern(options) -> str:
     wrapped: an unwrapped `a|b` can bind as `(^a)|(b$)` and match "xxb".
 
     """
+    accept_positions = not positions_are_ambiguous(options)
     alternatives: list[str] = []
     for index, option in enumerate(options, start=1):
         # The id first, because that is what a tapped list row actually
         # returns. The label second, because a tapped quick-reply button
         # returns *its* title instead - the two interactive types disagree.
-        # The position last, for anyone who ignores the menu and types.
+        # The position last, for anyone who ignores the menu and types - unless
+        # the labels are numeric, in which case a bare digit has two readings
+        # and is refused rather than guessed at.
         alternatives.append(escape_literal(option[0]))
         alternatives.append(escape_literal(option[1]))
-        alternatives.append(rf"\(?{index}[.)]?")
+        if accept_positions:
+            alternatives.append(rf"\(?{index}[.)]?")
     return r"(?:\s*(?:" + "|".join(alternatives) + r")\s*)"
 
 
@@ -1085,12 +1202,12 @@ def option_code(option, index: int) -> str:
 def expected_code(options, reply: str) -> str:
     """Return the code the flow will store for this reply, or "other"."""
     normalised = normalise_reply(reply)
+    accept_positions = not positions_are_ambiguous(options)
     for index, option in enumerate(options, start=1):
-        if normalised in (
-            normalise_reply(option[0]),
-            normalise_reply(option[1]),
-            str(index),
-        ):
+        accepted = [normalise_reply(option[0]), normalise_reply(option[1])]
+        if accept_positions:
+            accepted.append(str(index))
+        if normalised in accepted:
             return option_code(option, index)
     return "other"
 
@@ -1109,12 +1226,17 @@ def code_mapping(widget: str, options) -> str:
     while the split had already recorded them as answered.
     """
     removals = "".join(f' | replace: "{char}", ""' for char in _STRIPPED_PUNCTUATION)
+    accept_positions = not positions_are_ambiguous(options)
     clauses = []
     for index, option in enumerate(options, start=1):
+        alternatives = [
+            f'"{normalise_reply(option[0])}"',
+            f'"{normalise_reply(option[1])}"',
+        ]
+        if accept_positions:
+            alternatives.append(f'"{index}"')
         clauses.append(
-            f'{{% when "{normalise_reply(option[0])}" '
-            f'or "{normalise_reply(option[1])}" or "{index}" %}}'
-            f"{option_code(option, index)}"
+            f"{{% when {' or '.join(alternatives)} %}}{option_code(option, index)}"
         )
     return (
         f"{{% assign reply = widgets.{widget}.inbound.Body "
@@ -1124,26 +1246,53 @@ def code_mapping(widget: str, options) -> str:
     )
 
 
-def open_question(arm, key, body, *, y, next_state):
+def stop_split(name, lang, on_continue, *, x, y):
+    """Route a request to stop, before the reply is treated as an answer.
+
+    Sits between every question and its store widget, in both arms. Without it
+    a mid-survey "STOP" is stored as the answer to whatever was asked - in ARM 1
+    verbatim, and in ARM 2 as a failed match that nudges twice and then asks the
+    next question anyway. Being asked three more questions after saying stop is
+    a research-ethics problem before it is a bug.
+
+    Twilio's own opt-out handling covers the carrier keywords for SMS. Inside a
+    WhatsApp session there is no such handling: it is an ordinary inbound
+    message and nothing looks at it unless the flow does.
+    """
+    return split(
+        f"stopcheck_{name}",
+        f"{{{{widgets.{name}.inbound.Body}}}}",
+        [(word_pattern(LANGS[lang]["stop_words"]), "mark_optout", "asked to stop")],
+        on_continue,
+        x=x,
+        y=y,
+        condition="regex",
+    )
+
+
+def open_question(arm, key, body, lang, *, y, next_state):
     """ARM 1: ask, accept whatever arrives, move on.
 
     No validation, deliberately. Validating an open answer would turn ARM 1
-    into ARM 2 and destroy the comparison the demo exists to make.
+    into ARM 2 and destroy the comparison the demo exists to make. The one
+    exception is a request to stop, which is not an answer to anything.
     """
     name = f"{arm}_{key}"
+    x = arm_x(arm)
     return [
-        ask(name, body, f"store_{name}", x=arm_x(arm), y=y),
+        ask(name, body, f"stopcheck_{name}", x=x, y=y),
+        stop_split(name, lang, f"store_{name}", x=x, y=y + 60),
         set_vars(
             f"store_{name}",
             [(f"{name}_status", "answered")],
             next_state,
-            x=arm_x(arm),
-            y=y + 80,
+            x=x,
+            y=y + 140,
         ),
     ]
 
 
-def list_question(arm, key, content_sid, options, error_body, *, y, next_state):
+def list_question(arm, key, content_sid, options, error_body, lang, *, y, next_state):
     """ARM 2: send a list, accept a tap or a typed number, retry twice, move on.
 
     Seven widgets, mirroring the account's house pattern: ask, validate, store,
@@ -1159,7 +1308,11 @@ def list_question(arm, key, content_sid, options, error_body, *, y, next_state):
     x = arm_x(arm)
 
     return [
-        ask_content(name, content_sid, validate, x=x, y=y),
+        ask_content(name, content_sid, f"stopcheck_{name}", x=x, y=y),
+        # Ahead of validation: a "STOP" is not a badly-formatted answer, and
+        # letting it fall through would nudge them twice and then ask the next
+        # question.
+        stop_split(name, lang, validate, x=x, y=y + 40),
         split(
             validate,
             f"{{{{widgets.{name}.inbound.Body}}}}",
@@ -1222,7 +1375,9 @@ def list_question(arm, key, content_sid, options, error_body, *, y, next_state):
 # ---------------------------------------------------------------------------
 
 
-def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
+def build(
+    lang: str, content_sids: dict[str, str], functions: dict[str, str]
+) -> dict[str, Any]:
     """Assemble one language's flow definition.
 
     Args:
@@ -1230,6 +1385,10 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         content_sids: Friendly name to HX SID, for every template the flow
             references. Taking these as an argument rather than reading them
             from Twilio keeps this function pure and testable offline.
+        functions: The deployed Functions coordinates, as
+            :func:`resolve_functions` returns them. Also an argument, and for
+            the same reason - plus a second one: hard-coding them is what made
+            the built flow work on exactly one Twilio account.
 
     Returns:
         The flow definition, ready for `rtt flow deploy`.
@@ -1327,8 +1486,13 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             x=0,
             y=-820,
         ),
-        # Tap or type, in either language's words. Declining and failing to
-        # parse both lead to the same place: nobody is enrolled by ambiguity.
+        # Tap or type, in either language's words. Nobody is enrolled by
+        # ambiguity - but an unreadable reply is not a refusal either, and
+        # routing it to `record_declined` made it one. "what is this?", a voice
+        # note or an emoji would all have been published as an explicit
+        # decline, and refusal rate is a headline number in a consent-based
+        # study. Note the asymmetry that hid it: every ARM2 question gets two
+        # retries, and the single most consequential question got none.
         split(
             "split_consent",
             "{{widgets.consent.inbound.Body}}",
@@ -1350,9 +1514,56 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                     "declined",
                 ),
             ],
-            "record_declined",
+            "consent_unclear",
             x=0,
             y=-700,
+            condition="regex",
+        ),
+        # One re-ask, then treat silence or a second unreadable reply as a
+        # break-off rather than a decision. `consent_unclear` is its own value
+        # so the two can be counted apart in the data.
+        set_vars(
+            "consent_unclear",
+            [("set_consent", "unclear")],
+            "consent_retry",
+            x=-500,
+            y=-700,
+        ),
+        ask_content(
+            "consent_retry",
+            content_sids[consent_template_name(lang)],
+            "split_consent_retry",
+            x=-500,
+            y=-620,
+            on_timeout="mark_no_reply",
+        ),
+        split(
+            "split_consent_retry",
+            "{{widgets.consent_retry.inbound.Body}}",
+            [
+                (
+                    word_pattern(
+                        [table["consent"]["button_yes"]]
+                        + table["consent"]["typed_yes"].split("|")
+                    ),
+                    "record_consent",
+                    "consented",
+                ),
+                (
+                    word_pattern(
+                        [table["consent"]["button_no"]]
+                        + table["consent"]["typed_no"].split("|")
+                    ),
+                    "record_declined",
+                    "declined",
+                ),
+            ],
+            # Still unreadable. Not enrolled, and not recorded as a refusal
+            # either - `set_consent` stays `unclear` and the outcome is a
+            # break-off, which is what it actually was.
+            "mark_no_reply",
+            x=-500,
+            y=-540,
             condition="regex",
         ),
         set_vars("record_consent", [("set_consent", "yes")], "split_arm", x=0, y=-580),
@@ -1366,13 +1577,26 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
         # The arm is preloaded, not drawn here: randomisation happens offline in
         # the sample file, so it is reproducible and balance can be checked
         # before anyone is contacted.
+        #
+        # noMatch goes to a marker widget rather than straight to ARM1. A
+        # missing or misspelled `arm` column would otherwise send *everyone*
+        # down ARM1 - the flow runs, every row publishes, `arm` is blank, and
+        # the experiment has quietly become a single-condition survey. The
+        # marker makes it one visible value in the data instead.
         split(
             "split_arm",
             "{{flow.data.arm}}",
             [("1", "ARM1_P1"), ("2", "ARM2_P1")],
-            "ARM1_P1",
+            "mark_arm_missing",
             x=0,
             y=-460,
+        ),
+        set_vars(
+            "mark_arm_missing",
+            [("set_arm_missing", "1")],
+            "ARM1_P1",
+            x=-400,
+            y=-400,
         ),
     ]
 
@@ -1387,6 +1611,7 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 "ARM1",
                 key,
                 table["arm1"][key],
+                lang,
                 y=-300 + index * 340,
                 next_state=following,
             )
@@ -1406,8 +1631,11 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 table["arm2"][key]["options"],
                 # Named from the same entry the list picker uses, so the nudge
                 # cannot end up telling someone to tap a button that is not
-                # there.
-                table["error_option"].format(button=table["arm2"]["button"]),
+                # there. And on a question whose labels are numbers, the
+                # variant that does *not* invite a bare digit - inviting one
+                # there asks for exactly the reply the split has to refuse.
+                error_body_for(table, table["arm2"][key]["options"]),
+                lang,
                 y=-300 + index * 340,
                 next_state=following,
             )
@@ -1428,6 +1656,17 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 "finish",
                 x=900,
                 y=1200,
+            ),
+            # Asked to stop. Their answers so far are kept - they were given
+            # freely, and discarding them would be its own kind of disrespect -
+            # but nothing further is asked, and the outcome says why the rest
+            # is blank so it is not read as a break-off.
+            set_vars(
+                "mark_optout",
+                [("set_optout", "1"), ("outcome", "optout")],
+                "finish",
+                x=1300,
+                y=1080,
             ),
             # Never answered the opener: the window never opened, so no closing
             # message is possible. The row is still published.
@@ -1455,7 +1694,12 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             # it, which is what guarantees a row exists whatever happened.
             set_vars(
                 "finish",
-                [("set_reached_finish", "1")],
+                # `enc_status` is set optimistically here and overridden on the
+                # encryption widget's failure branch. Setting it at the
+                # convergence point means every published row carries the
+                # column, so a blank identifier can be read as "this respondent
+                # had no name" rather than "encryption failed and nobody knew".
+                [("set_reached_finish", "1"), ("enc_status", "ok")],
                 "function_encrypt",
                 x=0,
                 y=1320,
@@ -1465,10 +1709,10 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 "type": "run-function",
                 "properties": {
                     "offset": {"x": 0, "y": 1440},
-                    "service_sid": ENCRYPT_SERVICE_SID,
-                    "environment_sid": ENCRYPT_ENVIRONMENT_SID,
-                    "function_sid": ENCRYPT_FUNCTION_SID,
-                    "url": ENCRYPT_URL,
+                    "service_sid": functions["service_sid"],
+                    "environment_sid": functions["environment_sid"],
+                    "function_sid": functions["encrypt_sid"],
+                    "url": functions["encrypt_url"],
                     "parameters": [
                         {"key": "enc_name", "value": "{{flow.data.name}}"},
                         {
@@ -1477,11 +1721,25 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                         },
                     ],
                 },
+                # A failed encryption still publishes - a row with no identifiers
+                # is far better than no row - but it goes via a widget that says
+                # so. Publishing straight from the failure branch writes
+                # `enc_name=""` under `outcome=complete`, which is
+                # indistinguishable from a respondent who had no name in the
+                # sample file, and nothing anywhere records that the identifiers
+                # were lost.
                 "transitions": [
                     {"event": "success", "next": "publish_motherduck"},
-                    {"event": "fail", "next": "publish_motherduck"},
+                    {"event": "fail", "next": "mark_encrypt_failed"},
                 ],
             },
+            set_vars(
+                "mark_encrypt_failed",
+                [("enc_status", "encrypt_failed")],
+                "publish_motherduck",
+                x=-500,
+                y=1500,
+            ),
         ]
     )
 
@@ -1494,7 +1752,13 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             "enc_p_number_original",
             "{{widgets.function_encrypt.parsed.enc_p_number_original}}",
         ),
+        # Whether the two columns above mean anything. `ok` or `encrypt_failed`.
+        ("enc_status", "{{flow.variables.enc_status}}"),
         ("set_consent", "{{flow.variables.set_consent}}"),
+        # Set only when `arm` was missing from the sample file. Without it, a
+        # misspelled column silently routes everyone to ARM1 and the two-arm
+        # comparison becomes a one-arm survey that nothing reports.
+        ("set_arm_missing", "{{flow.variables.set_arm_missing}}"),
         ("set_complete", "{{flow.variables.set_complete}}"),
         ("set_no_reply", "{{flow.variables.set_no_reply}}"),
         ("set_fail", "{{flow.variables.set_fail}}"),
@@ -1532,16 +1796,44 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
             "type": "run-function",
             "properties": {
                 "offset": {"x": 0, "y": 1560},
-                "service_sid": PUBLISH_SERVICE_SID,
-                "environment_sid": PUBLISH_ENVIRONMENT_SID,
-                "function_sid": PUBLISH_FUNCTION_SID,
-                "url": PUBLISH_URL,
+                "service_sid": functions["service_sid"],
+                "environment_sid": functions["environment_sid"],
+                "function_sid": functions["publish_sid"],
+                "url": functions["publish_url"],
                 "parameters": [{"key": k, "value": v} for k, v in published],
             },
+            # The publish step reports its own failure correctly, so the flow
+            # must not throw that away. Routing `fail` to the closing message
+            # thanks a respondent whose row does not exist and never will -
+            # success from every angle at the moment of failure, and invisible
+            # until someone counts the rows months later.
+            #
+            # There is nowhere to persist the flag except the execution context,
+            # because the thing that persists rows is what just failed. That is
+            # enough: `rtt fetch` reads the context, and the respondent is not
+            # told the survey landed when it did not.
             "transitions": [
                 {"event": "success", "next": "split_closing"},
-                {"event": "fail", "next": "split_closing"},
+                {"event": "fail", "next": "record_publish_failure"},
             ],
+        }
+    )
+
+    states.append(
+        {
+            "name": "record_publish_failure",
+            "type": "set-variables",
+            "properties": {
+                "offset": {"x": -1000, "y": 1680},
+                # The flag only. Overwriting `outcome` would destroy the one
+                # thing still worth having: no row was written, so the execution
+                # context is the only surviving record of whether this
+                # respondent completed, declined or timed out - and `rtt fetch`
+                # reads exactly that. `set_publish_failed` already says what
+                # went wrong without erasing what happened.
+                "variables": [{"key": "set_publish_failed", "value": "1"}],
+            },
+            "transitions": [{"event": "next"}],
         }
     )
 
@@ -1569,6 +1861,10 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                     ("incomplete", "close_incomplete"),
                     ("unreachable", "close_never_started"),
                     ("undeliverable", "end_without_message"),
+                    # One acknowledgement, so they know it worked. Saying stop
+                    # and then hearing nothing is indistinguishable from saying
+                    # stop and not being heard.
+                    ("optout", "close_optout"),
                 ],
                 "end_without_message",
                 x=0,
@@ -1607,6 +1903,13 @@ def build(lang: str, content_sids: dict[str, str]) -> dict[str, Any]:
                 table["close_incomplete"],
                 "close_incomplete",
                 x=400,
+                y=1800,
+            ),
+            send(
+                "close_optout",
+                table["stop_ack"],
+                "close_optout",
+                x=-900,
                 y=1800,
             ),
         ]
@@ -1700,6 +2003,80 @@ def write_template_definitions(lang: str) -> list[Path]:
     return written
 
 
+def resolve_functions(client) -> dict[str, str]:
+    """Look up the deployed Functions service, environment, and both functions.
+
+    Args:
+        client: An authenticated Twilio client.
+
+    Returns:
+        The keys a ``run-function`` widget needs: ``service_sid``,
+        ``environment_sid``, ``encrypt_sid``, ``publish_sid``, ``encrypt_url``
+        and ``publish_url``.
+
+    Raises:
+        BuildError: If the service, its environment, or either function is
+            missing - which means `just deploy-functions` has not been run on
+            this account.
+
+    Studio needs the deployed **url** as well as the three SIDs; validation
+    rejects a run-function widget without it, and the domain carries a random
+    per-account suffix, so it has to be read from the environment rather than
+    constructed.
+
+    """
+    # No `limit=`: the SDK turns it into a page_size, Serverless caps that at
+    # 100, and asking for more is a 400 rather than a truncation. Bare .list()
+    # walks the pages, so an account with many services still resolves.
+    service = next(
+        (
+            s
+            for s in client.serverless.v1.services.list()
+            if s.unique_name == FUNCTIONS_SERVICE_NAME
+        ),
+        None,
+    )
+    if service is None:
+        raise BuildError(
+            f"No Functions service named {FUNCTIONS_SERVICE_NAME!r} on this "
+            f"account. Run `just deploy-functions` first - it creates the "
+            f"service and deploys encrypt_fields and publish_motherduck."
+        )
+
+    environments = client.serverless.v1.services(service.sid).environments.list()
+    environment = next(iter(environments), None)
+    if environment is None:
+        raise BuildError(
+            f"The {FUNCTIONS_SERVICE_NAME!r} service has no environment. "
+            f"Re-run `just deploy-functions`."
+        )
+
+    functions = {
+        f.friendly_name: f.sid
+        for f in client.serverless.v1.services(service.sid).functions.list()
+    }
+    missing = [
+        name
+        for name in (ENCRYPT_FUNCTION_NAME, PUBLISH_FUNCTION_NAME)
+        if name not in functions
+    ]
+    if missing:
+        raise BuildError(
+            f"Deployed but incomplete: {FUNCTIONS_SERVICE_NAME!r} is missing "
+            f"{', '.join(missing)}. Re-run `just deploy-functions`."
+        )
+
+    host = environment.domain_name
+    return {
+        "service_sid": service.sid,
+        "environment_sid": environment.sid,
+        "encrypt_sid": functions[ENCRYPT_FUNCTION_NAME],
+        "publish_sid": functions[PUBLISH_FUNCTION_NAME],
+        "encrypt_url": f"https://{host}{ENCRYPT_PATH}",
+        "publish_url": f"https://{host}{PUBLISH_PATH}",
+    }
+
+
 def resolve_sids(lang: str) -> tuple[dict[str, str], list[str]]:
     """Look up the flow's content templates on the account by friendly name.
 
@@ -1751,6 +2128,18 @@ def build_one(lang: str) -> bool:
     book = write_codebook(lang)
     print(f"  codebook  {book.relative_to(REPO_ROOT).as_posix()}")
 
+    try:
+        cfg.load_env()
+        conf = cfg.TwilioConfig.from_env()
+        functions = resolve_functions(Client(conf.account_sid, conf.auth_token))
+    except BuildError as exc:
+        print(f"\n  {exc}")
+        return False
+    print(
+        f"  functions {functions['service_sid']} "
+        f"({functions['encrypt_url'].split('//')[1].split('/')[0]})"
+    )
+
     found, missing = resolve_sids(lang)
     if missing:
         print("\n  Cannot build the flow yet - these content templates do not")
@@ -1765,7 +2154,7 @@ def build_one(lang: str) -> bool:
             print(f"    just template-create {where}{note}")
         return False
 
-    definition = build(lang, found)
+    definition = build(lang, found, functions)
     path = flow_path(lang)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(

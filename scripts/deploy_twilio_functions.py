@@ -263,13 +263,20 @@ def main() -> None:
     )
     print(f"deployed          {deployment.sid}")
 
-    print("\nSIDs for scripts/build_rst2026_flow.py:\n")
-    print(f'ENCRYPT_SERVICE_SID = "{service.sid}"')
-    print(f'ENCRYPT_ENVIRONMENT_SID = "{environment.sid}"')
-    print(f'ENCRYPT_FUNCTION_SID = "{deployed["encrypt_fields"][0]}"')
-    print(f'PUBLISH_SERVICE_SID = "{service.sid}"')
-    print(f'PUBLISH_ENVIRONMENT_SID = "{environment.sid}"')
-    print(f'PUBLISH_FUNCTION_SID = "{deployed["publish_motherduck"][0]}"')
+    # Nothing here has to be copied anywhere. The flow builder resolves all of
+    # it from the service's unique name at build time, which is what lets the
+    # same repository build a working flow on somebody else's account. This
+    # block used to print six SIDs to paste into `scripts/build_rst2026_flow.py`
+    # - a file that no longer exists.
+    print()
+    print(f"service           {service.sid}  {SERVICE_NAME}")
+    print(f"environment       {environment.sid}")
+    print(f"domain            {environment.domain_name}")
+    for spec in FUNCTIONS:
+        name = spec["friendly_name"]
+        print(f"  {name:16} {deployed[name][0]}  {spec['path']}")
+    print()
+    print("Next: just build-demo-flow   (resolves these by name; nothing to paste)")
 
 
 if __name__ == "__main__":

@@ -36,6 +36,24 @@ def fake_sids(lang: str) -> dict[str, str]:
     return {name: f"HX{index:032d}" for index, name in enumerate(names)}
 
 
+def fake_functions() -> dict[str, str]:
+    """Build the deployed Functions coordinates, without touching Twilio.
+
+    Shaped like `resolve_functions` output. The domain deliberately carries a
+    random-looking suffix, because the real one does - that is what made these
+    unguessable and is why they are looked up rather than written down.
+    """
+    host = "rtt-survey-0000-prod.twil.io"
+    return {
+        "service_sid": f"ZS{0:032d}",
+        "environment_sid": f"ZE{0:032d}",
+        "encrypt_sid": f"ZH{1:032d}",
+        "publish_sid": f"ZH{2:032d}",
+        "encrypt_url": f"https://{host}/encrypt-fields",
+        "publish_url": f"https://{host}/publish-motherduck",
+    }
+
+
 @pytest.fixture(params=LANGS)
 def lang(request):
     return request.param
@@ -128,22 +146,55 @@ class TestAnswerPattern:
         assert not evaluate_condition("regex", pattern, "say Yes")
         assert not evaluate_condition("regex", pattern, "No thank you")
 
-    def test_every_label_and_position_is_accepted(self, lang):
+    def test_every_label_is_accepted(self, lang):
         for key in demo.QUESTION_KEYS:
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
-            for index, (_, item, _) in enumerate(options, start=1):
+            for _, item, _ in options:
                 assert evaluate_condition("regex", pattern, item), (key, item)
+
+    def test_a_typed_position_is_accepted_where_it_is_unambiguous(self, lang):
+        for key in demo.QUESTION_KEYS:
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            if demo.positions_are_ambiguous(options):
+                continue
+            pattern = demo.answer_pattern(options)
+            for index in range(1, len(options) + 1):
                 assert evaluate_condition("regex", pattern, str(index)), (key, index)
+
+    def test_a_typed_position_is_refused_where_the_labels_are_numbers(self, lang):
+        """On a 0/1/2-3 scale, a typed "1" means the label, not the position.
+
+        Accepting it stores the option before the one the respondent meant, with
+        the status recording a clean answer. Refusing sends them back to the
+        list, which is the right outcome for a reply with two readings.
+        """
+        ambiguous = [
+            key
+            for key in demo.QUESTION_KEYS
+            if demo.positions_are_ambiguous(demo.LANGS[lang]["arm2"][key]["options"])
+        ]
+        assert ambiguous, "expected the frequency scales to have numeric labels"
+
+        for key in ambiguous:
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            pattern = demo.answer_pattern(options)
+            for index in range(1, len(options) + 1):
+                assert not evaluate_condition("regex", pattern, str(index)), (
+                    key,
+                    index,
+                )
 
     def test_typed_punctuation_and_casing_are_tolerated(self, lang):
         for key in demo.QUESTION_KEYS:
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
-            for reply in ("1.", "1)", "(1)", " 1 "):
-                assert evaluate_condition("regex", pattern, reply), (key, reply)
+            if not demo.positions_are_ambiguous(options):
+                for reply in ("1.", "1)", "(1)", " 1 "):
+                    assert evaluate_condition("regex", pattern, reply), (key, reply)
             label = options[0][1]
             assert evaluate_condition("regex", pattern, label.upper())
+            assert evaluate_condition("regex", pattern, f" {label} ")
 
     def test_junk_is_rejected(self, lang):
         """A pattern that accepts anything is worse than one that accepts too little."""
@@ -159,9 +210,25 @@ class TestCodeMapping:
         """The stored value must not depend on how the respondent answered."""
         for key in demo.QUESTION_KEYS:
             options = demo.LANGS[lang]["arm2"][key]["options"]
+            positional = not demo.positions_are_ambiguous(options)
             for index, (_, item, _) in enumerate(options, start=1):
                 assert demo.expected_code(options, item) == str(index)
-                assert demo.expected_code(options, str(index)) == str(index)
+                if positional:
+                    assert demo.expected_code(options, str(index)) == str(index)
+
+    def test_an_ambiguous_digit_codes_as_other_rather_than_guessing(self, lang):
+        """The mapping must refuse the same replies the split refuses.
+
+        If the mapping were the more tolerant of the two it would put a code on
+        a reply the split had already sent back to the retry - two records of
+        the same respondent disagreeing about whether they answered.
+        """
+        for key in demo.QUESTION_KEYS:
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            if not demo.positions_are_ambiguous(options):
+                continue
+            for index in range(1, len(options) + 1):
+                assert demo.expected_code(options, str(index)) == "other", (key, index)
 
     def test_the_split_and_the_mapping_agree(self, lang):
         """Anything accepted as an answer must code as one, or the row lies."""
@@ -254,14 +321,14 @@ class TestTemplateDefinitions:
 
 class TestBuild:
     def test_both_languages_pass_every_flow_check(self, lang):
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         assert check_flow(definition) == []
 
     def test_both_languages_have_identical_structure(self):
         """Only strings may differ. Same widgets, same wiring, same order."""
         graphs = {}
         for language in LANGS:
-            definition = demo.build(language, fake_sids(language))
+            definition = demo.build(language, fake_sids(language), fake_functions())
             graphs[language] = [
                 (
                     state["name"],
@@ -278,21 +345,21 @@ class TestBuild:
         sids = fake_sids(lang)
         sids.pop(demo.consent_template_name(lang))
         with pytest.raises(demo.BuildError, match="missing content SIDs"):
-            demo.build(lang, sids)
+            demo.build(lang, sids, fake_functions())
 
     def test_an_unknown_language_refuses_to_build(self):
         with pytest.raises(demo.BuildError, match="unknown language"):
-            demo.build("fr", {})
+            demo.build("fr", {}, fake_functions())
 
     def test_the_opener_is_the_only_widget_needing_approval(self, lang):
         """Everything else is in session, which is why this is cheap."""
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         from requests_to_twilio.flows import opening_sends
 
         assert opening_sends(definition) == ["intro"]
 
     def test_every_arm2_answer_publishes_a_raw_value_and_a_code(self, lang):
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         publish = next(
             s for s in definition["states"] if s["name"] == "publish_motherduck"
         )
@@ -307,7 +374,7 @@ class TestBuild:
 
     def test_arm1_publishes_no_code(self, lang):
         """There is nothing to normalise in an open answer."""
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         publish = next(
             s for s in definition["states"] if s["name"] == "publish_motherduck"
         )
@@ -315,7 +382,7 @@ class TestBuild:
         assert not any(k.startswith("ARM1_") and k.endswith("_code") for k in keys)
 
     def test_the_retry_nudge_names_the_button_that_is_on_screen(self, lang):
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         button = demo.LANGS[lang]["arm2"]["button"]
         errors = [
             s for s in definition["states"] if s["name"].startswith("error_ARM2_")
@@ -332,23 +399,40 @@ class TestBuild:
         has: an answer that looks handled but sends the respondent somewhere
         that never publishes.
         """
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         states = {s["name"]: s for s in definition["states"]}
 
         for key in demo.QUESTION_KEYS:
             split = states[f"split_ARM2_{key}"]
             options = demo.LANGS[lang]["arm2"][key]["options"]
-            for index, (_, item, _) in enumerate(options, start=1):
-                for reply in (item, str(index), f"{index}."):
+            ambiguous = demo.positions_are_ambiguous(options)
+
+            for index, (option_id, item, _) in enumerate(options, start=1):
+                # The id is what a tapped list row sends; the label is what a
+                # tapped quick-reply button sends. Both must land on store.
+                replies = [option_id, item, item.upper()]
+                if not ambiguous:
+                    replies += [str(index), f"{index}."]
+                for reply in replies:
                     assert route_split(split, reply) == f"store_ARM2_{key}", (
                         key,
                         reply,
                     )
-            for junk in ("banana", "0", "99"):
+
+            if ambiguous:
+                # A number on a numerically-labelled scale has two readings, so
+                # it goes back to the list rather than being coded as a guess.
+                for index in range(1, len(options) + 1):
+                    assert route_split(split, str(index)) == f"retry_ARM2_{key}", (
+                        key,
+                        index,
+                    )
+
+            for junk in ("banana", "99"):
                 assert route_split(split, junk) == f"retry_ARM2_{key}", (key, junk)
 
     def test_consent_routes_both_ways_in_the_real_flow(self, lang):
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         split = next(s for s in definition["states"] if s["name"] == "split_consent")
         consent = demo.LANGS[lang]["consent"]
 
@@ -365,7 +449,7 @@ class TestBuild:
         window, so a free-form close fails with 63016 - the approved template
         is the only mechanism that gets there.
         """
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         states = {s["name"]: s for s in definition["states"]}
 
         # Walk the timeout edge out of the opener, evaluating splits properly
@@ -400,7 +484,7 @@ class TestBuild:
 
     def test_the_close_to_a_non_responder_is_a_template_not_a_body(self, lang):
         """A free-form body here fails with 63016 for every single one of them."""
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         close = next(
             s for s in definition["states"] if s["name"] == "close_never_started"
         )
@@ -414,14 +498,14 @@ class TestBuild:
         That matters: it lets each carry its own longer, outcome-specific text,
         including the reveal of the experiment.
         """
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         states = {s["name"]: s for s in definition["states"]}
         for name in ("close_complete", "close_declined", "close_incomplete"):
             assert states[name]["properties"]["body"]
             assert "content_sid" not in states[name]["properties"]
 
     def test_every_outcome_is_routed_deliberately(self, lang):
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         split = next(s for s in definition["states"] if s["name"] == "split_closing")
         for outcome, expected in (
             ("complete", "close_complete"),
@@ -440,18 +524,94 @@ class TestBuild:
             sids = fake_sids(lang)
             sids.pop(demo.LANGS[lang][key])
             with pytest.raises(demo.BuildError, match="missing content SIDs"):
-                demo.build(lang, sids)
+                demo.build(lang, sids, fake_functions())
 
     def test_an_unreadable_consent_reply_does_not_enrol_anyone(self, lang):
         """Ambiguity must never be read as agreement."""
-        definition = demo.build(lang, fake_sids(lang))
-        split = next(s for s in definition["states"] if s["name"] == "split_consent")
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+        split = states["split_consent"]
         for reply in ("maybe", "what is this", ""):
-            assert route_split(split, reply) == "record_declined", reply
+            assert route_split(split, reply) != "record_consent", reply
+
+    def test_an_unreadable_consent_reply_is_not_a_refusal_either(self, lang):
+        """It is a parse failure, and refusal rate is a headline number.
+
+        Routing it to `record_declined` published "what is this?", a voice note
+        and an emoji as explicit declines. The respondent gets one re-ask, and
+        if that is unreadable too the row says `unclear`, not `no`.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        assert route_split(states["split_consent"], "maybe") == "consent_unclear"
+        assert states["consent_unclear"]["properties"]["variables"] == [
+            {"key": "set_consent", "value": "unclear"}
+        ]
+
+        # The re-ask still accepts a real answer either way.
+        retry = states["split_consent_retry"]
+        yes = demo.LANGS[lang]["consent"]["button_yes"]
+        no = demo.LANGS[lang]["consent"]["button_no"]
+        assert route_split(retry, yes) == "record_consent"
+        assert route_split(retry, no) == "record_declined"
+        # A second unreadable reply is a break-off, not a decision.
+        assert route_split(retry, "still confused") == "mark_no_reply"
+
+    def test_stop_is_honoured_at_every_question_in_both_arms(self, lang):
+        """Saying stop and then being asked three more questions is an ethics
+        problem before it is a bug.
+
+        Twilio's own opt-out handling covers the carrier keywords for SMS. In a
+        WhatsApp session a "STOP" is an ordinary inbound message: in ARM 1 it
+        was stored verbatim as the answer, and in ARM 2 it failed the match,
+        nudged twice, and then asked the next question anyway.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for arm in ("ARM1", "ARM2"):
+            for key in demo.QUESTION_KEYS:
+                check = states[f"stopcheck_{arm}_{key}"]
+                for word in demo.LANGS[lang]["stop_words"]:
+                    assert route_split(check, word) == "mark_optout", (arm, key, word)
+                    assert route_split(check, word.upper()) == "mark_optout"
+
+    def test_stopping_is_a_distinct_outcome_not_a_break_off(self, lang):
+        """Their answers so far are kept, and the blanks are explained."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        variables = {
+            v["key"]: v["value"]
+            for v in states["mark_optout"]["properties"]["variables"]
+        }
+        assert variables["outcome"] == "optout"
+
+        # It still converges on the publish path, so a row exists.
+        assert states["mark_optout"]["transitions"][0]["next"] == "finish"
+
+        # And it is acknowledged: silence after "stop" is indistinguishable
+        # from not having been heard.
+        assert route_split(states["split_closing"], "optout") == "close_optout"
+
+    def test_a_missing_arm_is_visible_in_the_data(self, lang):
+        """A misspelled `arm` column would otherwise become a silent one-arm study."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        assert route_split(states["split_arm"], "") == "mark_arm_missing"
+        assert route_split(states["split_arm"], "1") == "ARM1_P1"
+        assert route_split(states["split_arm"], "2") == "ARM2_P1"
+
+        published = {
+            p["key"] for p in states["publish_motherduck"]["properties"]["parameters"]
+        }
+        assert "set_arm_missing" in published
 
     def test_the_flow_records_which_language_it_was(self, lang):
         """Two flows write to one table; the rows have to be separable."""
-        definition = demo.build(lang, fake_sids(lang))
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
         publish = next(
             s for s in definition["states"] if s["name"] == "publish_motherduck"
         )
