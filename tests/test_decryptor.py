@@ -235,8 +235,11 @@ class TestDecryptDataset:
     def test_output_over_input_is_refused_via_indirect_path(self, sheet, keypair):
         """The guard compares resolved paths, not the strings it was handed."""
         private = load_private_key(keypair.private_b64)
+        # `.parent` is lexical, so `indirect.parent` is ".../sub/.." - a path the
+        # OS can only resolve once "sub" exists. Windows normalises it away and
+        # Linux does not, so create the directory itself.
+        (sheet.parent / "sub").mkdir(exist_ok=True)
         indirect = sheet.parent / "sub" / ".." / sheet.name
-        indirect.parent.mkdir(exist_ok=True)
         with pytest.raises(DecryptionError, match="overwrite the input"):
             decrypt_dataset(input_path=sheet, private_key=private, output_path=indirect)
 
