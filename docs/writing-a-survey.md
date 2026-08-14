@@ -5,8 +5,21 @@ turns those rows into a Studio flow.
 
 ```text
 sample_template.xlsx   →   my_survey.xlsx   ⇄   my_survey.json   →   Studio flow
-   (the reference)          (you edit this)      (git carries this)
+   (the reference)          (you edit this)      (git carries this)      (not yet)
 ```
+
+> **The last arrow is not built yet.** `rtt survey` writes, reads, converts and
+> checks an instrument, and everything on this page about authoring one is real
+> and works today. What it cannot do is emit a flow definition: the only thing
+> that does is `scripts/build_data_use_demo.py`, which reads its own Python
+> tables rather than a spec. So changing the demo's questions today means editing
+> that script, and `just export-demo-spec` exists to lift its tables into spec
+> form until the compiler is written.
+>
+> This matters most if you are about to write an instrument for a real round.
+> Author it here — the format is stable and `just survey-check` is worth running
+> — but budget for the flow itself being built by hand or by extending the
+> builder.
 
 One row is one question **including the whole subgraph it becomes**. A closed
 question with retries is eight Studio widgets — ask, check for a request to stop,
