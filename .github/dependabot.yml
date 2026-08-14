@@ -7,7 +7,10 @@
 
 version: 2
 updates:
-  - package-ecosystem: "pip"
+  # "uv", not "pip". This project is uv-managed and CI runs `uv sync --locked`
+  # (.github/workflows/tests.yml), so an update that touches pyproject.toml
+  # without also updating uv.lock produces a PR that fails the lockfile check.
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -19,7 +22,12 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore(actions)"
-  - package-ecosystem: "devcontainers"
+  # The Twilio MCP server is an alpha package pinned in .mcp.json, and it is
+  # handed a Twilio API key with write access. Upgrades should arrive as a
+  # reviewable PR rather than silently on the next `npx`.
+  - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: weekly
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"

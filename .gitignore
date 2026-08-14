@@ -51,6 +51,11 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Ruff writes its own .gitignore inside this directory, so it is already
+# invisible to git - but that is ruff's choice to make, not something to depend
+# on. Named here so the repo controls it.
+.ruff_cache/
+
 # Translations
 *.mo
 *.pot
@@ -241,5 +246,9 @@ output/
 # this was originally written and why it took a while to notice.
 flows/*
 !flows/data_use_demo_en.json
+# Forward-looking, not a mistake: the Spanish flow builds from the same
+# structure, but its two bookend templates do not exist on this account yet, so
+# `just build-demo-flow --lang es` stops and says which to create. When somebody
+# does, the built flow belongs beside the English one rather than ignored.
 !flows/data_use_demo_es.json
 !flows/foro_nacional_datos_source.json

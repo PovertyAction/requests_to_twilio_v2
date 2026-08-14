@@ -1,1 +1,16 @@
-# Default owners for the entire repository
+# Default owners for the entire repository.
+#
+# Review is not a formality here. This code launches messages to real
+# respondents and handles the identifiers they give up in return, and the
+# defects that have actually reached production were all of one kind: they
+# reported success at the moment they failed. A second reader is the control
+# for that.
+* @PovertyAction/grds
+
+# The encryption scheme has two implementations that must agree forever - one
+# Python, one JavaScript running inside Twilio. A change to either that is not
+# mirrored in the other makes collected data unreadable, and nothing surfaces
+# that until decryption is attempted, after the round.
+/src/requests_to_twilio/crypto.py      @PovertyAction/grds
+/src/requests_to_twilio/decryptor.py   @PovertyAction/grds
+/twilio_functions/encrypt_fields.js    @PovertyAction/grds
