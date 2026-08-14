@@ -228,6 +228,17 @@ flow-schema FILE *ARGS:
 data-check FILE *ARGS:
     uv run rtt data-check {{ FILE }} {{ ARGS }}
 
+# The layer `fetch` and `data-check` cannot see. A send Meta rejects never
+# becomes an execution and never publishes a row, so the respondent is absent
+# from the data rather than incomplete in it - and a reply Twilio could not hand
+# to the flow reads as `received` everywhere while the answer is gone.
+#
+# Safe to re-run: the log is keyed by message SID and rewritten, so polling every
+# 30 minutes during a round keeps it current without growing it.
+[doc("Poll message delivery status into a running log")]
+monitor *ARGS:
+    uv run rtt monitor {{ ARGS }}
+
 # A Studio flow is 73 widgets for 8 questions and nobody can review it. The spec
 # is the same instrument as ~20 rows, in the shape SurveyCTO users already know:
 # one row is one question AND the whole subgraph it becomes.

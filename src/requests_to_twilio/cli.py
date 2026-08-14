@@ -46,6 +46,7 @@ from .flows import pull as pull_flow
 from .hfc import check_dataset, outcome_counts
 from .launcher import SENT_AT_PARAM, LaunchError, launch
 from .log import configure, configure_output_encoding
+from .monitor import MonitorError, poll_delivery, problems, summarise, update_log
 from .spec import (
     SCOPE_NOTE,
     SpecError,
@@ -635,6 +636,79 @@ def fetch(
             )
         except WarehouseError as exc:
             _fail(str(exc))
+
+
+@app.command("monitor")
+def monitor(
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="The running log to create or update."),
+    ] = Path("delivery_log.csv"),
+    since: Annotated[
+        datetime | None,
+        typer.Option("--since", formats=["%Y-%m-%d"], help="Only from this date."),
+    ] = None,
+    until: Annotated[
+        datetime | None,
+        typer.Option("--until", formats=["%Y-%m-%d"], help="Only up to this date."),
+    ] = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", help="Stop after this many messages.")
+    ] = None,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Poll message delivery status into a file that keeps updating.
+
+    Reads the layer `rtt fetch` and `rtt data-check` cannot see. A send that Meta
+    rejects, or that the API refuses, never becomes an execution and never
+    publishes a row - so the respondent is not `incomplete` in the data, they are
+    absent from it. The message is the only record that they were ever contacted.
+
+    Safe to run on a loop during a round: the log is keyed by message SID and
+    rewritten, so it shows the present state rather than growing with how often
+    you look at it.
+    """
+    configure(verbose=verbose)
+    cfg.load_env()
+    conf = cfg.TwilioConfig.from_env()
+
+    try:
+        frame = poll_delivery(
+            client=Client(conf.account_sid, conf.auth_token),
+            since=since,
+            until=until,
+            limit=limit,
+        )
+        update_log(frame, output)
+    except MonitorError as exc:
+        _fail(str(exc))
+
+    if frame.empty:
+        typer.secho("No messages in this window.", fg=typer.colors.GREEN)
+        return
+
+    for _, row in summarise(frame).iterrows():
+        code = f"  error {row['error_code']}" if row["error_code"] else ""
+        typer.echo(f"  {row['messages']:>4}  {row['status']}{code}")
+
+    found = problems(frame)
+    if found.empty:
+        typer.secho(
+            "\nEvery message arrived and was handed over.", fg=typer.colors.GREEN
+        )
+        return
+
+    # The only part of a live round anyone can still act on.
+    typer.secho(f"\n{len(found)} message(s) need attention:", fg=typer.colors.YELLOW)
+    for _, row in found.iterrows():
+        code = f"error {row['error_code']}" if row["error_code"] else row["status"]
+        typer.echo(f"  {row['to']}  {row['direction']}  {code}  {row['error_message']}")
+    typer.secho(
+        f"\nAn outbound failure means no row will be published for that respondent. "
+        f"An error on an inbound message means their reply reached Twilio and was "
+        f"dropped before the flow saw it - check the webhook. {output} is the record.",
+        fg=typer.colors.YELLOW,
+    )
 
 
 @app.command("data-check")

@@ -103,6 +103,7 @@ answered — ever go to Meta.
 | `just launch` | Sends a flow execution to every number in a sample file. Credentials come from `.env` — never pass them on the command line, where they leak into shell history and the process table. |
 | `just fetch` | Pulls executions from Twilio to reconcile against the published table. The warehouse is the database of record and can silently miss rows if publishing fails. |
 | `just data-check FILE` | High-frequency checks on collected data: one observation per respondent, every row joinable back to the sampling frame, outcomes recorded. Meant to run on a loop during a live round. Findings are warnings — by the time data exists there is nothing left to prevent. |
+| `just monitor --since YYYY-MM-DD` | Polls message delivery status into a running log, keyed by message SID so repeated polls update rather than append. Reads the layer the other two cannot: a send Meta rejects never becomes an execution, and a reply Twilio could not hand over reads as `received` while the answer is gone. |
 | `just decrypt` | Decrypts the encrypted columns of a collected dataset. |
 | `just push` | Loads a dataset into MotherDuck. Appends by default; `--mode replace` **drops** the table. |
 | `just cli ...` | Passes straight through to `rtt`, for anything without its own recipe. |
