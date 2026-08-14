@@ -23,7 +23,7 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install gitleaks
@@ -51,7 +51,7 @@ jobs:
         # Field staff run this on Windows; CI has to cover that.
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install uv and set the python version
         uses: astral-sh/setup-uv@v7
         with:
