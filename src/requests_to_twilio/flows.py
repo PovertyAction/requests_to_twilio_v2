@@ -997,7 +997,7 @@ MAX_LIST_ITEMS = 10
 #: is shorter than most people's first draft of an answer option, and it is the
 #: reason a standard Likert midpoint has to be reworded. Check them before
 #: writing the instrument, not after.
-_TEXT_LIMITS: tuple[tuple[str, str, int], ...] = (
+TEXT_LIMITS: tuple[tuple[str, str, int], ...] = (
     ("twilio/list-picker", "body", 1024),
     ("twilio/list-picker", "item", 24),
     ("twilio/list-picker", "description", 72),
@@ -1035,7 +1035,7 @@ def overlong_content_text(
             continue
         name = state.get("name", "")
 
-        for type_name, field_name, limit in _TEXT_LIMITS:
+        for type_name, field_name, limit in TEXT_LIMITS:
             config = types.get(type_name)
             if not isinstance(config, dict):
                 continue
