@@ -33,7 +33,7 @@ def fake_sids(lang: str) -> dict[str, str]:
         demo.LANGS[lang]["close_template"],
         demo.consent_template_name(lang),
     ]
-    names += [demo.question_template_name(lang, k) for k in demo.QUESTION_KEYS]
+    names += [demo.question_template_name(lang, k) for k in demo.templated_keys(lang)]
     return {name: f"HX{index:032d}" for index, name in enumerate(names)}
 
 
@@ -70,14 +70,15 @@ class TestLanguageTables:
         for language in LANGS:
             table = demo.LANGS[language]
             shapes[language] = {
-                key: len(table["arm2"][key]["options"]) for key in demo.QUESTION_KEYS
+                key: len(table["arm2"][key]["options"])
+                for key in demo.option_keys(language)
             }
             assert sorted(table["arm1"]) == sorted(demo.QUESTION_KEYS)
         assert len(set(map(str, shapes.values()))) == 1, shapes
 
     def test_option_ids_match_across_languages(self):
         """The id is the analysis key, so it must not be translated."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(LANGS[0]):
             ids = {
                 language: [o[0] for o in demo.LANGS[language]["arm2"][key]["options"]]
                 for language in LANGS
@@ -148,14 +149,14 @@ class TestAnswerPattern:
         assert not evaluate_condition("regex", pattern, "No thank you")
 
     def test_every_label_is_accepted(self, lang):
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             for _, item, _ in options:
                 assert evaluate_condition("regex", pattern, item), (key, item)
 
     def test_a_typed_position_is_accepted_where_it_is_unambiguous(self, lang):
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             if demo.positions_are_ambiguous(options):
                 continue
@@ -170,24 +171,41 @@ class TestAnswerPattern:
         the status recording a clean answer. Refusing sends them back to the
         list, which is the right outcome for a reply with two readings.
         """
-        ambiguous = [
-            key
-            for key in demo.QUESTION_KEYS
-            if demo.positions_are_ambiguous(demo.LANGS[lang]["arm2"][key]["options"])
+        # Built here rather than found in the tables. The instrument currently
+        # has no numeric labels, so looking for one would make this test pass by
+        # having nothing to check - and it guards the mechanism, which has to
+        # keep working for the next scale somebody writes.
+        options = [
+            ("f_0", "0 times", "Not once"),
+            ("f_1_2", "1-2 times", "Once or twice"),
+            ("f_3_5", "3-5 times", "A handful"),
         ]
-        assert ambiguous, "expected the frequency scales to have numeric labels"
+        assert demo.positions_are_ambiguous(options)
 
-        for key in ambiguous:
+        pattern = demo.answer_pattern(options)
+        for index in range(1, len(options) + 1):
+            assert not evaluate_condition("regex", pattern, str(index)), index
+        # The labels themselves must still route, or the question is unanswerable.
+        for _, item, _ in options:
+            assert evaluate_condition("regex", pattern, item)
+
+    def test_no_current_question_has_ambiguous_positions(self, lang):
+        """If one appears, the nudge has to change with it.
+
+        `error_body_for` picks the label-only wording for these, so a question
+        that became ambiguous without that switch would tell the respondent to
+        reply with a number the split is required to refuse.
+        """
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
-            pattern = demo.answer_pattern(options)
-            for index in range(1, len(options) + 1):
-                assert not evaluate_condition("regex", pattern, str(index)), (
-                    key,
-                    index,
-                )
+            if demo.positions_are_ambiguous(options):
+                table = demo.LANGS[lang]
+                assert demo.error_body_for(
+                    table, options, demo.question_kind(lang, key)
+                ) == table["error_option_labels"].format(button=table["arm2"]["button"])
 
     def test_typed_punctuation_and_casing_are_tolerated(self, lang):
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             if not demo.positions_are_ambiguous(options):
@@ -199,7 +217,7 @@ class TestAnswerPattern:
 
     def test_junk_is_rejected(self, lang):
         """A pattern that accepts anything is worse than one that accepts too little."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             for junk in ("banana", "", "0", "99", "yes please", "times"):
@@ -209,7 +227,7 @@ class TestAnswerPattern:
 class TestCodeMapping:
     def test_tapping_and_typing_produce_the_same_code(self, lang):
         """The stored value must not depend on how the respondent answered."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             positional = not demo.positions_are_ambiguous(options)
             for index, (_, item, _) in enumerate(options, start=1):
@@ -224,7 +242,7 @@ class TestCodeMapping:
         a reply the split had already sent back to the retry - two records of
         the same respondent disagreeing about whether they answered.
         """
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             if not demo.positions_are_ambiguous(options):
                 continue
@@ -233,7 +251,7 @@ class TestCodeMapping:
 
     def test_the_split_and_the_mapping_agree(self, lang):
         """Anything accepted as an answer must code as one, or the row lies."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             for index, (_, item, _) in enumerate(options, start=1):
@@ -293,7 +311,7 @@ class TestTemplateDefinitions:
     def test_every_template_the_flow_needs_is_emitted(self, lang):
         emitted = set(demo.template_definitions(lang))
         expected = {demo.consent_template_name(lang)} | {
-            demo.question_template_name(lang, k) for k in demo.QUESTION_KEYS
+            demo.question_template_name(lang, k) for k in demo.templated_keys(lang)
         }
         assert emitted == expected
 
@@ -318,6 +336,30 @@ class TestTemplateDefinitions:
 
     def test_language_is_declared(self, lang):
         assert demo.consent_definition(lang)["language"] == demo.LANGS[lang]["language"]
+
+    def test_a_button_question_is_quick_reply_not_a_list(self, lang):
+        keys = [
+            k for k in demo.QUESTION_KEYS if demo.question_kind(lang, k) == "button"
+        ]
+        assert keys, "expected at least one quick-reply question"
+        for key in keys:
+            types = demo.question_definition(lang, key)["types"]
+            assert set(types) == {"twilio/text", "twilio/quick-reply"}
+            actions = types["twilio/quick-reply"]["actions"]
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            # The id is what a tap sends, so it has to be the option's own id and
+            # not a positional one - that was the first live test's failure.
+            assert [a["id"] for a in actions] == [o[0] for o in options]
+            assert [a["title"] for a in actions] == [o[1] for o in options]
+
+    def test_an_integer_question_has_no_template_at_all(self, lang):
+        """Not an empty one - none. There is nothing for Twilio to render."""
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            assert key not in demo.templated_keys(lang)
+            name = demo.question_template_name(lang, key)
+            assert name not in demo.template_definitions(lang)
 
 
 class TestBuild:
@@ -369,9 +411,14 @@ class TestBuild:
             assert f"ARM2_{key}" in keys
             assert f"ARM2_{key}_status" in keys
             # The raw reply is a label when tapped and a digit when typed; the
-            # code is what an analyst should use. Both are kept: the code is
-            # derived, so if the Liquid ever fails the answer is still there.
-            assert f"ARM2_{key}_code" in keys
+            # derived column is what an analyst should use. Both are kept: the
+            # derived one can fail, and then the answer is still there.
+            #
+            # An integer question has no options to code against, so it derives
+            # a validated number instead - a different name on purpose, so a
+            # free number is never read as an option code.
+            derived = "value" if demo.question_kind(lang, key) == "integer" else "code"
+            assert f"ARM2_{key}_{derived}" in keys
 
     def test_arm1_publishes_no_code(self, lang):
         """There is nothing to normalise in an open answer."""
@@ -383,15 +430,76 @@ class TestBuild:
         assert not any(k.startswith("ARM1_") and k.endswith("_code") for k in keys)
 
     def test_the_retry_nudge_names_the_button_that_is_on_screen(self, lang):
+        """And only names it where there is one.
+
+        The list button belongs to a list picker. Naming it on a quick-reply
+        question sends the respondent looking for a control that is not on their
+        screen, and on a typed number there is no control at all.
+        """
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        button = demo.LANGS[lang]["arm2"]["button"]
-        errors = [
-            s for s in definition["states"] if s["name"].startswith("error_ARM2_")
-        ]
+        table = demo.LANGS[lang]
+        button = table["arm2"]["button"]
+        states = {s["name"]: s for s in definition["states"]}
+
+        errors = [n for n in states if n.startswith("error_ARM2_")]
         assert errors
-        for state in errors:
-            assert button in state["properties"]["body"]
-            assert "{button}" not in state["properties"]["body"]
+        for name in errors:
+            key = name.removeprefix("error_ARM2_")
+            body = states[name]["properties"]["body"]
+            assert "{button}" not in body
+            if demo.question_kind(lang, key) == "list":
+                assert button in body
+            else:
+                assert button not in body, (key, body)
+
+    def test_the_numeric_nudge_states_the_range_it_enforces(self, lang):
+        """A nudge that says "a number" after refusing 42 is not a nudge.
+
+        The respondent replied with a number, as asked, and was refused. Telling
+        them the bound is the difference between a retry they can act on and one
+        that reads as the survey being broken.
+        """
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            question = demo.LANGS[lang]["arm2"][key]
+            highest = max(question["accepts"], key=int)
+            # Both ends named, in the body that asks and the nudge that re-asks.
+            assert highest in question["body"]
+            assert highest in demo.LANGS[lang]["error_numeric"]
+
+    def test_a_number_outside_the_range_is_refused_in_the_real_flow(self, lang):
+        """ARM 2 bounds every answer, and a number is not exempt.
+
+        Built end to end rather than against the constraint in isolation: the
+        pattern being right is not the same as the split using it, and a
+        question that validated nothing would still look correct in the table.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            split = states[f"split_ARM2_{key}"]
+            question = demo.LANGS[lang]["arm2"][key]
+            for reply in question["accepts"]:
+                assert route_split(split, reply) == f"store_ARM2_{key}", (key, reply)
+            for reply in question["refuses"]:
+                assert route_split(split, reply) == f"retry_ARM2_{key}", (key, reply)
+
+    def test_a_number_question_publishes_a_value_and_never_a_code(self, lang):
+        """A free number is not an option code, so it must not be named like one."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        publish = next(
+            s for s in definition["states"] if s["name"] == "publish_motherduck"
+        )
+        keys = {p["key"] for p in publish["properties"]["parameters"]}
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            assert f"ARM2_{key}_value" in keys
+            assert f"ARM2_{key}_code" not in keys
 
     def test_every_option_routes_to_store_in_the_real_flow(self, lang):
         """End to end on the built definition, not on the pattern in isolation.
@@ -403,7 +511,7 @@ class TestBuild:
         definition = demo.build(lang, fake_sids(lang), fake_functions())
         states = {s["name"]: s for s in definition["states"]}
 
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             split = states[f"split_ARM2_{key}"]
             options = demo.LANGS[lang]["arm2"][key]["options"]
             ambiguous = demo.positions_are_ambiguous(options)
@@ -662,7 +770,7 @@ class TestTheBuilderStillEmitsTheCommittedFlow:
             demo.EN["close_template"]: sids["close_never_started"],
             demo.consent_template_name("en"): sids["consent"],
         }
-        for key in demo.QUESTION_KEYS:
+        for key in demo.templated_keys("en"):
             by_name[demo.question_template_name("en", key)] = sids[f"ARM2_{key}"]
 
         assert demo.build("en", by_name, functions) == committed

@@ -5,7 +5,7 @@
     "the same strings drive this template, the flow's split conditions and the",
     "code stored for each answer, so editing here alone would desynchronise them.",
     "",
-    "ARM 2 P4, as a tappable list of 5 options. list-picker cannot be submitted for approval and cannot open a session; it only works inside the 24-hour window, which is why every ARM 2 question sits after the opener and consent.",
+    "ARM 2 P4, as a tappable list of 7 options. list-picker cannot be submitted for approval and cannot open a session; it only works inside the 24-hour window, which is why every ARM 2 question sits after the opener and consent.",
     "",
     "Create it with `just template-create` and never submit it to Meta.",
     "Referenced by the flow as data_use_demo_arm2_p4_es."
@@ -14,36 +14,46 @@
   "language": "es",
   "types": {
     "twilio/text": {
-      "body": "🙌 La última - pregunta 4 de 4\n\nEn el último año, cuando fue necesario recolectar información, ¿qué modalidad usaste principalmente?\n\n1 - Presencial (CAPI)\n2 - Telefónica (CATI)\n3 - Web o en línea\n4 - Por WhatsApp\n5 - Otra modalidad"
+      "body": "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad?\n\n1 - Python\n2 - Stata\n3 - R\n4 - SurveyCTO\n5 - Twilio\n6 - Exotel\n7 - Microsoft Office"
     },
     "twilio/list-picker": {
-      "body": "🙌 La última - pregunta 4 de 4\n\nEn el último año, cuando fue necesario recolectar información, ¿qué modalidad usaste principalmente?",
+      "body": "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad?",
       "button": "Elige tu respuesta",
       "items": [
         {
-          "id": "p4_capi",
-          "item": "Presencial (CAPI)",
-          "description": "Entrevistas cara a cara"
+          "id": "p4_python",
+          "item": "Python",
+          "description": "pandas, scripts, cuadernos"
         },
         {
-          "id": "p4_cati",
-          "item": "Telefónica (CATI)",
-          "description": "Entrevistas por llamada"
+          "id": "p4_stata",
+          "item": "Stata",
+          "description": "archivos do y datos .dta"
         },
         {
-          "id": "p4_web",
-          "item": "Web o en línea",
-          "description": "Formularios en línea"
+          "id": "p4_r",
+          "item": "R",
+          "description": "tidyverse y RStudio"
         },
         {
-          "id": "p4_whatsapp",
-          "item": "Por WhatsApp",
-          "description": "Encuestas por WhatsApp como esta"
+          "id": "p4_surveycto",
+          "item": "SurveyCTO",
+          "description": "Diseño de formularios y recolección"
         },
         {
-          "id": "p4_other",
-          "item": "Otra modalidad",
-          "description": "Registros administrativos u otra"
+          "id": "p4_twilio",
+          "item": "Twilio",
+          "description": "Flujos de Studio y WhatsApp"
+        },
+        {
+          "id": "p4_exotel",
+          "item": "Exotel",
+          "description": "Encuestas de voz e IVR"
+        },
+        {
+          "id": "p4_office",
+          "item": "Microsoft Office",
+          "description": "Excel, Word y PowerPoint"
         }
       ]
     }

@@ -114,6 +114,7 @@ from requests_to_twilio.answers import (  # noqa: E402
     word_pattern,
 )
 from requests_to_twilio.flows import check_flow, evaluate_condition  # noqa: E402
+from requests_to_twilio.spec import DEFAULT_CONSTRAINTS  # noqa: E402
 
 #: Kept as the private alias this module used before the move.
 _has_emoji = has_emoji
@@ -154,7 +155,26 @@ PUBLISH_FUNCTION_NAME = "publish_motherduck"
 ENCRYPT_PATH = "/encrypt-fields"
 PUBLISH_PATH = "/publish-motherduck"
 
-QUESTION_KEYS = ("P1", "P2", "P3", "P4")
+QUESTION_KEYS = ("P1", "P2", "P3", "P4", "P5")
+
+#: How an ARM 2 question is rendered, and therefore which widgets and which
+#: content template it becomes. ARM 1 ignores this entirely: every ARM 1 question
+#: is open text, which is the comparison the demo exists to make.
+#:
+#: ``list``    ``twilio/list-picker``, 1-10 options, tap or type the position
+#: ``button``  ``twilio/quick-reply``, 1-3 options, tap or type the position
+#: ``integer`` no template at all - a plain body, reply validated by regex
+#:
+#: ``integer`` is the odd one out and the reason `kind` exists rather than being
+#: inferred from the presence of options: it has none, so nothing about the
+#: table's shape distinguishes it from a question somebody forgot to fill in.
+QUESTION_KINDS = ("list", "button", "integer")
+
+#: The caps Twilio enforces on interactive content. A list-picker with 11 rows
+#: is rejected at create time, which during a round means the flow cannot be
+#: rebuilt - so `check_language` refuses first, at build time, where it is cheap.
+MAX_LIST_OPTIONS = 10
+MAX_BUTTON_OPTIONS = 3
 
 #: Studio has no `now` variable - `{{flow.variables.now}}` renders empty, which
 #: is how set_time_fin came to be blank on every row of the first live test. The
@@ -251,34 +271,43 @@ EN: dict[str, Any] = {
     # whose break-off and unusable-answer rates the session compares against.
     "arm1": {
         "P1": (
-            "In the last four (4) weeks, on how many occasions have you drawn "
-            "on quantitative or qualitative data (for example databases, "
-            "administrative records, statistical reports, surveys, dashboards) "
-            "as an input to decisions related to your work?\n\n"
-            "_Reply with an exact number (e.g. 0, 3, 12)._"
+            "Considering the training week currently underway in its entirety, "
+            "and taking into account the plenary sessions, the practical "
+            "exercises and the periods of informal exchange between them, which "
+            "single day would you identify as having been, on balance, the most "
+            "valuable to you?\n\n"
+            "_Reply with the day._"
         ),
         "P2": (
-            "In the last four (4) weeks, in how many projects, tasks or formal "
-            "processes you took part in was data or empirical evidence used as "
-            "explicit support for decision making (for example adjusting "
-            "strategy, allocating resources, redesigning a process)?\n\n"
-            "_Reply with an exact number (e.g. 0, 3, 12)._"
+            "During the lunch interval earlier today, did the meal you consumed "
+            "include a dessert course, or any sweet item taken at or "
+            "immediately following that meal?\n\n"
+            "_Reply yes or no._"
         ),
         "P3": (
-            "Over the last year, how often did you, or the organisation you "
-            "work for, carry out systematic data collection (for example "
-            "running surveys, filling in forms, extracting information from "
-            "internal systems, updating databases) that was then used as an "
-            "input for decisions in your work?\n\n"
-            '_Reply with a short phrase (e.g. "never", "sometimes", "almost '
-            'always", or an approximate percentage)._'
+            "Since waking this morning, and counting only those beverages "
+            "consumed prior to the commencement of the first session of the "
+            "day, how many separate servings of coffee or tea did you "
+            "drink?\n\n"
+            "_Reply with an exact number (e.g. 0, 1, 3)._"
         ),
+        # The multi-answer question. ARM 1 can ask it - ARM 2 cannot - and the
+        # price is a column of strings somebody has to clean by hand. Expect
+        # "Stata,R", "stata and R", "all of them", "python (a bit)". That is the
+        # demo: the construct survives and the variable does not.
         "P4": (
-            "Over the last year, when you needed to collect information or "
-            "data to support decisions in your work, what was the main mode of "
-            "data collection you used?\n\n"
-            "_For example: online surveys, paper forms, phone interviews, "
-            "internal administrative records, analysis of existing databases._"
+            "Across the range of tools you have occasion to use in the course "
+            "of your work, including those you use only intermittently, please "
+            "indicate every piece of software with which you would describe "
+            "yourself as comfortable.\n\n"
+            "_Reply with all that apply, separated by commas (for example: "
+            "Stata, R)._"
+        ),
+        "P5": (
+            "Reflecting on your overall experience of responding to this "
+            "questionnaire, how would you characterise your general disposition "
+            "toward receiving surveys of this kind in future?\n\n"
+            "_Reply in your own words._"
         ),
     },
     # ARM 2 - the recommended pattern. Same four constructs, as tappable lists,
@@ -287,74 +316,100 @@ EN: dict[str, Any] = {
     "arm2": {
         "button": "Choose an answer",
         "P1": {
+            "kind": "list",
             "body": (
-                "📊 Question 1 of 4\n\n"
-                "In the last 4 weeks, how many times have you used data to "
-                "make decisions in your work?"
+                "📅 Question 1 of 5\n\n"
+                "Which day of the training week has been your favourite?"
             ),
             "options": [
-                ("p1_0", "0 times", "I did not use data in the last 4 weeks"),
-                ("p1_1_2", "1-2 times", "Once or twice"),
-                ("p1_3_5", "3-5 times", "A handful of times"),
-                ("p1_6_10", "6-10 times", "Most weeks"),
-                ("p1_gt10", "More than 10 times", "Almost daily"),
+                ("p1_sun", "Sunday", "Day 1"),
+                ("p1_mon", "Monday", "Day 2"),
+                ("p1_tue", "Tuesday", "Day 3"),
+                ("p1_wed", "Wednesday", "Day 4"),
+                ("p1_thu", "Thursday", "Day 5"),
+                ("p1_fri", "Friday", "Day 6"),
             ],
         },
         "P2": {
-            "body": (
-                "Question 2 of 4\n\n"
-                "In the last 4 weeks, in how many projects was data used to "
-                "make decisions?"
-            ),
+            "kind": "button",
+            "body": ("🍰 Question 2 of 5\n\nDid you have dessert with lunch today?"),
+            # Quick-reply actions carry a title and an id; the third element is
+            # unused on screen and shows up only in the text fallback. Kept as a
+            # triple so the pattern and the code mapping treat every question
+            # kind identically.
             "options": [
-                ("p2_0", "0 projects", "No project used data"),
-                ("p2_1", "1 project", "One project used data"),
-                ("p2_2_3", "2-3 projects", "A few projects used data"),
-                ("p2_4_5", "4-5 projects", "Several projects used data"),
-                ("p2_gt5", "More than 5 projects", "Most or all projects used data"),
+                ("p2_yes", "Yes", "I had dessert"),
+                ("p2_no", "No", "I did not"),
             ],
         },
+        # No options: an integer question is a plain body and a regex.
+        # Bounded, like every other ARM 2 answer. The arm's premise is that a
+        # reply lands in a known set, and "any whole number" is not one - it
+        # accepts 900 as readily as 2. 0-10 covers every honest answer to this
+        # question and refuses the rest, so the column needs no cleaning.
         "P3": {
+            "kind": "integer",
+            "constraint": r"(?:\s*(?:10|[0-9])\s*)",
+            "accepts": [str(n) for n in range(11)],
+            "refuses": ["11", "100", "-1", "two", "about 3", "3.5", ""],
             "body": (
-                "Question 3 of 4 - almost there\n\n"
-                "Over the last year, how often did you or your organisation "
-                "collect the data used to make decisions?"
+                "☕ Question 3 of 5\n\n"
+                "How many cups of coffee or tea did you have this morning?\n\n"
+                "_Reply with a number from 0 to 10._"
+            ),
+        },
+        # ARM 2 cannot ask this as a multi-answer question - WhatsApp only offers
+        # MULTI_SELECT through twilio/flows, which needs Meta approval even in
+        # session. So the variable stays clean and the question narrows to one
+        # answer, where ARM 1 keeps the question and gives up the variable.
+        "P4": {
+            "kind": "list",
+            "body": (
+                "💻 Question 4 of 5\n\n"
+                "Which one of these are you *most* comfortable using?"
             ),
             "options": [
-                (
-                    "p3_never",
-                    "We never collect data",
-                    "We only use data others collect",
-                ),
-                ("p3_lt25", "A few projects", "Less than 25% of projects"),
-                ("p3_25_50", "About half", "Between 25% and 50% of projects"),
-                ("p3_51_75", "Most projects", "Between 51% and 75% of projects"),
-                ("p3_gt75", "Almost all projects", "More than 75% of projects"),
+                ("p4_python", "Python", "pandas, scripts, notebooks"),
+                ("p4_stata", "Stata", "do-files and .dta data"),
+                ("p4_r", "R", "tidyverse and RStudio"),
+                ("p4_surveycto", "SurveyCTO", "Form design and data collection"),
+                ("p4_twilio", "Twilio", "Studio flows and WhatsApp"),
+                ("p4_exotel", "Exotel", "Voice and IVR surveys"),
+                ("p4_office", "Microsoft Office", "Excel, Word and PowerPoint"),
             ],
         },
-        "P4": {
+        # The scale is carried by the descriptions, not the titles. A title is
+        # compared literally against the reply body, and an emoji there would be
+        # a tap that matches nothing - see the note above the language tables.
+        "P5": {
+            "kind": "list",
             "body": (
-                "🙌 Last one - question 4 of 4\n\n"
-                "Over the last year, when you needed to collect information, "
-                "which mode did you mainly use?"
+                "🙌 Last one - question 5 of 5\n\nDid you enjoy answering this survey?"
             ),
             "options": [
-                ("p4_capi", "In person (CAPI)", "Face-to-face interviews"),
-                ("p4_cati", "Phone (CATI)", "Interviews by phone call"),
-                ("p4_web", "Web or online", "Self-completed online forms"),
-                ("p4_whatsapp", "WhatsApp", "Surveys over WhatsApp like this one"),
-                (
-                    "p4_other",
-                    "Another mode",
-                    "Administrative records or something else",
-                ),
+                ("p5_loved", "Loved it", "🤩 Best thing all week"),
+                ("p5_liked", "Liked it", "🙂 Good, I would do it again"),
+                ("p5_fine", "It was fine", "😐 No strong feelings"),
+                ("p5_meh", "Not really", "🙁 A bit tedious"),
+                ("p5_disliked", "Did not like it", "😞 I would rather not"),
             ],
         },
     },
+    # States the bound the split actually enforces. A nudge that says "a number"
+    # after refusing 42 tells the respondent they did as they were asked and were
+    # still wrong, which is how somebody abandons a question they can answer.
     "error_numeric": (
-        "Please reply with a number only.\n\n"
-        "_Reply with an exact number (e.g. 0, 3, 12)._\n\n"
+        "Please reply with a number from 0 to 10.\n\n"
+        "_Just the digits, for example 0, 2 or 10._\n\n"
         "I am a bot and cannot understand everything that is written to me."
+    ),
+    # A quick-reply question has buttons and no list, so the list nudge would
+    # name a control that is not on screen.
+    "error_button": (
+        "No problem - I could not read that one.\n\n"
+        "Tap one of the buttons on the message above. You can also just reply "
+        "with the number of your answer.\n\n"
+        "I am a bot, so I only understand the options."
     ),
     # {button} is filled in from the same table entry the list picker uses, so
     # the nudge can never name a button that is not on screen.
@@ -444,113 +499,117 @@ ES: dict[str, Any] = {
     ),
     "arm1": {
         "P1": (
-            "Durante las últimas cuatro (4) semanas, ¿en cuántas "
-            "ocasiones has recurrido al uso de información basada en datos "
-            "cuantitativos o cualitativos (por ejemplo, bases de datos, "
-            "registros administrativos, informes estadísticos, encuestas, "
-            "paneles de control) como insumo para adoptar decisiones "
-            "relacionadas con tu trabajo?\n\n"
-            "_Responde con un número exacto (ej.: 0, 3, 12)._"
+            "Considerando en su conjunto la semana de formación actualmente en "
+            "curso, y teniendo en cuenta las sesiones plenarias, los ejercicios "
+            "prácticos y los períodos de intercambio informal entre ellos, "
+            "¿qué día señalarías como el que, en balance, te resultó más "
+            "valioso?\n\n"
+            "_Responde con el día._"
         ),
         "P2": (
-            "Durante las últimas cuatro (4) semanas, ¿en cuántos "
-            "proyectos, tareas o procesos formales de tu organización en los "
-            "que participaste se utilizaron datos o evidencia empírica como "
-            "apoyo explícito para la toma de decisiones (por ejemplo, ajuste "
-            "de estrategias, asignación de recursos, rediseño de "
-            "procesos)?\n\n"
-            "_Responde con un número exacto (ej.: 0, 3, 12)._"
+            "Durante el intervalo del almuerzo de hoy, ¿la comida que "
+            "consumiste incluyó un postre, o algún elemento dulce tomado "
+            "durante o inmediatamente después de esa comida?\n\n"
+            "_Responde sí o no._"
         ),
         "P3": (
-            "Durante el último año, ¿con qué frecuencia tú, "
-            "o la entidad en la que trabajas, llevaron a cabo actividades de "
-            "recolección sistemática de datos (por ejemplo, "
-            "aplicación de encuestas, diligenciamiento de formularios, "
-            "extracción de información de sistemas internos, "
-            "actualización de bases de datos) que luego fueron utilizados "
-            "como insumo para la toma de decisiones en tu trabajo?\n\n"
-            '_Escribe una frase breve (ej.: "nunca", "a veces", "casi '
-            'siempre", o un porcentaje aproximado)._'
+            "Desde que despertaste esta mañana, y contando únicamente las "
+            "bebidas consumidas antes del comienzo de la primera sesión del "
+            "día, ¿cuántas porciones de café o té tomaste?\n\n"
+            "_Responde con un número exacto (ej.: 0, 1, 3)._"
         ),
+        # La pregunta de respuesta múltiple. El ARM 1 puede hacerla; el ARM 2
+        # no. El precio es una columna de texto que alguien debe limpiar a mano.
         "P4": (
-            "Durante el último año, cuando fue necesario recolectar "
-            "información o datos para apoyar la toma de decisiones en tu "
-            "trabajo, ¿cuál fue la modalidad predominante de "
-            "recolección de datos que utilizaste?\n\n"
-            "_Por ejemplo: encuestas en línea, formularios en papel, "
-            "entrevistas telefónicas, registros administrativos internos, "
-            "análisis de bases de datos existentes._"
+            "Entre las herramientas que tienes ocasión de utilizar en el curso "
+            "de tu trabajo, incluidas aquellas que empleas solo de forma "
+            "intermitente, indica todos los programas con los que te "
+            "describirías como cómoda o cómodo.\n\n"
+            "_Responde con todos los que apliquen, separados por comas (por "
+            "ejemplo: Stata, R)._"
+        ),
+        "P5": (
+            "Reflexionando sobre tu experiencia general al responder este "
+            "cuestionario, ¿cómo caracterizarías tu disposición general a "
+            "recibir encuestas de este tipo en el futuro?\n\n"
+            "_Responde con tus propias palabras._"
         ),
     },
     "arm2": {
         "button": "Elige tu respuesta",
         "P1": {
+            "kind": "list",
             "body": (
-                "📊 Pregunta 1 de 4\n\n"
-                "En las últimas 4 semanas, ¿cuántas veces has "
-                "usado datos para tomar decisiones en tu trabajo?"
+                "📅 Pregunta 1 de 5\n\n"
+                "¿Cuál ha sido tu día favorito de la semana de formación?"
             ),
             "options": [
-                ("p1_0", "0 veces", "No usé datos en las últimas 4 semanas"),
-                ("p1_1_2", "1-2 veces", "Una o dos veces"),
-                ("p1_3_5", "3-5 veces", "Unas pocas veces"),
-                ("p1_6_10", "6-10 veces", "Casi todas las semanas"),
-                ("p1_gt10", "Más de 10 veces", "Casi a diario"),
+                ("p1_sun", "Domingo", "Día 1"),
+                ("p1_mon", "Lunes", "Día 2"),
+                ("p1_tue", "Martes", "Día 3"),
+                ("p1_wed", "Miércoles", "Día 4"),
+                ("p1_thu", "Jueves", "Día 5"),
+                ("p1_fri", "Viernes", "Día 6"),
             ],
         },
         "P2": {
-            "body": (
-                "Pregunta 2 de 4\n\n"
-                "En las últimas 4 semanas, ¿en cuántos proyectos "
-                "se usaron datos para tomar decisiones?"
-            ),
+            "kind": "button",
+            "body": ("🍰 Pregunta 2 de 5\n\n¿Tomaste postre con el almuerzo de hoy?"),
             "options": [
-                ("p2_0", "0 proyectos", "Ningún proyecto usó datos"),
-                ("p2_1", "1 proyecto", "Un proyecto usó datos"),
-                ("p2_2_3", "2-3 proyectos", "Algunos proyectos usaron datos"),
-                ("p2_4_5", "4-5 proyectos", "Varios proyectos usaron datos"),
-                ("p2_gt5", "Más de 5 proyectos", "La mayoría o todos"),
+                ("p2_yes", "Sí", "Sí tomé postre"),
+                ("p2_no", "No", "No tomé postre"),
             ],
         },
         "P3": {
+            "kind": "integer",
+            "constraint": r"(?:\s*(?:10|[0-9])\s*)",
+            "accepts": [str(n) for n in range(11)],
+            "refuses": ["11", "100", "-1", "dos", "como 3", "3,5", ""],
             "body": (
-                "Pregunta 3 de 4 - ya casi\n\n"
-                "Durante el último año, ¿con qué frecuencia "
-                "recolectaste tú o tu entidad los datos usados para tomar "
-                "decisiones?"
+                "☕ Pregunta 3 de 5\n\n"
+                "¿Cuántas tazas de café o té tomaste esta mañana?\n\n"
+                "_Responde con un número del 0 al 10._"
             ),
-            "options": [
-                (
-                    "p3_never",
-                    "Nunca recolectamos",
-                    "Solo usamos datos que recolectan otros",
-                ),
-                ("p3_lt25", "Pocos proyectos", "Menos del 25% de los proyectos"),
-                ("p3_25_50", "Cerca de la mitad", "Entre el 25% y el 50%"),
-                ("p3_51_75", "La mayoría", "Entre el 51% y el 75%"),
-                ("p3_gt75", "Casi todos", "Más del 75% de los proyectos"),
-            ],
         },
         "P4": {
+            "kind": "list",
             "body": (
-                "🙌 La última - pregunta 4 de 4\n\n"
-                "En el último año, cuando fue necesario recolectar "
-                "información, ¿qué modalidad usaste "
-                "principalmente?"
+                "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad?"
             ),
             "options": [
-                ("p4_capi", "Presencial (CAPI)", "Entrevistas cara a cara"),
-                ("p4_cati", "Telefónica (CATI)", "Entrevistas por llamada"),
-                ("p4_web", "Web o en línea", "Formularios en línea"),
-                ("p4_whatsapp", "Por WhatsApp", "Encuestas por WhatsApp como esta"),
-                ("p4_other", "Otra modalidad", "Registros administrativos u otra"),
+                ("p4_python", "Python", "pandas, scripts, cuadernos"),
+                ("p4_stata", "Stata", "archivos do y datos .dta"),
+                ("p4_r", "R", "tidyverse y RStudio"),
+                ("p4_surveycto", "SurveyCTO", "Diseño de formularios y recolección"),
+                ("p4_twilio", "Twilio", "Flujos de Studio y WhatsApp"),
+                ("p4_exotel", "Exotel", "Encuestas de voz e IVR"),
+                ("p4_office", "Microsoft Office", "Excel, Word y PowerPoint"),
+            ],
+        },
+        # La escala va en las descripciones, no en los títulos: un título se
+        # compara literalmente con el cuerpo de la respuesta.
+        "P5": {
+            "kind": "list",
+            "body": ("🙌 La última - pregunta 5 de 5\n\n¿Disfrutaste esta encuesta?"),
+            "options": [
+                ("p5_loved", "Me encantó", "🤩 Lo mejor de la semana"),
+                ("p5_liked", "Me gustó", "🙂 Bien, la repetiría"),
+                ("p5_fine", "Estuvo bien", "😐 Sin opinión fuerte"),
+                ("p5_meh", "No mucho", "🙁 Algo tediosa"),
+                ("p5_disliked", "No me gustó", "😞 Preferiría no hacerla"),
             ],
         },
     },
     "error_numeric": (
-        "Por favor responde solo con un número.\n\n"
-        "_Responde con un número exacto (ej.: 0, 3, 12)._\n\n"
+        "Por favor responde con un número del 0 al 10.\n\n"
+        "_Solo los dígitos, por ejemplo 0, 2 o 10._\n\n"
         "Soy un robot y no entiendo todo lo que me escribes."
+    ),
+    "error_button": (
+        "Sin problema - no pude leer esa respuesta.\n\n"
+        "Toca uno de los botones del mensaje de arriba. También puedes "
+        "responder con el número de tu respuesta.\n\n"
+        "Soy un robot, así que solo entiendo las opciones."
     ),
     "error_option": (
         "Sin problema - no pude leer esa respuesta.\n\n"
@@ -650,22 +709,65 @@ def check_language(lang: str) -> list[str]:
 
     for key in QUESTION_KEYS:
         question = table["arm2"][key]
+        kind = question_kind(lang, key)
+        if kind not in QUESTION_KINDS:
+            problems.append(
+                f"{lang}: ARM2 {key} has kind {kind!r}, expected one of "
+                f"{', '.join(QUESTION_KINDS)}"
+            )
         if len(question["body"]) > 1024:
             problems.append(f"{lang}: ARM2 {key} body exceeds 1024 chars")
+
+        # An integer question is a body and a regex. Everything below is about
+        # an option list it does not have, and `options` is absent by design -
+        # so anything that reads it has to stop here rather than default to an
+        # empty list and quietly report "0 options".
+        if kind == "integer":
+            if "options" in question:
+                problems.append(
+                    f"{lang}: ARM2 {key} is an integer question and cannot have "
+                    "options; the reply is validated by regex"
+                )
+            # Run the constraint rather than read it. A bound is a promise the
+            # body makes to the respondent - "a number from 0 to 10" - and the
+            # only way to know the split keeps it is to push the replies
+            # through. A pattern that quietly refused "10" would strand every
+            # respondent who answered at the top of the range.
+            constraint = question.get("constraint", DEFAULT_CONSTRAINTS["integer"])
+            for reply in question.get("accepts", []):
+                if not evaluate_condition("regex", constraint, reply):
+                    problems.append(
+                        f"{lang}: ARM2 {key} refuses {reply!r}, which its own "
+                        "body invites"
+                    )
+            for reply in question.get("refuses", []):
+                if evaluate_condition("regex", constraint, reply):
+                    problems.append(
+                        f"{lang}: ARM2 {key} accepts {reply!r} as a valid "
+                        "answer, so it would be stored as a real number"
+                    )
+            continue
+
         options = question["options"]
-        if not 1 <= len(options) <= 10:
+        cap = MAX_BUTTON_OPTIONS if kind == "button" else MAX_LIST_OPTIONS
+        rendering = "quick-reply" if kind == "button" else "list-picker"
+        if not 1 <= len(options) <= cap:
             problems.append(
                 f"{lang}: ARM2 {key} has {len(options)} options, "
-                "list-picker allows 1 to 10"
+                f"{rendering} allows 1 to {cap}"
             )
+        # A quick-reply title caps lower than a list-picker item, and its
+        # description is never rendered - it only reaches the text fallback.
+        item_cap = 25 if kind == "button" else 24
         seen: set[str] = set()
         for option in options:
             option_id, item, description = option[0], option[1], option[2]
-            if len(item) > 24:
+            if len(item) > item_cap:
                 problems.append(
-                    f"{lang}: ARM2 {key} item is {len(item)} chars, cap is 24: {item!r}"
+                    f"{lang}: ARM2 {key} item is {len(item)} chars, cap is "
+                    f"{item_cap} for {rendering}: {item!r}"
                 )
-            if len(description) > 72:
+            if kind != "button" and len(description) > 72:
                 problems.append(
                     f"{lang}: ARM2 {key} description is {len(description)} "
                     f"chars, cap is 72: {description!r}"
@@ -717,6 +819,11 @@ def _check_options_are_matchable(lang: str) -> list[str]:
     """
     problems = []
     for key in QUESTION_KEYS:
+        # An integer question has no options to be matchable. Its equivalent
+        # guarantee is the constraint's own probe set in the spec module, which
+        # pins that the pattern takes "12" and refuses "about 5".
+        if question_kind(lang, key) == "integer":
+            continue
         options = LANGS[lang]["arm2"][key]["options"]
         pattern = answer_pattern(options)
         ambiguous = positions_are_ambiguous(options)
@@ -881,19 +988,76 @@ def consent_definition(lang: str) -> dict[str, Any]:
     }
 
 
+def question_kind(lang: str, key: str) -> str:
+    """How ARM 2 asks this question. Absent means the original list picker."""
+    return LANGS[lang]["arm2"][key].get("kind", "list")
+
+
+def option_keys(lang: str) -> tuple[str, ...]:
+    """Return the ARM 2 questions that have an option list.
+
+    Everything about matching a reply to an option - the pattern, the code
+    mapping, the value labels - applies to these and not to the rest.
+    """
+    return tuple(key for key in QUESTION_KEYS if question_kind(lang, key) != "integer")
+
+
+def templated_keys(lang: str) -> tuple[str, ...]:
+    """Return the ARM 2 questions that need a content template.
+
+    An ``integer`` question is a plain body and a regex, so it has no template
+    to create and no SID to resolve. Asking for one anyway is how a build ends
+    up looking up a friendly name that was never created.
+
+    The same set as :func:`option_keys` today, and kept separate anyway: one is
+    about what Twilio has to be told, the other about what a reply is checked
+    against, and a future question kind could easily need one without the other.
+    """
+    return tuple(key for key in QUESTION_KEYS if question_kind(lang, key) != "integer")
+
+
 def question_definition(lang: str, key: str) -> dict[str, Any]:
-    """Build an ARM 2 list-picker content template definition."""
+    """Build the ARM 2 content template definition for one question.
+
+    A list picker or a set of quick-reply buttons, depending on the question's
+    ``kind``. Both carry the same numbered ``twilio/text`` fallback, for a
+    channel that cannot render either.
+    """
     table = LANGS[lang]
     question = table["arm2"][key]
+    kind = question_kind(lang, key)
     name = question_template_name(lang, key)
+    options = question["options"]
     numbered = "\n".join(
-        f"{index} - {option[1]}"
-        for index, option in enumerate(question["options"], start=1)
+        f"{index} - {option[1]}" for index, option in enumerate(options, start=1)
     )
+
+    if kind == "button":
+        return {
+            "_comment": _generated_note(
+                name,
+                f"ARM 2 {key}, as {len(options)} quick-reply buttons. Sent "
+                "inside the 24-hour window the opener's reply opens, so it "
+                "needs no Meta approval. The buttons carry payload ids, but the "
+                "flow splits on the message body so a typed reply works too.",
+            ),
+            "friendly_name": name,
+            "language": table["language"],
+            "types": {
+                "twilio/text": {"body": f"{question['body']}\n\n{numbered}"},
+                "twilio/quick-reply": {
+                    "body": question["body"],
+                    "actions": [
+                        {"title": option[1], "id": option[0]} for option in options
+                    ],
+                },
+            },
+        }
+
     return {
         "_comment": _generated_note(
             name,
-            f"ARM 2 {key}, as a tappable list of {len(question['options'])} "
+            f"ARM 2 {key}, as a tappable list of {len(options)} "
             "options. list-picker cannot be submitted for approval and cannot "
             "open a session; it only works inside the 24-hour window, which is "
             "why every ARM 2 question sits after the opener and consent.",
@@ -917,7 +1081,7 @@ def question_definition(lang: str, key: str) -> dict[str, Any]:
 def template_definitions(lang: str) -> dict[str, dict[str, Any]]:
     """Every content template this language's flow needs, by friendly name."""
     definitions = {consent_template_name(lang): consent_definition(lang)}
-    for key in QUESTION_KEYS:
+    for key in templated_keys(lang):
         definitions[question_template_name(lang, key)] = question_definition(lang, key)
     return definitions
 
@@ -1066,16 +1230,23 @@ def arm_x(arm):
     return -700 if arm == "ARM1" else 500
 
 
-def error_body_for(table, options) -> str:
+def error_body_for(table, options, kind: str = "list") -> str:
     """Pick the retry nudge that matches what this question can accept.
 
     The nudge is the one place the instrument tells a respondent how to answer,
-    so it has to agree with the split. Inviting "just reply with the number"
-    on a question whose labels are numbers asks for precisely the reply that
-    :func:`positions_are_ambiguous` requires the split to refuse - the
-    respondent does as they are told, is not understood, and is nudged again
-    with the same instruction.
+    so it has to agree with the split *and* with what is on their screen.
+
+    Two ways to get it wrong, both of which leave the respondent doing as they
+    were told and still not being understood:
+
+    * Inviting "just reply with the number" on a question whose labels are
+      numbers asks for precisely the reply that :func:`positions_are_ambiguous`
+      requires the split to refuse.
+    * Telling somebody to tap the list button on a quick-reply question names a
+      control that is not there - buttons have no list to open.
     """
+    if kind == "button":
+        return table["error_button"]
     key = "error_option_labels" if positions_are_ambiguous(options) else "error_option"
     return table[key].format(button=table["arm2"]["button"])
 
@@ -1205,6 +1376,94 @@ def list_question(arm, key, content_sid, options, error_body, lang, *, y, next_s
     ]
 
 
+def number_question(arm, key, body, constraint, error_body, lang, *, y, next_state):
+    """ARM 2: ask for a number, refuse anything else, retry twice, move on.
+
+    The same eight widgets as :func:`list_question` and the same retry limit -
+    three differences, all of them about there being no option list:
+
+    * the question is a plain body, not a content template, so there is no SID
+      to resolve and nothing to create in the Content API;
+    * the reply is validated against a regex rather than against labels; and
+    * what gets stored is the reply itself, because there is no position to
+      collapse it to.
+
+    ``constraint`` is the regex a reply must match, taken from the question's
+    own table entry so the bound is visible beside the wording that promises it.
+    ARM 2 bounds every answer - a list to its rows, buttons to their titles, and
+    a number to its range. "Any whole number" would not be a bound: it takes 900
+    as readily as 2, and the arm's premise is that a reply lands in a known set.
+
+    This is the arm's sharpest contrast on a numeric item: ARM 1 stores
+    "about 3" and "two coffees" as answers, and ARM 2 cannot.
+    """
+    name = f"{arm}_{key}"
+    validate = f"split_{name}"
+    retry = f"retry_{name}"
+    give_up = f"giveup_{name}"
+    error_widget = f"error_{name}"
+    x = arm_x(arm)
+
+    return [
+        ask(name, body, f"stopcheck_{name}", x=x, y=y),
+        stop_split(name, lang, validate, x=x, y=y + 40),
+        split(
+            validate,
+            f"{{{{widgets.{name}.inbound.Body}}}}",
+            [(constraint, f"store_{name}", "replied with an in-range number")],
+            retry,
+            x=x,
+            y=y + 80,
+            condition="regex",
+        ),
+        # The reply, trimmed of the surrounding space the constraint tolerates.
+        # No `_code`: there is no option table to map onto, and publishing an
+        # empty one would put a column in the warehouse that means nothing.
+        set_vars(
+            f"store_{name}",
+            [
+                (f"{name}_status", "answered"),
+                (
+                    f"{name}_value",
+                    f"{{{{widgets.{name}.inbound.Body | strip}}}}",
+                ),
+            ],
+            next_state,
+            x=x,
+            y=y + 160,
+        ),
+        set_vars(
+            retry,
+            [
+                (
+                    f"tries_{name}",
+                    f"{{% assign current = flow.variables.tries_{name} "
+                    "| default: 0 %}{{ current | plus: 1 }}",
+                )
+            ],
+            f"check_{name}",
+            x=x + 260,
+            y=y + 80,
+        ),
+        split(
+            f"check_{name}",
+            f"{{{{flow.variables.tries_{name}}}}}",
+            [("1", error_widget), ("2", error_widget)],
+            give_up,
+            x=x + 260,
+            y=y + 160,
+        ),
+        send(error_widget, error_body, name, x=x + 520, y=y + 160),
+        set_vars(
+            give_up,
+            [(f"{name}_status", "multierror"), (f"{name}_value", "")],
+            next_state,
+            x=x + 260,
+            y=y + 240,
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Flow assembly.
 # ---------------------------------------------------------------------------
@@ -1248,7 +1507,7 @@ def build(
         table["close_template"],
         consent_template_name(lang),
     ]
-    needed += [question_template_name(lang, key) for key in QUESTION_KEYS]
+    needed += [question_template_name(lang, key) for key in templated_keys(lang)]
     missing = [name for name in needed if not content_sids.get(name)]
     if missing:
         raise BuildError("missing content SIDs for: " + ", ".join(missing))
@@ -1458,18 +1717,36 @@ def build(
             if index + 1 < len(QUESTION_KEYS)
             else "mark_complete"
         )
+        question = table["arm2"][key]
+        if question_kind(lang, key) == "integer":
+            states.extend(
+                number_question(
+                    "ARM2",
+                    key,
+                    question["body"],
+                    question.get("constraint", DEFAULT_CONSTRAINTS["integer"]),
+                    table["error_numeric"],
+                    lang,
+                    y=-300 + index * 340,
+                    next_state=following,
+                )
+            )
+            continue
+
+        # A list picker and a set of quick-reply buttons are the same eight
+        # widgets; only the content template behind the SID differs.
         states.extend(
             list_question(
                 "ARM2",
                 key,
                 content_sids[question_template_name(lang, key)],
-                table["arm2"][key]["options"],
+                question["options"],
                 # Named from the same entry the list picker uses, so the nudge
                 # cannot end up telling someone to tap a button that is not
                 # there. And on a question whose labels are numbers, the
                 # variant that does *not* invite a bare digit - inviting one
                 # there asks for exactly the reply the split has to refuse.
-                error_body_for(table, table["arm2"][key]["options"]),
+                error_body_for(table, question["options"], question_kind(lang, key)),
                 lang,
                 y=-300 + index * 340,
                 next_state=following,
@@ -1621,8 +1898,16 @@ def build(
                 (f"{name}_status", f"{{{{flow.variables.{name}_status}}}}")
             )
             if arm == "ARM2":
+                # An integer question has no option table, so there is no
+                # position to normalise to. It publishes the validated number
+                # instead - a different column name on purpose, so nobody reads
+                # a free number as though it were an option code.
+                suffix = "value" if question_kind(lang, key) == "integer" else "code"
                 published.append(
-                    (f"{name}_code", f"{{{{flow.variables.{name}_code}}}}")
+                    (
+                        f"{name}_{suffix}",
+                        f"{{{{flow.variables.{name}_{suffix}}}}}",
+                    )
                 )
 
     states.append(
@@ -1786,6 +2071,35 @@ def codebook_rows(lang: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for key in QUESTION_KEYS:
         question = table["arm2"][key]
+        # An integer question has no value labels: the column holds the number
+        # the respondent typed, which means itself. One row saying so, because a
+        # codebook silently missing a published column reads as an oversight.
+        if question_kind(lang, key) == "integer":
+            accepts = question.get("accepts")
+            bound = (
+                f"{min(accepts, key=int)}-{max(accepts, key=int)}"
+                if accepts
+                else "any whole number"
+            )
+            rows.append(
+                {
+                    "lang": lang,
+                    "arm": "2",
+                    "question": f"ARM2_{key}",
+                    "variable": f"ARM2_{key}_value",
+                    "code": "",
+                    "option_id": "",
+                    "label": f"Number in {bound}",
+                    # The range is the value label. Without it an analyst cannot
+                    # tell a missing answer from one the split refused, and both
+                    # arrive as a blank cell.
+                    "description": (
+                        f"Validated number, {bound}. Blank means refused or "
+                        "unanswered - read the status column"
+                    ),
+                }
+            )
+            continue
         for index, option in enumerate(question["options"], start=1):
             rows.append(
                 {
@@ -1933,7 +2247,7 @@ def resolve_sids(lang: str) -> tuple[dict[str, str], list[str]]:
         table["close_template"],
         consent_template_name(lang),
     ]
-    wanted += [question_template_name(lang, key) for key in QUESTION_KEYS]
+    wanted += [question_template_name(lang, key) for key in templated_keys(lang)]
 
     found: dict[str, str] = {}
     missing: list[str] = []

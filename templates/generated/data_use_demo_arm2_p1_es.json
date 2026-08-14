@@ -5,7 +5,7 @@
     "the same strings drive this template, the flow's split conditions and the",
     "code stored for each answer, so editing here alone would desynchronise them.",
     "",
-    "ARM 2 P1, as a tappable list of 5 options. list-picker cannot be submitted for approval and cannot open a session; it only works inside the 24-hour window, which is why every ARM 2 question sits after the opener and consent.",
+    "ARM 2 P1, as a tappable list of 6 options. list-picker cannot be submitted for approval and cannot open a session; it only works inside the 24-hour window, which is why every ARM 2 question sits after the opener and consent.",
     "",
     "Create it with `just template-create` and never submit it to Meta.",
     "Referenced by the flow as data_use_demo_arm2_p1_es."
@@ -14,36 +14,41 @@
   "language": "es",
   "types": {
     "twilio/text": {
-      "body": "📊 Pregunta 1 de 4\n\nEn las últimas 4 semanas, ¿cuántas veces has usado datos para tomar decisiones en tu trabajo?\n\n1 - 0 veces\n2 - 1-2 veces\n3 - 3-5 veces\n4 - 6-10 veces\n5 - Más de 10 veces"
+      "body": "📅 Pregunta 1 de 5\n\n¿Cuál ha sido tu día favorito de la semana de formación?\n\n1 - Domingo\n2 - Lunes\n3 - Martes\n4 - Miércoles\n5 - Jueves\n6 - Viernes"
     },
     "twilio/list-picker": {
-      "body": "📊 Pregunta 1 de 4\n\nEn las últimas 4 semanas, ¿cuántas veces has usado datos para tomar decisiones en tu trabajo?",
+      "body": "📅 Pregunta 1 de 5\n\n¿Cuál ha sido tu día favorito de la semana de formación?",
       "button": "Elige tu respuesta",
       "items": [
         {
-          "id": "p1_0",
-          "item": "0 veces",
-          "description": "No usé datos en las últimas 4 semanas"
+          "id": "p1_sun",
+          "item": "Domingo",
+          "description": "Día 1"
         },
         {
-          "id": "p1_1_2",
-          "item": "1-2 veces",
-          "description": "Una o dos veces"
+          "id": "p1_mon",
+          "item": "Lunes",
+          "description": "Día 2"
         },
         {
-          "id": "p1_3_5",
-          "item": "3-5 veces",
-          "description": "Unas pocas veces"
+          "id": "p1_tue",
+          "item": "Martes",
+          "description": "Día 3"
         },
         {
-          "id": "p1_6_10",
-          "item": "6-10 veces",
-          "description": "Casi todas las semanas"
+          "id": "p1_wed",
+          "item": "Miércoles",
+          "description": "Día 4"
         },
         {
-          "id": "p1_gt10",
-          "item": "Más de 10 veces",
-          "description": "Casi a diario"
+          "id": "p1_thu",
+          "item": "Jueves",
+          "description": "Día 5"
+        },
+        {
+          "id": "p1_fri",
+          "item": "Viernes",
+          "description": "Día 6"
         }
       ]
     }
