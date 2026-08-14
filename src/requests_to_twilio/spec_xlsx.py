@@ -39,6 +39,9 @@ module handles rather than a hypothetical:
 
 from __future__ import annotations
 
+import re
+import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +55,7 @@ from .spec import (
     CONSTRAINED_TYPES,
     QUESTION_TYPES,
     ROLES,
+    SCOPE_NOTE,
     STRUCTURE_TYPES,
     ChoiceRow,
     MessageRow,
@@ -385,6 +389,16 @@ def write_xlsx(spec: Spec, path: Path) -> Path:
     workbook = Workbook()
     workbook.remove(workbook.active)
 
+    # openpyxl stamps the current time into docProps/core.xml, which would make
+    # two runs over the same spec produce different bytes. Pinned so the output
+    # is a function of the spec alone - see `_make_reproducible` for why that is
+    # worth having. `creator` is set at the same time because the default is
+    # "openpyxl", which tells a reader nothing about where the file came from.
+    workbook.properties.created = _FIXED_TIMESTAMP
+    workbook.properties.modified = _FIXED_TIMESTAMP
+    workbook.properties.creator = "requests-to-twilio (rtt survey)"
+    workbook.properties.title = spec.settings.form_title or spec.settings.form_id
+
     survey_headers = _headers(spec, SURVEY_SHEET)
     _write_sheet(
         workbook,
@@ -455,7 +469,79 @@ def write_xlsx(spec: Spec, path: Path) -> Path:
         ) from exc
     except OSError as exc:
         raise SpecError(f"Could not write {path}: {exc}") from exc
+
+    _make_reproducible(path)
     return path
+
+
+#: The earliest timestamp the zip format can store. Any fixed value works; this
+#: one is conventional for reproducible archives. Not a real date and not
+#: meant to be read as one - it exists so the bytes stop depending on when
+#: they were written.
+_ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
+
+#: The same instant, for the timestamps openpyxl writes inside the document.
+_FIXED_TIMESTAMP = datetime(*_ZIP_EPOCH)
+
+
+#: Where the document's own created/modified timestamps live inside the zip.
+_CORE_PROPS = "docProps/core.xml"
+
+#: `dcterms:modified` and its value. Matched rather than parsed as XML: the file
+#: is openpyxl's own output, one element is being replaced, and a round trip
+#: through an XML library would reorder namespaces and change more than this.
+_MODIFIED_RE = re.compile(rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)")
+
+
+def _pin_modified(payload: bytes) -> bytes:
+    """Replace the document's `modified` timestamp with the fixed one.
+
+    Setting ``workbook.properties.modified`` before saving does not survive:
+    openpyxl overwrites it with the current time as part of ``save()``. So it is
+    corrected afterwards, here, where the zip is being rewritten anyway.
+    """
+    stamp = _FIXED_TIMESTAMP.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
+    return _MODIFIED_RE.sub(rb"\g<1>" + stamp + rb"\g<2>", payload)
+
+
+def _make_reproducible(path: Path) -> None:
+    """Rewrite the workbook's zip with fixed timestamps.
+
+    An ``.xlsx`` is a zip, and every entry carries the wall-clock time it was
+    written, so two runs over an unchanged spec produce two different files.
+
+    Nobody regenerates the committed sample in place - an RA writes their own
+    workbook to their own path and the sample stays as the reference - so churn
+    is not the problem this solves. What it buys is the ability to tell whether
+    the committed sample still matches the schema: with timestamps fixed the
+    bytes are a function of the spec alone, so a test can regenerate it and
+    compare.
+
+    That check earns its place. A sample that drifts out of date teaches the
+    format it was generated from rather than the one in the code, and this
+    repository has already handed somebody a defect that way once - the tap
+    table in the flow skill still described the old behaviour after the builder
+    was fixed. A reference artifact nothing verifies is that failure waiting to
+    happen in a file nobody thinks to reread.
+    """
+    try:
+        with zipfile.ZipFile(path) as source:
+            entries = [(i, source.read(i.filename)) for i in source.infolist()]
+
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as target:
+            for info, payload in entries:
+                if info.filename == _CORE_PROPS:
+                    payload = _pin_modified(payload)
+                # A fresh ZipInfo rather than a mutated one: copying the original
+                # would carry its extra fields, some of which also hold times.
+                fixed = zipfile.ZipInfo(info.filename, date_time=_ZIP_EPOCH)
+                fixed.compress_type = info.compress_type
+                fixed.external_attr = info.external_attr
+                target.writestr(fixed, payload)
+    except (OSError, zipfile.BadZipFile) as exc:
+        # The workbook itself is already written and valid; only reproducibility
+        # is lost, which is not worth failing a build over.
+        raise SpecError(f"Wrote {path} but could not normalise it: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +553,9 @@ def _help_survey(spec: Spec) -> list[str]:
     """Return the guidance for the survey sheet."""
     return [
         "The survey worksheet",
+        "",
+        "READ THIS FIRST - what this format is for",
+        *[f"  {line}" if line else "" for line in SCOPE_NOTE.split("\n")],
         "",
         "One row is one question - and one row is a whole subgraph in the flow, "
         "not a line of configuration. The `widgets` column on the right says how "

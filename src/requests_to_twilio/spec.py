@@ -10,6 +10,31 @@ IPA already knows from SurveyCTO. One row is one question *including* its whole
 subgraph: ``select_list p1`` with ``retries: 2`` is those eight widgets, and a
 plain ``text`` question is three.
 
+This describes a SURVEY, and only a survey
+------------------------------------------
+The spine the compiler wraps these rows in is a survey's spine, and it assumes
+things that are true of a survey and false of most other flows:
+
+* **Consent is asked, once, before any question.** :func:`check_spec` refuses an
+  instrument that asks questions without it.
+* **Every terminal path publishes exactly one row per respondent** - complete,
+  declined, timed out or undeliverable. That is what makes a dataset countable.
+* **Closings are chosen by survey outcome**, from a fixed vocabulary.
+* **One execution is one respondent answering once.**
+
+A reminder flow breaks the second and fourth: it may send three messages over a
+week, collect no answer, and want one row per *send* rather than per person. A
+multi-wave intervention breaks the first and fourth: consent was taken at
+enrolment, not in the message, and the same person is contacted repeatedly by
+design. A notification flow may publish nothing at all, because there is no
+respondent-supplied data to publish.
+
+None of those are worse flows; they are different shapes, and this format would
+either fight them or quietly misdescribe them. Build them as Studio flows and
+check them with ``rtt flow check``, which judges a graph on its own terms. Use
+this spec when the thing being built is an instrument that asks a sampled person
+questions and expects a dataset out.
+
 Two serialisations, one schema
 ------------------------------
 ``spec.json`` is canonical. It is what git carries, what a reviewer diffs, and
@@ -1072,3 +1097,272 @@ def review_notes(spec: Spec) -> list[str]:
                     f"approved it:\n      " + body.replace("\n", "\n      ")
                 )
     return notes
+
+
+# ---------------------------------------------------------------------------
+# The starter instrument, for `rtt survey template`.
+# ---------------------------------------------------------------------------
+
+#: Said by `rtt survey template`, written into the workbook's help sheet, and
+#: repeated in docs/writing-a-survey.md. It is the one thing about this format
+#: that cannot be inferred from the columns, and getting it wrong wastes days:
+#: somebody describes a reminder campaign as a survey, fights the consent check,
+#: and ends up with a flow whose shape does not match what it is for.
+SCOPE_NOTE = (
+    "This format describes a SURVEY: an instrument that asks a sampled person "
+    "questions and expects a dataset out. It assumes consent is asked before "
+    "any question, that every path publishes exactly one row per respondent, "
+    "and that one execution is one person answering once.\n\n"
+    "Reminders, multi-wave interventions and notifications break those "
+    "assumptions - they may send repeatedly to the same person, collect no "
+    "answer, take consent at enrolment rather than in the message, or publish "
+    "nothing. Those are not worse flows, they are a different shape. Build them "
+    "as Studio flows and check them with `rtt flow check`, which judges a graph "
+    "on its own terms."
+)
+
+
+def starter_spec(language: str = "en") -> Spec:
+    """Build a small, valid instrument showing one row of every type.
+
+    Args:
+        language: The language code to write the example text under.
+
+    Returns:
+        A spec that passes :func:`check_spec`.
+
+    Not an empty workbook, deliberately. A blank sheet with a header row teaches
+    nothing about a format whose whole point is that a row expands into a
+    subgraph - the first question anybody has is what a filled-in row looks
+    like, and a template that cannot answer it sends them off to find an
+    existing survey and copy it. Copying an existing survey is how seven flows
+    on this account came to share one identical break-off defect.
+
+    It is also *valid*, so ``rtt survey check`` on an untouched template is
+    clean. That matters more than it sounds: it means the first finding somebody
+    ever sees is about something they did, which is when a check is worth
+    reading.
+
+    """
+    text = language
+
+    return Spec(
+        settings=Settings(
+            form_id="my_survey",
+            form_title="Replace this with what the round is called",
+            languages=[text],
+            default_language=text,
+            functions_service="rtt-survey",
+            default_timeout=3600,
+            default_retries=2,
+            # What the sample file must carry. `rtt launch --dry-run` checks the
+            # spreadsheet against these before anything is sent.
+            preloads=["caseid", "name", "sent_at"],
+            flow_name={text: "my_survey"},
+            description={text: "One line saying what this round is for"},
+        ),
+        survey=[
+            SurveyRow(
+                type="template",
+                name="intro",
+                role="intro",
+                # The only message Meta reviews, because it is the only one sent
+                # before the respondent has said anything. Its copy lives in
+                # templates/<name>.json, not here.
+                template={text: "my_survey_intro"},
+                retries=0,
+                stop_check=False,
+                publish=False,
+            ),
+            SurveyRow(
+                type="select_button consent",
+                name="consent",
+                role="consent",
+                label={
+                    text: (
+                        "Before we start - would you like to take part?\n\n"
+                        "REPLACE THIS. It takes about N minutes. Taking part is "
+                        "voluntary, you can stop at any time, and your answers "
+                        "are confidential."
+                    )
+                },
+                retries=1,
+                stop_check=False,
+            ),
+            SurveyRow(
+                type="select_list frequency",
+                name="Q1",
+                label={
+                    text: (
+                        "Question 1 of 3\n\n"
+                        "A closed question. A tap cannot be malformed, so there "
+                        "is nothing to clean afterwards - prefer this shape."
+                    )
+                },
+                retries=2,
+            ),
+            SurveyRow(
+                type="integer",
+                name="Q2",
+                label={
+                    text: (
+                        "Question 2 of 3\n\n"
+                        "How many? The reply is checked before it is stored, so "
+                        "'about five' is re-asked rather than saved.\n\n"
+                        "_Reply with an exact number (e.g. 0, 3, 12)._"
+                    )
+                },
+                retries=2,
+                constraint_message="error_numeric",
+            ),
+            SurveyRow(
+                type="text",
+                name="Q3",
+                label={
+                    text: (
+                        "Question 3 of 3\n\n"
+                        "An open question. Whatever arrives is stored, including "
+                        "an answer nobody can code - so use it only where the "
+                        "answer genuinely cannot be enumerated."
+                    )
+                },
+                retries=0,
+            ),
+            SurveyRow(
+                type="note",
+                name="close_complete",
+                role="close",
+                relevance="${outcome}='complete'",
+                label={text: "Thank you for completing the survey."},
+                publish=False,
+            ),
+            SurveyRow(
+                type="note",
+                name="close_incomplete",
+                role="close",
+                relevance="${outcome}='incomplete'",
+                label={text: "Thank you for the answers you gave - they are recorded."},
+                publish=False,
+            ),
+            SurveyRow(
+                type="note",
+                name="close_declined",
+                role="close",
+                relevance="${outcome}='declined'",
+                label={
+                    text: "Thank you for your reply. We respect your decision "
+                    "not to take part."
+                },
+                publish=False,
+            ),
+            SurveyRow(
+                type="note",
+                name="close_optout",
+                role="close",
+                relevance="${outcome}='optout'",
+                label={
+                    text: "Understood - nothing further will be sent about this "
+                    "survey. The answers you already gave are kept."
+                },
+                publish=False,
+            ),
+            SurveyRow(
+                type="note",
+                name="close_never_started",
+                role="close",
+                # Never replied, so the 24-hour window never opened and only an
+                # approved template can reach them. The second bookend.
+                relevance="${outcome}='unreachable'",
+                template={text: "my_survey_close"},
+                publish=False,
+            ),
+            SurveyRow(
+                type="note",
+                name="unsolicited_reply",
+                role="unsolicited",
+                label={
+                    text: "Thanks for your message. This number only runs a "
+                    "short survey, so nothing further is needed from you here."
+                },
+                publish=False,
+            ),
+        ],
+        choices=[
+            ChoiceRow(
+                list_name="consent",
+                value="yes",
+                option_id="consent_yes",
+                label={text: "Yes, I will take part"},
+                typed={text: "1|yes|y"},
+            ),
+            ChoiceRow(
+                list_name="consent",
+                value="no",
+                option_id="consent_no",
+                label={text: "No, thanks"},
+                typed={text: "2|no|n"},
+            ),
+            # A Likert whose labels carry no leading number, so a respondent who
+            # types the position is understood. Compare a `0 / 1 / 2-3` scale,
+            # where a typed digit has two readings and is refused instead.
+            ChoiceRow(
+                list_name="frequency",
+                value="1",
+                label={text: "Never"},
+                description={text: "Optional second line, up to 72 characters"},
+            ),
+            ChoiceRow(list_name="frequency", value="2", label={text: "Rarely"}),
+            ChoiceRow(list_name="frequency", value="3", label={text: "Sometimes"}),
+            ChoiceRow(list_name="frequency", value="4", label={text: "Often"}),
+            # Offered on the scale but not a point on it. Left to its position
+            # this would code as 5 and be averaged in with "Often".
+            ChoiceRow(
+                list_name="frequency",
+                value="-99",
+                label={text: "Prefer not to say"},
+                description={text: "Coded -99 so it is not averaged in as a 5"},
+            ),
+        ],
+        messages=[
+            MessageRow(
+                key="error_option",
+                text={
+                    text: (
+                        "No problem - I could not read that one.\n\n"
+                        "Tap *{button}* on the message above and pick from the "
+                        "list. You can also reply with the number of your answer."
+                    )
+                },
+            ),
+            MessageRow(
+                key="error_option_labels",
+                text={
+                    text: (
+                        "No problem - I could not read that one.\n\n"
+                        "Tap *{button}* on the message above and pick from the "
+                        "list, or type the option exactly as it appears."
+                    )
+                },
+            ),
+            MessageRow(
+                key="error_numeric",
+                text={
+                    text: (
+                        "Please reply with a number only.\n\n"
+                        "_Reply with an exact number (e.g. 0, 3, 12)._"
+                    )
+                },
+            ),
+            MessageRow(key="list_button", text={text: "Choose an answer"}),
+            MessageRow(
+                key="stop_words",
+                # The English words belong here whatever the survey's language:
+                # people type STOP regardless of what they are answering in.
+                text={text: "stop, quit, unsubscribe, cancel, end"},
+            ),
+            MessageRow(
+                key="unsolicited",
+                text={text: "Thanks for your message. Nothing further is needed."},
+            ),
+        ],
+    )

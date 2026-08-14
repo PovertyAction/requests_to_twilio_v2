@@ -32,6 +32,7 @@ from requests_to_twilio.spec import (
     save_spec,
     spec_from_dict,
     spec_to_dict,
+    starter_spec,
 )
 from requests_to_twilio.spec_xlsx import read_xlsx, write_xlsx
 
@@ -39,7 +40,7 @@ DEMO = Path(__file__).resolve().parents[1] / "surveys" / "data_use_demo.json"
 
 
 def minimal_spec(**overrides) -> Spec:
-    """A valid two-question instrument, for tests that break one thing at a time."""
+    """Build a valid two-question instrument, to break one thing at a time."""
     spec = Spec(
         settings=Settings(
             form_id="t",
@@ -545,7 +546,7 @@ class TestExcelSpecificHazards:
         )
 
     def test_a_windows_newline_is_normalised(self, tmp_path):
-        """An edit in Excel on Windows can hand back \\r\\n, changing the message."""
+        r"""An edit in Excel on Windows can hand back \r\n, changing the message."""
         spec = minimal_spec()
         spec.survey[1].label = {"en": "Line one\r\n\r\nLine two"}
         write_xlsx(spec, tmp_path / "s.xlsx")
@@ -643,3 +644,94 @@ class TestExcelSpecificHazards:
         spec = load_spec(DEMO)
         write_xlsx(spec, tmp_path / "demo.xlsx")
         assert spec_to_dict(read_xlsx(tmp_path / "demo.xlsx")) == spec_to_dict(spec)
+
+
+class TestTheCommittedSampleTemplate:
+    """`sample_template.xlsx` is checked in, so something has to keep it honest.
+
+    A reference artifact nothing verifies goes stale, and a stale one teaches the
+    format it was generated from rather than the one in the code. That has already
+    happened in this repository once: the tap table in the flow skill still
+    described the old list-row behaviour after the builder was fixed, and handed
+    the next reader the defect that had just cost an afternoon.
+    """
+
+    SAMPLE = Path(__file__).resolve().parents[1] / "sample_template.xlsx"
+
+    def test_it_exists_and_is_tracked(self):
+        assert self.SAMPLE.is_file(), (
+            "sample_template.xlsx is missing. Regenerate it with `just survey-sample`."
+        )
+
+    def test_it_still_matches_what_the_generator_produces(self, tmp_path):
+        """Byte-for-byte, which is what `_make_reproducible` exists to allow."""
+        fresh = tmp_path / "fresh.xlsx"
+        write_xlsx(starter_spec(), fresh)
+        assert fresh.read_bytes() == self.SAMPLE.read_bytes(), (
+            "sample_template.xlsx no longer matches starter_spec(). The schema "
+            "or the starter content has changed - regenerate it with "
+            "`just survey-sample` and commit the result, so the reference people "
+            "open is the format the code actually reads."
+        )
+
+    def test_it_reads_back_as_a_valid_spec(self):
+        spec = read_xlsx(self.SAMPLE)
+        assert check_spec(spec) == []
+        assert spec.settings.form_id == "my_survey"
+
+    def test_it_carries_the_scope_note_where_somebody_will_see_it(self):
+        """The one thing about this format that the columns cannot tell you."""
+        import openpyxl
+
+        book = openpyxl.load_workbook(self.SAMPLE)
+        text = "\n".join(str(c.value or "") for c in book["help-survey"]["A"])
+        assert "SURVEY" in text
+        assert "Reminders" in text and "interventions" in text
+
+    def test_it_contains_no_phone_numbers(self):
+        """It is committed to a public repository, so this is not a formality."""
+        import re
+
+        import openpyxl
+
+        book = openpyxl.load_workbook(self.SAMPLE)
+        phone_shaped = re.compile(r"\+?\d[\d\s\-().]{6,}\d")
+        for sheet in book.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                for cell in row:
+                    if cell and phone_shaped.search(str(cell)):
+                        raise AssertionError(
+                            f"{sheet.title} holds something phone-shaped: {cell!r}"
+                        )
+
+
+class TestReproducibleOutput:
+    def test_two_writes_of_one_spec_are_byte_identical(self, tmp_path):
+        """Without this the committed sample could not be checked at all.
+
+        openpyxl stamps the current time in two places - every zip entry, and
+        `dcterms:modified` inside docProps/core.xml, which it overwrites during
+        save even if the property was set beforehand.
+        """
+        spec = starter_spec()
+        first, second = tmp_path / "1.xlsx", tmp_path / "2.xlsx"
+        write_xlsx(spec, first)
+        write_xlsx(spec, second)
+        assert first.read_bytes() == second.read_bytes()
+
+    def test_a_changed_spec_changes_the_bytes(self, tmp_path):
+        """Reproducible must not mean insensitive."""
+        spec = starter_spec()
+        first = tmp_path / "1.xlsx"
+        write_xlsx(spec, first)
+
+        spec.survey[2].label["en"] = "A different question"
+        second = tmp_path / "2.xlsx"
+        write_xlsx(spec, second)
+        assert first.read_bytes() != second.read_bytes()
+
+    def test_the_normalised_file_is_still_a_valid_workbook(self, tmp_path):
+        """Rewriting the zip must not corrupt what Excel reads."""
+        path = tmp_path / "s.xlsx"
+        write_xlsx(starter_spec(), path)
+        assert spec_to_dict(read_xlsx(path)) == spec_to_dict(starter_spec())

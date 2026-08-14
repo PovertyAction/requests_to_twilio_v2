@@ -269,3 +269,18 @@ survey-json FILE:
 [doc("Export the demo flow's language tables as a survey spec")]
 export-demo-spec:
     uv run python scripts/export_demo_spec.py
+
+# A documented starter workbook to fill in - a small working instrument showing
+# one row of every type, not an empty sheet. Writes survey.xlsx by default and
+# refuses to overwrite, so it cannot clobber an instrument mid-edit.
+[doc("Create a new survey workbook from the starter template")]
+survey-template *ARGS:
+    uv run rtt survey template {{ ARGS }}
+
+# Regenerate the committed reference workbook. Only needed when the schema or the
+# starter content changes - a test fails when it has drifted, because a stale
+# sample teaches the format it was generated from rather than the one in the code.
+[doc("Regenerate the committed sample_template.xlsx")]
+survey-sample:
+    uv run python -c "import pathlib; pathlib.Path('sample_template.xlsx').unlink(missing_ok=True)"
+    uv run rtt survey template -o sample_template.xlsx

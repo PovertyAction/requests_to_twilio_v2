@@ -201,13 +201,27 @@ data/
 input/
 output/
 
-# Everything spreadsheet-shaped, except the checked-in example. sample_input.xlsx
-# is the only spreadsheet that may ever be committed; it uses the +1 555
-# 0100-0199 range, which is reserved for fiction and is not routable.
+# Everything spreadsheet-shaped, except two checked-in examples. Both are
+# reference material that ships with the toolkit rather than data:
+#
+#   sample_input.xlsx     a sample file for `rtt launch`. Safe to commit because
+#                         it uses the +1 555 0100-0199 range, which is reserved
+#                         for fiction and is not routable.
+#   sample_template.xlsx  the starter survey workbook. Safe to commit because it
+#                         contains no numbers at all - it is a blank instrument.
+#
+# Nothing else. A workbook holding a real instrument mid-edit is a build product
+# of its spec.json, and a spreadsheet holding a real sample is respondent data.
+#
+# Neither sample is regenerated in place: `rtt survey template` refuses to
+# overwrite, and an RA writes their own workbook to their own path. When the
+# schema changes, the sample is regenerated deliberately and the diff is the
+# review - which works because the output is byte-reproducible.
 *.xlsx
 *.xls
 *.csv
 !sample_input.xlsx
+!sample_template.xlsx
 
 # The generated value labels. These are the opposite of respondent data - they
 # are what makes a column of codes readable, and they must ship with the

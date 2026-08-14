@@ -46,7 +46,15 @@ from .flows import pull as pull_flow
 from .hfc import check_dataset, outcome_counts
 from .launcher import SENT_AT_PARAM, LaunchError, launch
 from .log import configure, configure_output_encoding
-from .spec import SpecError, check_spec, load_spec, review_notes, save_spec
+from .spec import (
+    SCOPE_NOTE,
+    SpecError,
+    check_spec,
+    load_spec,
+    review_notes,
+    save_spec,
+    starter_spec,
+)
 from .spec_xlsx import read_xlsx, write_xlsx
 from .templates import (
     CATEGORIES,
@@ -1619,4 +1627,69 @@ def survey_rows(
     typer.secho(
         f"  {spec.total_widget_count()} widgets, from {len(spec.survey)} rows",
         fg=typer.colors.GREEN,
+    )
+
+
+@survey_app.command("template")
+def survey_template(
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Where to write the workbook."),
+    ] = Path("survey.xlsx"),
+    lang: Annotated[
+        str, typer.Option("--lang", help="Language code for the example text.")
+    ] = "en",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Write a documented starter workbook to fill in.
+
+    Not an empty sheet. The first question anybody has about this format is what
+    a filled-in row looks like, and a header row with nothing under it cannot
+    answer that - so the template is a small, working three-question instrument
+    showing one row of every type, which `rtt survey check` passes as-is. Delete
+    what you do not need and edit the rest.
+
+    That matters for a reason beyond convenience: given a blank sheet, the next
+    move is to find an existing survey and copy it, and copying an existing
+    survey is how seven flows on this account came to share one identical
+    break-off defect.
+    """
+    configure(verbose)
+
+    if output.exists():
+        typer.secho(
+            f"{output} already exists. Move it aside first - this would "
+            f"overwrite an instrument somebody may have filled in.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    spec = starter_spec(lang)
+    try:
+        written = write_xlsx(spec, output)
+    except SpecError as exc:
+        _fail(str(exc))
+
+    typer.secho(f"Wrote {written}", fg=typer.colors.GREEN, bold=True)
+    typer.echo(
+        f"  {len(spec.survey)} rows, {len(spec.questions())} questions, "
+        f"{len(spec.choices)} options -> {spec.total_widget_count()} widgets"
+    )
+    typer.echo(
+        "\n  Start with the help-survey sheet: it documents every column, and it "
+        "\n  travels inside the file so it is there when you need it."
+    )
+
+    typer.echo("")
+    typer.secho("  SCOPE", fg=typer.colors.YELLOW, bold=True)
+    for line in SCOPE_NOTE.split("\n"):
+        typer.echo(f"  {line}" if line else "")
+
+    typer.echo("")
+    typer.echo("  Next:")
+    typer.echo(f"    rtt survey check {written}")
+    typer.echo(
+        f"    rtt survey convert {written} {written.with_suffix('.json')}"
+        "   # then commit the JSON"
     )
