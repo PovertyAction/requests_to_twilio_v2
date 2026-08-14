@@ -379,6 +379,14 @@ class TestInboundRouting:
     while the round collects nothing.
     """
 
+    ACCOUNT = "AC" + "0" * 32
+
+    def studio_url(self, flow_sid):
+        """Return the shape Twilio writes when an address is wired to a flow."""
+        return (
+            f"https://webhooks.twilio.com/v1/Accounts/{self.ACCOUNT}/Flows/{flow_sid}"
+        )
+
     def client_with(self, phone, sms_url):
         from types import SimpleNamespace
 
@@ -392,9 +400,7 @@ class TestInboundRouting:
         from requests_to_twilio.flows import inbound_flow_sid
 
         sid = "FW" + "a" * 32
-        client = self.client_with(
-            "+15555550199", f"https://webhooks.twilio.com/v1/Accounts/ACx/Flows/{sid}"
-        )
+        client = self.client_with("+15555550199", self.studio_url(sid))
         assert inbound_flow_sid(client, "+15555550199") == sid
 
     def whatsapp_client(self, sender_id, callback_url):
@@ -420,13 +426,54 @@ class TestInboundRouting:
         from requests_to_twilio.flows import inbound_flow_sid
 
         sender_flow = "FW" + "b" * 32
-        client = self.whatsapp_client("whatsapp:+15555550199", f"/Flows/{sender_flow}")
+        client = self.whatsapp_client(
+            "whatsapp:+15555550199", self.studio_url(sender_flow)
+        )
         assert inbound_flow_sid(client, "whatsapp:+15555550199") == sender_flow
+
+    def test_a_spliced_paste_is_refused_rather_than_half_read(self):
+        """The webhook field pasted over a selection that missed a character.
+
+        Found live: the old URL's tail was left spliced into the new one, so the
+        field held an invalid flow SID followed by a second, valid-looking
+        `/Flows/FW...` fragment. Twilio returned 404 and every inbound message
+        failed with error 11200, while `rtt launch` printed "inbound routing OK"
+        and four executions sat at the opener waiting for replies that were
+        arriving and going nowhere.
+
+        Searching for `/Flows/(FW...)` found the right SID in that string - twice
+        - which is why the whole URL is matched now. A wrong green light on
+        routing is worse than no check: it is the one thing a launch cannot
+        recover from afterwards.
+        """
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        good = "FW" + "b" * 32
+        spliced = self.studio_url(good) + self.studio_url(good).split("https://")[0]
+        mangled = (
+            f"https://webhooks.twilio.com/v1/Accounts/{self.ACCOUNT}"
+            f"/Flows/{good}0123456789abcdef0123456789abcdef"
+            f"/Flows/{good}"
+        )
+        for url in (mangled, spliced + mangled):
+            client = self.whatsapp_client("whatsapp:+15555550199", url)
+            assert inbound_flow_sid(client, "whatsapp:+15555550199") is None, url
+
+    def test_surrounding_whitespace_is_tolerated(self):
+        """A trailing newline in a pasted field is not a misconfiguration."""
+        from requests_to_twilio.flows import inbound_flow_sid
+
+        sid = "FW" + "c" * 32
+        padded = "  " + self.studio_url(sid) + "\n"
+        client = self.whatsapp_client("whatsapp:+15555550199", padded)
+        assert inbound_flow_sid(client, "whatsapp:+15555550199") == sid
 
     def test_an_unknown_whatsapp_sender_is_none(self):
         from requests_to_twilio.flows import inbound_flow_sid
 
-        client = self.whatsapp_client("whatsapp:+19999999", "/Flows/FW" + "e" * 32)
+        client = self.whatsapp_client(
+            "whatsapp:+19999999", self.studio_url("FW" + "e" * 32)
+        )
         assert inbound_flow_sid(client, "whatsapp:+15555550199") is None
 
     def test_a_sender_with_no_studio_webhook_is_none(self):
