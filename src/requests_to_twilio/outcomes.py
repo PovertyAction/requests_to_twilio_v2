@@ -63,6 +63,16 @@ FINAL_STATUS_BY_OUTCOME: dict[str, str] = {
     "undeliverable": "failed",
 }
 
+#: What each ``final_status`` means, for the codebook. Written here beside the
+#: values rather than in the builder, so a fifth value cannot be added without
+#: someone having to say what it means.
+FINAL_STATUS_NOTES: dict[str, str] = {
+    "complete": "Reached the end of the questionnaire",
+    "declined": "Refused at consent - a valid answer, not attrition",
+    "incomplete": "Reached, did not finish: broke off, opted out, or never replied",
+    "failed": "System-side failure - undeliverable, or encryption failed",
+}
+
 #: What ``final_status`` becomes when encryption fails after the outcome is
 #: already known. The row is still published - losing the answers because the
 #: PII could not be sealed would be the worse trade - but it must not be counted
@@ -73,6 +83,33 @@ ENCRYPTION_FAILED_STATUS = "failed"
 #: these means a terminal path was added without teaching this module about it,
 #: which is the drift this file exists to make visible rather than silent.
 UNKNOWN_STATUS = "unknown"
+
+
+def final_status_liquid(variable: str = "outcome") -> str:
+    """Return Liquid that derives ``final_status`` inside a Studio widget.
+
+    Args:
+        variable: The flow variable holding the outcome.
+
+    Returns:
+        A Liquid expression for a set-variables widget.
+
+    Generated from :data:`FINAL_STATUS_BY_OUTCOME` rather than written out, so
+    the flow and :func:`final_status_for` cannot disagree. Hand-writing the case
+    arms would make this the fourth place the vocabulary lives, which is the
+    thing this module exists to stop.
+
+    """
+    arms = "".join(
+        f"{{% when '{outcome}' %}}{status}"
+        for outcome, status in FINAL_STATUS_BY_OUTCOME.items()
+    )
+    return (
+        f"{{% case flow.variables.{variable} %}}"
+        f"{arms}"
+        f"{{% else %}}{UNKNOWN_STATUS}"
+        f"{{% endcase %}}"
+    )
 
 
 def final_status_for(outcome: str, encryption_ok: bool = True) -> str:

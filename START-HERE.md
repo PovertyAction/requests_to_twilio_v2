@@ -286,7 +286,7 @@ organisation's policy for that classification.
 | --- | --- |
 | [docs/setup.md](docs/setup.md) | Every configuration value, and where it comes from |
 | [docs/justfile-recipes.md](docs/justfile-recipes.md) | Every `just` recipe, grouped by when you reach for it |
-| [docs/running-a-round.md](docs/running-a-round.md) | All 16 commands, and what each check blocks on |
+| [docs/running-a-round.md](docs/running-a-round.md) | Every command of a round in order, and what each check blocks on |
 | [docs/flow-design.md](docs/flow-design.md) | Writing your own instrument, not the demo |
 | [docs/writing-templates.md](docs/writing-templates.md) | Template copy, categories, and Meta review |
 | [docs/encryption.md](docs/encryption.md) | What the encryption protects, and what it does not — read before an IRB submission |

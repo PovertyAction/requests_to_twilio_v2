@@ -114,6 +114,12 @@ from requests_to_twilio.answers import (  # noqa: E402
     word_pattern,
 )
 from requests_to_twilio.flows import check_flow, evaluate_condition  # noqa: E402
+from requests_to_twilio.outcomes import (  # noqa: E402
+    ENCRYPTION_FAILED_STATUS,
+    FINAL_STATUS_NOTES,
+    FINAL_STATUSES,
+    final_status_liquid,
+)
 from requests_to_twilio.spec import DEFAULT_CONSTRAINTS  # noqa: E402
 
 #: Kept as the private alias this module used before the move.
@@ -1811,7 +1817,22 @@ def build(
                 # convergence point means every published row carries the
                 # column, so a blank identifier can be read as "this respondent
                 # had no name" rather than "encryption failed and nobody knew".
-                [("set_reached_finish", "1"), ("enc_status", "ok")],
+                [
+                    ("set_reached_finish", "1"),
+                    ("enc_status", "ok"),
+                    # `outcome` says which of the six terminal paths ran.
+                    # `final_status` is the four-value rollup an analysis groups
+                    # by, derived here because this is the one widget every path
+                    # passes through. Six widgets each setting it correctly is
+                    # six chances to add a seventh that forgets; deriving it at
+                    # the convergence point cannot be forgotten.
+                    #
+                    # Generated from FINAL_STATUS_BY_OUTCOME, so the flow and
+                    # `final_status_for` cannot disagree about what a `declined`
+                    # means. Overridden to `failed` below if encryption fails,
+                    # which is the one thing not known yet at this point.
+                    ("final_status", final_status_liquid()),
+                ],
                 "function_encrypt",
                 x=0,
                 y=1320,
@@ -1847,7 +1868,16 @@ def build(
             },
             set_vars(
                 "mark_encrypt_failed",
-                [("enc_status", "encrypt_failed")],
+                # The row is still published - losing the answers because the
+                # PII could not be sealed would be the worse trade - but it must
+                # not be counted as a clean completion. This is the only place
+                # `final_status` is overridden after `finish` derives it, because
+                # it is the only failure that happens *after* the outcome is
+                # already known.
+                [
+                    ("enc_status", "encrypt_failed"),
+                    ("final_status", ENCRYPTION_FAILED_STATUS),
+                ],
                 "publish_motherduck",
                 x=-500,
                 y=1500,
@@ -1875,6 +1905,8 @@ def build(
         ("set_no_reply", "{{flow.variables.set_no_reply}}"),
         ("set_fail", "{{flow.variables.set_fail}}"),
         ("outcome", "{{flow.variables.outcome}}"),
+        # The rollup an analysis groups by, beside the path it came from.
+        ("final_status", "{{flow.variables.final_status}}"),
         # The join key back to the execution log. Without it a warehouse row
         # cannot be traced to the execution that produced it.
         ("execution_sid", "{{flow.sid}}"),
@@ -2069,6 +2101,23 @@ def codebook_rows(lang: str) -> list[dict[str, str]]:
     """
     table = LANGS[lang]
     rows: list[dict[str, str]] = []
+
+    # `final_status` is a coded column like any other and needs its labels here,
+    # or the one column an analysis groups by is the one with no codebook entry.
+    for status in FINAL_STATUSES:
+        rows.append(
+            {
+                "lang": lang,
+                "arm": "",
+                "question": "final_status",
+                "variable": "final_status",
+                "code": status,
+                "option_id": "",
+                "label": status,
+                "description": FINAL_STATUS_NOTES[status],
+            }
+        )
+
     for key in QUESTION_KEYS:
         question = table["arm2"][key]
         # An integer question has no value labels: the column holds the number

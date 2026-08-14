@@ -1,4 +1,8 @@
 lang,arm,question,variable,code,option_id,label,description
+en,,final_status,final_status,complete,,complete,Reached the end of the questionnaire
+en,,final_status,final_status,declined,,declined,"Refused at consent - a valid answer, not attrition"
+en,,final_status,final_status,incomplete,,incomplete,"Reached, did not finish: broke off, opted out, or never replied"
+en,,final_status,final_status,failed,,failed,"System-side failure - undeliverable, or encryption failed"
 en,2,ARM2_P1,ARM2_P1_code,1,p1_sun,Sunday,Day 1
 en,2,ARM2_P1,ARM2_P1_code,2,p1_mon,Monday,Day 2
 en,2,ARM2_P1,ARM2_P1_code,3,p1_tue,Tuesday,Day 3

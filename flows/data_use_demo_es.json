@@ -2067,6 +2067,10 @@
           {
             "key": "enc_status",
             "value": "ok"
+          },
+          {
+            "key": "final_status",
+            "value": "{% case flow.variables.outcome %}{% when 'complete' %}complete{% when 'declined' %}declined{% when 'incomplete' %}incomplete{% when 'optout' %}incomplete{% when 'unreachable' %}incomplete{% when 'undeliverable' %}failed{% else %}unknown{% endcase %}"
           }
         ]
       },
@@ -2123,6 +2127,10 @@
           {
             "key": "enc_status",
             "value": "encrypt_failed"
+          },
+          {
+            "key": "final_status",
+            "value": "failed"
           }
         ]
       },
@@ -2193,6 +2201,10 @@
           {
             "key": "outcome",
             "value": "{{flow.variables.outcome}}"
+          },
+          {
+            "key": "final_status",
+            "value": "{{flow.variables.final_status}}"
           },
           {
             "key": "execution_sid",

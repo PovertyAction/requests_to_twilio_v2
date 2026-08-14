@@ -149,6 +149,60 @@ every row, so an interrupted run stays resumable.
 
 ## During the round
 
+Three views, and they see different things. Reach for the one that matches the
+question:
+
+| Question | Command | Reads |
+| --- | --- | --- |
+| Did it land, and are they answering? | `rtt monitor` | the Messages API |
+| Are the executions progressing? | `rtt fetch` | Studio executions |
+| Is the collected data sound? | `rtt data-check` | the published table |
+
+The order matters when something looks wrong. A respondent missing from the
+published table might have broken off — or their message might never have been
+delivered, in which case there is no execution and no row to be missing from.
+Only `rtt monitor` can tell you which.
+
+### `rtt monitor` — did the round actually land?
+
+```powershell
+just monitor "--tracker sample_output.csv"
+just monitor "--tracker sample_output.csv --hours 4"
+just monitor "--tracker sample_output.csv --hours 4 --every 15"
+```
+
+One row per **number**, not per message — a round of 4 people produces around 70
+messages and nobody watching a live round wants 70 rows. Each number holds one
+state:
+
+| State | Meaning |
+| --- | --- |
+| `failed` | the opener did not go out, or came back undelivered |
+| `sent` | accepted by Twilio, not yet confirmed on the handset |
+| `delivered` | it arrived |
+| `answered_back` | they replied, so the flow has taken over |
+| `unsolicited` | they wrote in without being launched |
+
+`failed` and `answered_back` are final and stop being polled. When every number
+has settled the loop stops on its own rather than spending rate limit on a
+finished round.
+
+**Pass `--tracker`.** It scopes the poll to one round using the launcher's own
+`sent_at`, and it is also the only place a send that never left is recorded —
+those are reported first, because no message exists for them to appear in any
+delivery status. A date is the wrong unit: `--since` at day resolution once
+returned 91 messages for a round of 4.
+
+Two things worth knowing about what it reports:
+
+- **An error code on an *inbound* message is a failure**, even though its status
+  reads `received`. That means the reply reached Twilio and Twilio could not
+  hand it to the flow — error `11200` is a webhook returning non-2xx. The answer
+  is gone, and every other surface reports success.
+- **A rate limit is never reported as an empty round.** Polling repeatedly earns
+  a 429 eventually, and "no messages" at that moment would describe a quiet
+  healthy round when the account is at its busiest.
+
 ### `rtt data-check` — high-frequency checks for the data
 
 ```powershell
@@ -164,8 +218,54 @@ on a loop during collection.
 | --- | --- |
 | `duplicate-observations` | a respondent with more than one row — usually a re-launch, or a retried publish. You cannot tell which of two disagreeing rows to keep |
 | `unjoinable-rows` | a row with no `caseid`, so it cannot be matched back to the sampling frame |
-| `no-recognised-outcome` | no row carries `complete`, `declined`, `incomplete`, `unreachable`, `undeliverable` or `optout`, so completion cannot be measured |
+| `no-recognised-outcome` | no row carries a value from the outcome vocabulary below, so completion cannot be measured |
 | `no-data` | the dataset is empty |
+
+#### The two status columns
+
+Every published row carries both, and they answer different questions.
+
+**`outcome` — which terminal path the flow took.** Six values, written by the
+widget that ends the execution:
+
+| `outcome` | |
+| --- | --- |
+| `complete` | reached the end |
+| `declined` | said no at consent |
+| `incomplete` | answered some, then stopped replying |
+| `optout` | sent a stop word mid-survey |
+| `unreachable` | never replied at all |
+| `undeliverable` | the first message never arrived |
+
+`optout` is deliberately separate from `incomplete`: someone who asked to stop is
+exercising a right, not breaking off, and collapsing the two overstates attrition
+while burying a consent signal.
+
+**`final_status` — what the pipeline ended up with.** Four values, derived at
+`finish`, the one widget every terminal path passes through:
+
+| `final_status` | From |
+| --- | --- |
+| `complete` | `complete` |
+| `declined` | `declined` |
+| `incomplete` | `incomplete`, `optout`, `unreachable` |
+| `failed` | `undeliverable`, or encryption failed |
+
+This is the column to group by. **`failed` means the system let us down, never
+the respondent** — a refusal, an opt-out and a silence are all things a person
+is entitled to do, and none of them is a failure.
+
+Both vocabularies are declared once, in `src/requests_to_twilio/outcomes.py`,
+and the Liquid the flow runs is generated from that same mapping. They were
+previously written out in three places and had already drifted: the flows
+emitted `unreachable`, `undeliverable` and `optout` long before the data checks
+recognised them, so a round of pure non-response was reported as having no
+recognisable outcome at all.
+
+**One thing `final_status` cannot tell you.** A send that Meta rejects or the API
+refuses never becomes an execution, so it publishes no row at all — that person
+is *absent* from the dataset rather than `failed` within it. Absence is the one
+state a column cannot express. `rtt monitor --tracker` is what surfaces them.
 
 ### `rtt fetch` — what does Twilio think happened?
 
