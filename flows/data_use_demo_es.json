@@ -1,0 +1,2243 @@
+{
+  "description": "Data use demo (ARM1/ARM2 experiment) - Spanish",
+  "states": [
+    {
+      "name": "Trigger",
+      "type": "trigger",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -1100
+        }
+      },
+      "transitions": [
+        {
+          "event": "incomingRequest",
+          "next": "intro"
+        },
+        {
+          "event": "incomingMessage",
+          "next": "unsolicited_reply"
+        },
+        {
+          "event": "incomingCall"
+        },
+        {
+          "event": "incomingConversationMessage"
+        },
+        {
+          "event": "incomingParent"
+        }
+      ]
+    },
+    {
+      "name": "unsolicited_reply",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": -600,
+          "y": -950
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "👋 Gracias por tu mensaje.\n\nEste número solo se usa para una encuesta corta durante la sesión, así que no necesitas hacer nada más por aquí.\n\nSi tienes una pregunta, el equipo de IPA en la sesión puede ayudarte."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "intro",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -950
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX5d83fb1e23fa84a12ced3ce9b7e57e1b",
+        "timeout": "3600",
+        "content_variables": [
+          {
+            "key": "1",
+            "value": "{{flow.data.name | default: 'there'}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "consent"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_never_started"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "consent",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -820
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HXf8b21bdda01e74ed699d01b698904f62",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_consent"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_consent",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -700
+        },
+        "input": "{{widgets.consent.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "consent_unclear"
+        },
+        {
+          "event": "match",
+          "next": "record_consent",
+          "conditions": [
+            {
+              "friendly_name": "consented",
+              "arguments": [
+                "{{widgets.consent.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:Sí, participo|1|si|sí|s)\\s*)"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "record_declined",
+          "conditions": [
+            {
+              "friendly_name": "declined",
+              "arguments": [
+                "{{widgets.consent.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:No, gracias|2|no|n)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "consent_unclear",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": -700
+        },
+        "variables": [
+          {
+            "key": "set_consent",
+            "value": "unclear"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "consent_retry"
+        }
+      ]
+    },
+    {
+      "name": "consent_retry",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": -620
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HXf8b21bdda01e74ed699d01b698904f62",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "split_consent_retry"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "split_consent_retry",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": -540
+        },
+        "input": "{{widgets.consent_retry.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "match",
+          "next": "record_consent",
+          "conditions": [
+            {
+              "friendly_name": "consented",
+              "arguments": [
+                "{{widgets.consent_retry.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:Sí, participo|1|si|sí|s)\\s*)"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "record_declined",
+          "conditions": [
+            {
+              "friendly_name": "declined",
+              "arguments": [
+                "{{widgets.consent_retry.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:No, gracias|2|no|n)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_consent",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -580
+        },
+        "variables": [
+          {
+            "key": "set_consent",
+            "value": "yes"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "split_arm"
+        }
+      ]
+    },
+    {
+      "name": "record_declined",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 400,
+          "y": -580
+        },
+        "variables": [
+          {
+            "key": "set_consent",
+            "value": "no"
+          },
+          {
+            "key": "outcome",
+            "value": "declined"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "split_arm",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": -460
+        },
+        "input": "{{flow.data.arm}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "mark_arm_missing"
+        },
+        {
+          "event": "match",
+          "next": "ARM1_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.data.arm}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.data.arm}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mark_arm_missing",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -400,
+          "y": -400
+        },
+        "variables": [
+          {
+            "key": "set_arm_missing",
+            "value": "1"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P1"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P1",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": -300
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Durante las últimas cuatro (4) semanas, ¿en cuántas ocasiones has recurrido al uso de información basada en datos cuantitativos o cualitativos (por ejemplo, bases de datos, registros administrativos, informes estadísticos, encuestas, paneles de control) como insumo para adoptar decisiones relacionadas con tu trabajo?\n\n_Responde con un número exacto (ej.: 0, 3, 12)._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM1_P1"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM1_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": -240
+        },
+        "input": "{{widgets.ARM1_P1.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P1"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P1.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": -160
+        },
+        "variables": [
+          {
+            "key": "ARM1_P1_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P2"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P2",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 40
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Durante las últimas cuatro (4) semanas, ¿en cuántos proyectos, tareas o procesos formales de tu organización en los que participaste se utilizaron datos o evidencia empírica como apoyo explícito para la toma de decisiones (por ejemplo, ajuste de estrategias, asignación de recursos, rediseño de procesos)?\n\n_Responde con un número exacto (ej.: 0, 3, 12)._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM1_P2"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM1_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 100
+        },
+        "input": "{{widgets.ARM1_P2.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P2"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P2.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 180
+        },
+        "variables": [
+          {
+            "key": "ARM1_P2_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P3"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P3",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 380
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Durante el último año, ¿con qué frecuencia tú, o la entidad en la que trabajas, llevaron a cabo actividades de recolección sistemática de datos (por ejemplo, aplicación de encuestas, diligenciamiento de formularios, extracción de información de sistemas internos, actualización de bases de datos) que luego fueron utilizados como insumo para la toma de decisiones en tu trabajo?\n\n_Escribe una frase breve (ej.: \"nunca\", \"a veces\", \"casi siempre\", o un porcentaje aproximado)._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM1_P3"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM1_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 440
+        },
+        "input": "{{widgets.ARM1_P3.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P3"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P3.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 520
+        },
+        "variables": [
+          {
+            "key": "ARM1_P3_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM1_P4"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P4",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 720
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Durante el último año, cuando fue necesario recolectar información o datos para apoyar la toma de decisiones en tu trabajo, ¿cuál fue la modalidad predominante de recolección de datos que utilizaste?\n\n_Por ejemplo: encuestas en línea, formularios en papel, entrevistas telefónicas, registros administrativos internos, análisis de bases de datos existentes._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM1_P4"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM1_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 780
+        },
+        "input": "{{widgets.ARM1_P4.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P4"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P4.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 860
+        },
+        "variables": [
+          {
+            "key": "ARM1_P4_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P1",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -300
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HXd78ddc2d5676189dc5b5fa21b7a694fe",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM2_P1"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -260
+        },
+        "input": "{{widgets.ARM2_P1.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P1"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P1.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -220
+        },
+        "input": "{{widgets.ARM2_P1.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P1"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P1.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:p1_0|0 veces|p1_1_2|1-2 veces|p1_3_5|3-5 veces|p1_6_10|6-10 veces|p1_gt10|Más de 10 veces)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": -140
+        },
+        "variables": [
+          {
+            "key": "ARM2_P1_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P1_code",
+            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p1_0\" or \"0 veces\" %}1{% when \"p1_1_2\" or \"1-2 veces\" %}2{% when \"p1_3_5\" or \"3-5 veces\" %}3{% when \"p1_6_10\" or \"6-10 veces\" %}4{% when \"p1_gt10\" or \"más de 10 veces\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": -220
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P1",
+            "value": "{% assign current = flow.variables.tries_ARM2_P1 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P1"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P1",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": -140
+        },
+        "input": "{{flow.variables.tries_ARM2_P1}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P1"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P1}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P1",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P1}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P1",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": -140
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Sin problema - no pude leer esa respuesta.\n\nToca *Elige tu respuesta* en el mensaje anterior y selecciona de la lista, o escribe la opción tal como aparece.\n\nSoy un robot, así que solo entiendo las opciones."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P1"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P1"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P1",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": -60
+        },
+        "variables": [
+          {
+            "key": "ARM2_P1_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P1_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P2",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 40
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX9e03be56366b329978b8fa496ec5473a",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM2_P2"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 80
+        },
+        "input": "{{widgets.ARM2_P2.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P2"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P2.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 120
+        },
+        "input": "{{widgets.ARM2_P2.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P2"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P2",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P2.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:p2_0|0 proyectos|p2_1|1 proyecto|p2_2_3|2-3 proyectos|p2_4_5|4-5 proyectos|p2_gt5|Más de 5 proyectos)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 200
+        },
+        "variables": [
+          {
+            "key": "ARM2_P2_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P2_code",
+            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p2_0\" or \"0 proyectos\" %}1{% when \"p2_1\" or \"1 proyecto\" %}2{% when \"p2_2_3\" or \"2-3 proyectos\" %}3{% when \"p2_4_5\" or \"4-5 proyectos\" %}4{% when \"p2_gt5\" or \"más de 5 proyectos\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 120
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P2",
+            "value": "{% assign current = flow.variables.tries_ARM2_P2 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P2",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 200
+        },
+        "input": "{{flow.variables.tries_ARM2_P2}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P2"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P2",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P2}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P2",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P2}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P2",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 200
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Sin problema - no pude leer esa respuesta.\n\nToca *Elige tu respuesta* en el mensaje anterior y selecciona de la lista, o escribe la opción tal como aparece.\n\nSoy un robot, así que solo entiendo las opciones."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P2"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P2"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P2",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 280
+        },
+        "variables": [
+          {
+            "key": "ARM2_P2_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P2_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P3",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 380
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX0a4c84a4a51dc79614161650bd67f5d1",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM2_P3"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 420
+        },
+        "input": "{{widgets.ARM2_P3.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P3"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P3.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 460
+        },
+        "input": "{{widgets.ARM2_P3.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P3"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P3",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P3.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:p3_never|Nunca recolectamos|\\(?1[.)]?|p3_lt25|Pocos proyectos|\\(?2[.)]?|p3_25_50|Cerca de la mitad|\\(?3[.)]?|p3_51_75|La mayoría|\\(?4[.)]?|p3_gt75|Casi todos|\\(?5[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 540
+        },
+        "variables": [
+          {
+            "key": "ARM2_P3_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P3_code",
+            "value": "{% assign reply = widgets.ARM2_P3.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p3_never\" or \"nunca recolectamos\" or \"1\" %}1{% when \"p3_lt25\" or \"pocos proyectos\" or \"2\" %}2{% when \"p3_25_50\" or \"cerca de la mitad\" or \"3\" %}3{% when \"p3_51_75\" or \"la mayoría\" or \"4\" %}4{% when \"p3_gt75\" or \"casi todos\" or \"5\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 460
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P3",
+            "value": "{% assign current = flow.variables.tries_ARM2_P3 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P3",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 540
+        },
+        "input": "{{flow.variables.tries_ARM2_P3}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P3"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P3",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P3}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P3",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P3}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P3",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 540
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Sin problema - no pude leer esa respuesta.\n\nToca *Elige tu respuesta* en el mensaje anterior y selecciona de la lista. También puedes responder con el número de tu respuesta.\n\nSoy un robot, así que solo entiendo las opciones."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P3"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P3"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P3",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 620
+        },
+        "variables": [
+          {
+            "key": "ARM2_P3_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P3_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P4",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 720
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX4f98550ca5283c0b919533b863052cc3",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM2_P4"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 760
+        },
+        "input": "{{widgets.ARM2_P4.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P4"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P4.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 800
+        },
+        "input": "{{widgets.ARM2_P4.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P4"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P4",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P4.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:p4_capi|Presencial \\(CAPI\\)|\\(?1[.)]?|p4_cati|Telefónica \\(CATI\\)|\\(?2[.)]?|p4_web|Web o en línea|\\(?3[.)]?|p4_whatsapp|Por WhatsApp|\\(?4[.)]?|p4_other|Otra modalidad|\\(?5[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 880
+        },
+        "variables": [
+          {
+            "key": "ARM2_P4_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P4_code",
+            "value": "{% assign reply = widgets.ARM2_P4.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p4_capi\" or \"presencial capi\" or \"1\" %}1{% when \"p4_cati\" or \"telefónica cati\" or \"2\" %}2{% when \"p4_web\" or \"web o en línea\" or \"3\" %}3{% when \"p4_whatsapp\" or \"por whatsapp\" or \"4\" %}4{% when \"p4_other\" or \"otra modalidad\" or \"5\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 800
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P4",
+            "value": "{% assign current = flow.variables.tries_ARM2_P4 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P4",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 880
+        },
+        "input": "{{flow.variables.tries_ARM2_P4}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P4"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P4",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P4}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P4",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P4}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P4",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 880
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Sin problema - no pude leer esa respuesta.\n\nToca *Elige tu respuesta* en el mensaje anterior y selecciona de la lista. También puedes responder con el número de tu respuesta.\n\nSoy un robot, así que solo entiendo las opciones."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P4"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P4"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P4",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 960
+        },
+        "variables": [
+          {
+            "key": "ARM2_P4_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P4_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "mark_complete",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_complete",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "complete"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "mark_no_reply",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 900,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_no_reply",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "incomplete"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "mark_optout",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1300,
+          "y": 1080
+        },
+        "variables": [
+          {
+            "key": "set_optout",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "optout"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "mark_never_started",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1700,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_no_reply",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "unreachable"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "mark_delivery_failed",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1300,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "set_fail",
+            "value": "1"
+          },
+          {
+            "key": "outcome",
+            "value": "undeliverable"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "finish"
+        }
+      ]
+    },
+    {
+      "name": "finish",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1320
+        },
+        "variables": [
+          {
+            "key": "set_reached_finish",
+            "value": "1"
+          },
+          {
+            "key": "enc_status",
+            "value": "ok"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "function_encrypt"
+        }
+      ]
+    },
+    {
+      "name": "function_encrypt",
+      "type": "run-function",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1440
+        },
+        "service_sid": "ZS04f75bf125e71003387d709e77f1f6ad",
+        "environment_sid": "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92",
+        "function_sid": "ZH477834617e55e948fc9149388bf1ef63",
+        "url": "https://rtt-survey-2647-prod.twil.io/encrypt-fields",
+        "parameters": [
+          {
+            "key": "enc_name",
+            "value": "{{flow.data.name}}"
+          },
+          {
+            "key": "enc_p_number_original",
+            "value": "{{contact.channel.address}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "success",
+          "next": "publish_motherduck"
+        },
+        {
+          "event": "fail",
+          "next": "mark_encrypt_failed"
+        }
+      ]
+    },
+    {
+      "name": "mark_encrypt_failed",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -500,
+          "y": 1500
+        },
+        "variables": [
+          {
+            "key": "enc_status",
+            "value": "encrypt_failed"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "publish_motherduck"
+        }
+      ]
+    },
+    {
+      "name": "publish_motherduck",
+      "type": "run-function",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1560
+        },
+        "service_sid": "ZS04f75bf125e71003387d709e77f1f6ad",
+        "environment_sid": "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92",
+        "function_sid": "ZH08a4b1579e90c2e3a6ea7829a153e842",
+        "url": "https://rtt-survey-2647-prod.twil.io/publish-motherduck",
+        "parameters": [
+          {
+            "key": "caseid",
+            "value": "{{flow.data.caseid}}"
+          },
+          {
+            "key": "lang",
+            "value": "es"
+          },
+          {
+            "key": "arm",
+            "value": "{{flow.data.arm}}"
+          },
+          {
+            "key": "enc_name",
+            "value": "{{widgets.function_encrypt.parsed.enc_name}}"
+          },
+          {
+            "key": "enc_p_number_original",
+            "value": "{{widgets.function_encrypt.parsed.enc_p_number_original}}"
+          },
+          {
+            "key": "enc_status",
+            "value": "{{flow.variables.enc_status}}"
+          },
+          {
+            "key": "set_consent",
+            "value": "{{flow.variables.set_consent}}"
+          },
+          {
+            "key": "set_arm_missing",
+            "value": "{{flow.variables.set_arm_missing}}"
+          },
+          {
+            "key": "set_complete",
+            "value": "{{flow.variables.set_complete}}"
+          },
+          {
+            "key": "set_no_reply",
+            "value": "{{flow.variables.set_no_reply}}"
+          },
+          {
+            "key": "set_fail",
+            "value": "{{flow.variables.set_fail}}"
+          },
+          {
+            "key": "outcome",
+            "value": "{{flow.variables.outcome}}"
+          },
+          {
+            "key": "execution_sid",
+            "value": "{{flow.sid}}"
+          },
+          {
+            "key": "sent_at",
+            "value": "{{flow.data.sent_at}}"
+          },
+          {
+            "key": "ARM1_P1",
+            "value": "{{widgets.ARM1_P1.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P1_status",
+            "value": "{{flow.variables.ARM1_P1_status}}"
+          },
+          {
+            "key": "ARM1_P2",
+            "value": "{{widgets.ARM1_P2.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P2_status",
+            "value": "{{flow.variables.ARM1_P2_status}}"
+          },
+          {
+            "key": "ARM1_P3",
+            "value": "{{widgets.ARM1_P3.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P3_status",
+            "value": "{{flow.variables.ARM1_P3_status}}"
+          },
+          {
+            "key": "ARM1_P4",
+            "value": "{{widgets.ARM1_P4.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P4_status",
+            "value": "{{flow.variables.ARM1_P4_status}}"
+          },
+          {
+            "key": "ARM2_P1",
+            "value": "{{widgets.ARM2_P1.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P1_status",
+            "value": "{{flow.variables.ARM2_P1_status}}"
+          },
+          {
+            "key": "ARM2_P1_code",
+            "value": "{{flow.variables.ARM2_P1_code}}"
+          },
+          {
+            "key": "ARM2_P2",
+            "value": "{{widgets.ARM2_P2.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P2_status",
+            "value": "{{flow.variables.ARM2_P2_status}}"
+          },
+          {
+            "key": "ARM2_P2_code",
+            "value": "{{flow.variables.ARM2_P2_code}}"
+          },
+          {
+            "key": "ARM2_P3",
+            "value": "{{widgets.ARM2_P3.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P3_status",
+            "value": "{{flow.variables.ARM2_P3_status}}"
+          },
+          {
+            "key": "ARM2_P3_code",
+            "value": "{{flow.variables.ARM2_P3_code}}"
+          },
+          {
+            "key": "ARM2_P4",
+            "value": "{{widgets.ARM2_P4.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P4_status",
+            "value": "{{flow.variables.ARM2_P4_status}}"
+          },
+          {
+            "key": "ARM2_P4_code",
+            "value": "{{flow.variables.ARM2_P4_code}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "success",
+          "next": "split_closing"
+        },
+        {
+          "event": "fail",
+          "next": "record_publish_failure"
+        }
+      ]
+    },
+    {
+      "name": "record_publish_failure",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -1000,
+          "y": 1680
+        },
+        "variables": [
+          {
+            "key": "set_publish_failed",
+            "value": "1"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next"
+        }
+      ]
+    },
+    {
+      "name": "split_closing",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1680
+        },
+        "input": "{{flow.variables.outcome}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "end_without_message"
+        },
+        {
+          "event": "match",
+          "next": "close_complete",
+          "conditions": [
+            {
+              "friendly_name": "is complete",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "complete"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_declined",
+          "conditions": [
+            {
+              "friendly_name": "is declined",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "declined"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_incomplete",
+          "conditions": [
+            {
+              "friendly_name": "is incomplete",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "incomplete"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_never_started",
+          "conditions": [
+            {
+              "friendly_name": "is unreachable",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "unreachable"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "end_without_message",
+          "conditions": [
+            {
+              "friendly_name": "is undeliverable",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "undeliverable"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "close_optout",
+          "conditions": [
+            {
+              "friendly_name": "is optout",
+              "arguments": [
+                "{{flow.variables.outcome}}"
+              ],
+              "type": "equal_to",
+              "value": "optout"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "close_never_started",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 900,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HXdd60d646cbf874f8632f1149dd5aa019",
+        "content_variables": [
+          {
+            "key": "1",
+            "value": "{{flow.data.name | default: 'there'}}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "end_without_message",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 1400,
+          "y": 1800
+        },
+        "variables": [
+          {
+            "key": "set_closed_silently",
+            "value": "1"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next"
+        }
+      ]
+    },
+    {
+      "name": "close_complete",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": -400,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "🙏 Gracias por completar la encuesta.\n\nHiciste parte de un experimento con dos versiones de la misma encuesta: una que pregunta de forma abierta y compleja, y otra que pregunta lo mismo en lenguaje sencillo con respuestas que se pueden tocar. Tú viste una de las dos.\n\nLa segunda es la que recomendamos, y en la sesión mostraremos cómo se vieron las respuestas de tu grupo - y cuánto cambió el formato por sí solo.\n\nNos vemos allá."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "close_declined",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 0,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Gracias por tu respuesta. Entendemos y respetamos que hayas decidido no participar en el ejercicio.\n\nAun así, estás muy bienvenid@ a la sesión, donde hablaremos de cómo funciona la recolección de datos por WhatsApp y de sus riesgos."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "close_incomplete",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 400,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Gracias por las respuestas que alcanzaste a dar - quedaron registradas.\n\nVeremos cómo el formato de una pregunta cambia las respuestas que recibe, en vivo durante la sesión. Nos vemos allá."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    },
+    {
+      "name": "close_optout",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": -900,
+          "y": 1800
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Entendido - me detengo aquí y no te enviaré nada más sobre esta encuesta.\n\nLas respuestas que ya diste se conservan; no se pregunta nada más. Gracias por tu tiempo."
+      },
+      "transitions": [
+        {
+          "event": "sent"
+        },
+        {
+          "event": "failed"
+        }
+      ]
+    }
+  ],
+  "initial_state": "Trigger",
+  "flags": {
+    "allow_concurrent_calls": true
+  }
+}

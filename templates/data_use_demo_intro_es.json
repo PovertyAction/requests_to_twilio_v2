@@ -26,7 +26,14 @@
     "the list pickers, which cannot open a session themselves.",
     "",
     "'confidenciales' is a claim the pipeline actually keeps - encrypt_fields",
-    "encrypts name and phone before anything is stored."
+    "encrypts name and phone before anything is stored.",
+    "",
+    "The close reads 'cuando quieras', not 'cuando estes listo'. Spanish has no",
+    "neutral form of that adjective, so the masculine would have been addressed",
+    "to every respondent regardless - and 'listo/a' in a body Meta reviews reads",
+    "as a workaround rather than as copy. Sidestepping the agreement entirely is",
+    "shorter and reads better. Caught on the review pass before submission,",
+    "which is the only moment it could have been caught: Meta has no edit."
   ],
   "friendly_name": "data_use_demo_intro_es",
   "language": "es",
@@ -35,7 +42,7 @@
   },
   "types": {
     "twilio/quick-reply": {
-      "body": "Hola {{1}}, te damos la bienvenida a la sesión sobre encuestas por WhatsApp.\n\nDurante la sesión participarás en una encuesta corta - y también harás parte del ejemplo.\n\nToma unos 3 minutos. Tus respuestas son confidenciales y solo se usarán para ilustrar la recolección de datos por WhatsApp durante la sesión.\n\nToca Empezar cuando estés listo.",
+      "body": "Hola {{1}}, te damos la bienvenida a la sesión sobre encuestas por WhatsApp.\n\nDurante la sesión participarás en una encuesta corta - y también formarás parte del ejemplo.\n\nToma unos 3 minutos. Tus respuestas son confidenciales y solo se usarán para ilustrar la recolección de datos por WhatsApp durante la sesión.\n\nToca Empezar cuando quieras.",
       "actions": [
         {
           "title": "Empezar",
