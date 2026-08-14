@@ -6,7 +6,7 @@ tutorial suggests. Re-derive it any time by pulling the corpus:
 
 ```bash
 just flow-list
-just flow-pull <name>          # into flows/, committed
+just flow-pull <name>          # into flows/, which is gitignored
 ```
 
 ## Scale

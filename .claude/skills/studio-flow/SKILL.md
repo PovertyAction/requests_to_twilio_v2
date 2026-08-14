@@ -100,7 +100,7 @@ webhook you want; the phone number is in the table mainly to explain why
 changing it does nothing for a WhatsApp round. For an SMS round it is the other
 way round.
 
-Either way, **`RTT_FROM_NUMBER` must carry the prefix for the channel you
+Either way, **`TWILIO_NUMBER` must carry the prefix for the channel you
 intend.** Without `whatsapp:` Twilio reads the address as SMS - and so does the
 routing check, which would then report confidently on a channel the round never
 touches. `rtt launch` warns when the prefix is missing.
@@ -275,8 +275,26 @@ stays free to change.
 
 ## Stage 2 - questions
 
-**Prefer buttons and lists. Avoid open text unless the question genuinely needs
-prose.**
+**The list picker is the default. Every closed question is a list unless there
+is a reason it cannot be.** Buttons when there are 2-3 options; free text only
+when the answer genuinely cannot be enumerated.
+
+This is a house rule, and the reason is what typed answers look like when they
+arrive. A tap returns a known identifier. Typing returns whatever the respondent
+did: `3`, `3.`, `tres`, `la 3`, `3 por favor`, `#3`, the option's text
+paraphrased, the right answer with a trailing emoji, or the digit typed on a
+keyboard that autocorrected it. Every one of those is a real answer from a
+cooperative respondent, and every one has to be either matched by a pattern
+somebody wrote in advance or cleaned by hand afterwards.
+
+Neither of those scales. A pattern loose enough to catch all of it also catches
+junk and stores it as a real answer; a pattern tight enough to be safe strands
+people who answered correctly. Hand-cleaning moves the problem to whoever opens
+the dataset three weeks later, by which point the respondent is gone and the
+intent is a guess.
+
+Tapping removes the whole class. The respondent cannot produce a malformed
+answer, so there is nothing to clean and nothing to guess.
 
 ### The option-count rule: 3 buttons, 10 list rows
 
@@ -337,6 +355,44 @@ Three consequences for how questions get written:
 - The limits count *characters*, so accented Spanish and non-Latin scripts spend
   the budget at the same rate, but the same option translated is often longer.
   Check every language, not just the one it was drafted in.
+
+#### The question on the screen
+
+The field limits above are what the API enforces. They are far more generous
+than what a person can actually read on a phone, so they are the wrong target.
+
+Measured across 392 question bodies in IPA's own WhatsApp instruments,
+2022-2026:
+
+| | chars | lines |
+| --- | --- | --- |
+| median | 227 | 7 |
+| 75th percentile | 280 | - |
+| 90th percentile | 356 | 11 |
+| longest | 895 | 29 |
+
+**Aim at the median, not the limit.** A `twilio/list-picker` body accepts 1024
+characters and no real question in four years of instruments came close - the
+longest was 895 and it was a consent block, not a question. Treat ~250
+characters and 7 lines as the working shape, ~350 as the point to start cutting,
+and anything past 500 as a signal that the item is doing two jobs.
+
+Why it matters more on WhatsApp than on paper: the question, its options, and
+the respondent's own previous answers all share one scrolling column. A long
+question pushes its own options off the screen, so the respondent answers what
+they can still see. That is a measurement problem, not a formatting one - it
+shows up as drift in the marginals, never as an error.
+
+Three habits that keep questions short:
+
+- **Put the scale in the rows, not in the question.** With a list picker the
+  labels carry the response options, so the body does not need to repeat them.
+  This is the single biggest saving when converting an older instrument.
+- **`*bold*` the part that must be found at a glance.** 90% of the corpus uses
+  it, and on a typed-number item it is what makes the digits scannable.
+- **Progress markers are worth their characters.** `Question 3 of 8` costs 15
+  and materially reduces break-off, because a respondent who cannot see the end
+  assumes there isn't one.
 
 #### More than 10 options, without splitting the question
 
@@ -505,27 +561,100 @@ A tap does not return a special event. It returns an ordinary inbound message:
 | Interaction | `inbound.Body` | `inbound.ButtonPayload` |
 | --- | --- | --- |
 | Quick-reply tapped | the button's **title** | the button's `id` |
-| List row tapped | the row's **item** text | - |
+| List row tapped | the row's **`id`** | - |
 | Typed instead | whatever they wrote | - |
 
-Branching on `ButtonPayload` only works for quick replies and only for people
-who tapped. So **split on `inbound.Body`, accepting both the label and its
-position**, and the person who ignores the menu and writes `3` is matched
-identically.
+**The two interactive types disagree, and this is the trap.** A quick reply
+sends back the text the respondent saw; a list row sends back the identifier
+they never saw. Accept the label for one and you strand every list tap on
+noMatch - the respondent taps a real row, gets the retry nudge, and starts
+guessing at what you wanted. A live round is the first place this shows up,
+because on the canvas both look like a normal choice.
 
-**Use the `regex` predicate for option lists, not `matches_any_of`.** This is a
-correctness rule, not a preference:
+So a split must accept **all three surface forms of the same answer**: the row's
+`id`, the visible label, and the typed position. `answer_pattern` in
+`scripts/build_data_use_demo.py` emits them in exactly that order, and
+`_check_options_are_matchable` runs every one of them through the real split
+before the flow can deploy.
+
+Branching on `ButtonPayload` only works for quick replies and only for people
+who tapped, so it is never the primary mechanism - **split on `inbound.Body`**.
+
+**`regex` is the default predicate for matching a reply.** Not just for option
+lists - anywhere the thing being matched is text. It is the only predicate that
+gives you control over what counts as an answer, and control is the whole point:
+you decide exactly which surface forms are accepted, and you can read the
+pattern later and know what the flow will do.
+
+The exceptions are narrow. `greater_than` / `less_than` are right for a genuine
+numeric threshold on a value the flow already parsed. `equal_to` is fine for an
+internal flag your own `set-variables` widget wrote. Everything a respondent
+typed or tapped goes through a regex.
+
+Older flows on this account run the other way round - roughly nine
+`matches_any_of` for every `regex` - so expect to be the odd one out when
+reading them. What an option-list pattern looks like:
 
 ```
 type:  regex
-value: (?:\s*(?:0 times|\(?1[.)]?|1-2 times|\(?2[.)]?|More than 10 times|\(?5[.)]?)\s*)
+value: (?:\s*(?:freq_0|0 times|\(?1[.)]?|freq_1|1-2 times|\(?2[.)]?|freq_2|3\+ times|\(?3[.)]?)\s*)
 ```
+
+Three alternatives per option, in the order `answer_pattern` emits them: the
+row **id** (`freq_1`) for a list tap, the **label** (`1-2 times`) for a
+quick-reply tap or someone copying the text, and the **position** (`2`, `2.`,
+`(2`) for someone typing. Miss the id and every list tap goes to noMatch.
 
 `matches_any_of` takes its alternatives as **one comma-delimited string**. A
 comma inside an option label silently becomes two alternatives, neither of which
 is the label - the respondent taps a real option and lands on noMatch. That is
 the "answer looks fine, respondent gets stranded" defect in its purest form, and
 it is invisible on the canvas. In a regex a comma is just a character.
+
+### The typed-number pattern, and converting off it
+
+Expect to open an existing IPA flow and find none of the above. Across a
+2022-2026 sample, **373 of 400 questions were plain text bodies and only 27 used
+a Content template**, and splits used `matches_any_of` over `regex` by roughly
+nine to one. The house pattern is a typed digit:
+
+```
+¿Qué tan cómodo/a se sentiría teniendo vecinos colombianos?
+
+Responda con el número:
+*1* Para nada cómodo/a
+*2* Un poco cómodo/a
+*3* Moderadamente cómodo/a
+*4* Muy cómodo/a
+*5* Extremadamente cómodo/a
+*77* No responde (omitir)
+```
+
+It is a good version of the typed pattern - bolded digits, one option per line,
+an explicit instruction, and an out. Read it before deciding it is obsolete; the
+wording discipline is worth keeping even when the mechanism changes.
+
+**New work uses a list.** The typed pattern is what these instruments could do
+at the time, not what we would choose now - it hands the respondent a free-text
+box and then hopes they fill it the way the regex expects. But the conversion is
+not mechanical, and three things break if you treat it that way:
+
+- **Wide questions do not fit.** The corpus contains splits with 11, 12, 13 and
+  15 branches. Typed text has no ceiling, so nothing stopped them; a list picker
+  caps at 10. Anything over 10 needs the treatment described above, and
+  redesigning it is an instrument decision, not a formatting one.
+- **The missing-value code has to be carried across deliberately.** These
+  instruments code refusals as `77`; this repo's builder uses `-99`. Neither is
+  wrong, but a scale that silently changes its refusal code between rounds is not
+  comparable. Pick one per study, put it in the codebook, and let
+  `option_code` carry it.
+- **The typed fallback stays.** Converting to rows does not mean rejecting a
+  typed `3`. Someone will always type, and a respondent whose answer is refused
+  because they typed it is a break-off you caused.
+
+The comparability question comes first, before any of this. A tap and a typed
+digit are the same variable; a five-point scale that became four points because
+the labels would not fit is not.
 
 Three things about Studio's predicates that are not obvious, all documented:
 

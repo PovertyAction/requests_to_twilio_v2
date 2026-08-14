@@ -207,6 +207,25 @@ Ask explicitly, and be precise about the locale code:
 - For India, English is usually right, but ask - Hindi or a regional language
   may be expected, and that doubles the review cycles.
 
+**How bad this gets when nobody decides.** A sibling IPA account carries 560
+templates for Spanish-language studies, spread across four locale tags:
+
+| Locale | Templates |
+| --- | --- |
+| `es` | 345 |
+| `es_MX` | 82 |
+| `es_ES` | 76 |
+| `es_AR` | 52 |
+
+Those are not four dialects of copy - they are one house voice submitted under
+four tags by different people at different times. Every tag is a separate
+approval queue, a separate rejection risk, and a separate thing to update when
+the wording changes. Nothing merges them later.
+
+So the locale is a decision to make once, at the start of a study, and write
+down - not a field to fill in at create time. If the account already has a
+dominant tag, match it rather than starting a fifth.
+
 Check what already exists before creating anything:
 
 ```bash
@@ -349,7 +368,59 @@ first three automatically. Check the rest by reading.
   than rejecting, which is worse because it is silent.
 - **URLs with no context.** Templates support links, but a bare link looks like
   phishing, and WhatsApp does not render URL previews in templates.
+- **Media Meta cannot download.** See below - this is the one that actually
+  happens.
 - **Claims the flow cannot keep.**
+
+### Media has to be publicly reachable, by Meta, from outside
+
+Of 560 templates in a sibling IPA account, exactly two were rejected. One of
+them read:
+
+```
+Failed to create template, Reason: Error downloading invalid media URL:
+https://edutainment-rifa-5237.twil.io/Rifa_2.png
+```
+
+The copy was fine. The image was hosted on a Twilio Assets domain that Meta's
+fetcher could not read, so the submission failed before anyone reviewed a word
+of it.
+
+**Meta fetches your media itself, at submission time, from its own
+infrastructure.** Anything gated is unreachable: a Twilio asset set to `private`
+or `protected`, an expired link, a Box or Drive share that requires sign-in, or
+anything behind IPA SSO. Open the URL in a private browser window with no
+session before submitting. If it renders there, Meta can read it.
+
+This is the same failure this repo hit with Twilio Functions deployed at
+`private` visibility - a resource that works when *you* request it and fails for
+everyone else, reported as a generic error that does not say "permissions". If a
+Twilio-hosted URL is involved in something that broke, check its visibility
+first.
+
+The other rejection came back as `INVALID_FORMAT` and nothing else. That is the
+general case: **Meta's reason string is often a single opaque token**, so
+submission is not a debugging loop. Get it right before submitting, because the
+feedback will not tell you what was wrong.
+
+### Approved templates are versioned by name, never edited
+
+An approved template cannot be changed. The same account shows how that plays
+out over four years - `bsc_verif1_v8`, `bsc_verif1_v15`,
+`sia2_notificacion_llamada_m1_v3`, `welcome2_cfm_scr_v12` - with the superseded
+versions left in a `disabled` state rather than deleted.
+
+That convention is worth keeping:
+
+- **Suffix the version** (`_v2`, `_v3`) when copy changes. Do not try to reuse a
+  name, and do not create `name_final`.
+- **Disable the old one** once the flow points at the new SID, so the next
+  person reading the list can tell which is live. Disabling is reversible;
+  deleting an approved template throws away an approval you cannot get back
+  without another review cycle.
+- **The flow references a SID, not a name**, so a new version is not live until
+  the flow is redeployed. Changing the template and forgetting the flow is a
+  silent no-op - the old copy keeps sending.
 
 ## Step 8 - create, review, submit
 
