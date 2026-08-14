@@ -101,7 +101,7 @@ The types, and what each becomes:
 `text` and `integer` look identical to a respondent and differ entirely in the
 data. `text` stores whatever arrives, including `about 5`. Use `integer` whenever
 the answer is a number — the reply is checked before it is stored, and an
-unparseable one is re-asked rather than saved.
+unparsable one is re-asked rather than saved.
 
 **Prefer `select_list`.** A tap cannot be malformed, so there is nothing to clean
 afterwards and nothing to guess about intent. Typing produces `3`, `3.`, `tres`,
