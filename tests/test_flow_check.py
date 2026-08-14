@@ -26,6 +26,11 @@ def publish(*params):
     }
 
 
+def widget(definition: dict, name: str) -> dict:
+    """Address a widget by name. The fixture's order is not a contract."""
+    return next(s for s in definition["states"] if s["name"] == name)
+
+
 def codes(definition) -> set[str]:
     return {f.code for f in check_flow(definition)}
 
@@ -36,10 +41,37 @@ def healthy_flow() -> dict:
         "states": [
             question(
                 "q1",
-                reply="publish_gsheets",
+                reply="stopcheck_q1",
                 timeout="mark_no_reply",
                 deliveryFailure="mark_fail",
             ),
+            # A healthy survey flow lets somebody stop. Inside a WhatsApp
+            # session a "STOP" is an ordinary inbound message, so it is only
+            # honoured if the flow looks for it.
+            {
+                "name": "stopcheck_q1",
+                "type": "split-based-on",
+                "transitions": [
+                    {
+                        "event": "match",
+                        "next": "mark_optout",
+                        "conditions": [
+                            {
+                                "friendly_name": "asked to stop",
+                                "type": "regex",
+                                "arguments": ["{{widgets.q1.inbound.Body}}"],
+                                "value": "(?:\\s*(?:stop|quit|unsubscribe)\\s*)",
+                            }
+                        ],
+                    },
+                    {"event": "noMatch", "next": "publish_gsheets"},
+                ],
+            },
+            {
+                "name": "mark_optout",
+                "type": "set-variables",
+                "transitions": [{"event": "next", "next": "publish_gsheets"}],
+            },
             {
                 "name": "mark_no_reply",
                 "type": "set-variables",
@@ -71,7 +103,7 @@ def test_healthy_flow_passes_everything():
 
 def test_missing_timeout_is_an_error():
     definition = healthy_flow()
-    definition["states"][0]["transitions"] = [
+    widget(definition, "q1")["transitions"] = [
         {"event": "reply", "next": "publish_gsheets"},
         {"event": "deliveryFailure", "next": "mark_fail"},
     ]
@@ -80,7 +112,7 @@ def test_missing_timeout_is_an_error():
 
 def test_missing_delivery_failure_is_an_error():
     definition = healthy_flow()
-    definition["states"][0]["transitions"] = [
+    widget(definition, "q1")["transitions"] = [
         {"event": "reply", "next": "publish_gsheets"},
         {"event": "timeout", "next": "mark_no_reply"},
     ]
@@ -89,7 +121,7 @@ def test_missing_delivery_failure_is_an_error():
 
 def test_break_off_that_never_publishes_is_an_error():
     definition = healthy_flow()
-    definition["states"][1]["transitions"] = []  # mark_no_reply goes nowhere
+    widget(definition, "mark_no_reply")["transitions"] = []
     assert "unpublished-paths" in codes(definition)
 
 
@@ -143,13 +175,42 @@ def test_credentials_in_definition_are_an_error():
         "-----BEGIN " + "PRIVATE KEY-----\nMIIEvQ...\n-----END " + "PRIVATE KEY-----"
     )
     definition = healthy_flow()
-    definition["states"][0]["properties"]["body"] = fake_pem
+    widget(definition, "q1")["properties"]["body"] = fake_pem
     assert "credentials" in codes(definition)
+
+
+def test_a_flow_that_ignores_stop_is_a_warning():
+    """Twilio's opt-out handling does not reach inside a WhatsApp session.
+
+    A "STOP" arrives as an ordinary inbound message, so unless the flow looks
+    for it the word is stored as the answer and the next question is sent
+    anyway. Being asked three more questions after saying stop is a
+    research-ethics problem before it is a bug.
+    """
+    definition = healthy_flow()
+    definition["states"] = [
+        s for s in definition["states"] if s["name"] != "stopcheck_q1"
+    ]
+    widget(definition, "q1")["transitions"] = [
+        {"event": "reply", "next": "publish_gsheets"},
+        {"event": "timeout", "next": "mark_no_reply"},
+        {"event": "deliveryFailure", "next": "mark_fail"},
+    ]
+    findings = {f.code: f.severity for f in check_flow(definition)}
+    assert findings.get("no-optout-path") == "warning"
+
+
+def test_a_flow_with_its_own_stop_wording_still_passes():
+    """The check asks whether the flow considers the question, not how."""
+    definition = healthy_flow()
+    condition = widget(definition, "stopcheck_q1")["transitions"][0]["conditions"][0]
+    condition["value"] = "(?:\\s*(?:cancelar|salir)\\s*)"
+    assert "no-optout-path" not in codes(definition)
 
 
 def test_errors_sort_before_warnings():
     definition = healthy_flow()
-    definition["states"][1]["transitions"] = []
+    widget(definition, "mark_no_reply")["transitions"] = []
     severities = [f.severity for f in check_flow(definition)]
     assert severities == sorted(severities, key=lambda s: s != "error")
 

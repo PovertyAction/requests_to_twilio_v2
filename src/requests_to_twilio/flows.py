@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,9 @@ _SECRET_PATTERNS: list[tuple[str, str]] = [
 
 #: Widget types that carry respondent-facing question text.
 QUESTION_TYPES = frozenset({"send-and-wait-for-reply"})
+
+#: Widget types that put a message on the wire.
+_SENDING_TYPES = frozenset({"send-message", "send-and-wait-for-reply"})
 
 #: Matches ``{{flow.data.foo}}`` - a value the flow expects to be preloaded from
 #: the sample file at launch, the Studio equivalent of SurveyCTO preloads.
@@ -188,11 +192,228 @@ def summarize(definition: dict) -> dict[str, Any]:
 
 
 def _is_publish_widget(state: dict) -> bool:
-    """Whether a widget looks like the step that writes a row to Google Sheets."""
+    """Whether a widget looks like the step that writes the respondent's row.
+
+    Matched by name because the destination is a deployment detail: the same
+    position in the graph has been a Google Sheets append and a MotherDuck
+    insert, and a flow should not have to be re-checked because the warehouse
+    changed. ``publish_*`` is the convention; ``*gsheet*`` is kept so the older
+    flows on the account still check.
+    """
     name = (state.get("name") or "").lower()
     return state.get("type") == "run-function" and (
         "gsheet" in name or name.startswith("pub")
     )
+
+
+def _is_encrypt_widget(state: dict) -> bool:
+    """Whether a widget looks like the step that encrypts identifiers."""
+    return (
+        state.get("type") == "run-function"
+        and "encrypt" in (state.get("name") or "").lower()
+    )
+
+
+#: The events a ``run-function`` widget emits when the call worked. Scoped to
+#: function widgets on purpose - ``next`` from a set-variables widget and
+#: ``match`` from a split are successes too, and would have to be added before
+#: this set could be applied to any other widget type.
+_FUNCTION_SUCCESS_EVENTS = frozenset({"success"})
+
+#: Break-off events. These are errors rather than warnings: a respondent who
+#: stopped replying is data, and losing them is indistinguishable from never
+#: having contacted them.
+_BREAK_OFF_EVENTS = ("timeout", "deliveryFailure")
+
+
+#: Words a respondent uses to end a survey, across the languages this tooling
+#: has been used in. Only used to decide whether a flow looks at them at all -
+#: the flow's own list is its business.
+_STOP_WORDS = frozenset(
+    {"stop", "quit", "unsubscribe", "cancel", "parar", "cancelar", "salir", "baja"}
+)
+
+
+def _honours_stop(definition: dict) -> bool:
+    """Whether any split condition looks for a request to stop.
+
+    Deliberately loose: it asks whether the flow *considers* the question, not
+    whether it does so the way this repository would. A flow with its own stop
+    handling in its own words should pass.
+    """
+    for state in definition.get("states", []):
+        if state.get("type") != "split-based-on":
+            continue
+        for transition in state.get("transitions", []):
+            for condition in transition.get("conditions", []) or []:
+                value = str(condition.get("arguments", [""])[0] or "") + str(
+                    condition.get("value") or ""
+                )
+                if any(word in value.casefold() for word in _STOP_WORDS):
+                    return True
+    return False
+
+
+def load_definition_file(path: Path) -> dict:
+    """Read a flow definition from disk, in either shape it comes in.
+
+    ``rtt flow pull`` writes a wrapper - ``{"friendly_name":…, "sid":…,
+    "definition": {…}}`` - because knowing which flow a file came from is worth
+    more than saving four lines. A hand-written or generated file is usually the
+    bare definition. Anything that reads a flow off disk has to accept both, or
+    the two halves of the toolchain disagree: `flow pull` writes something
+    `flow schema` cannot read, and reports "Flow publishes nothing" rather than
+    "wrong shape".
+
+    Args:
+        path: The JSON file.
+
+    Returns:
+        The definition itself, unwrapped.
+
+    Raises:
+        FlowError: If the file cannot be read or parsed.
+
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FlowError(f"Could not read {path}: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise FlowError(f"{path} is not a flow definition.")
+
+    definition = payload.get("definition", payload)
+    if not isinstance(definition, dict) or "states" not in definition:
+        raise FlowError(
+            f"{path} does not look like a flow definition: no 'states' key."
+        )
+    return definition
+
+
+def _forward_reachable(definition: dict) -> set[str]:
+    """Widget names an execution can actually arrive at.
+
+    A Studio canvas accumulates orphans: a widget duplicated while editing, a
+    branch rewired and its old destination left behind. They are invisible to a
+    respondent and should be invisible to the checks too, or a finding on dead
+    furniture teaches everyone that findings can be ignored.
+    """
+    states = {s.get("name"): s for s in definition.get("states", [])}
+    start = definition.get("initial_state") or "Trigger"
+    if start not in states:
+        # Nothing to anchor on; treat every widget as live rather than
+        # reporting the whole flow as unreachable.
+        return set(states)
+
+    seen = {start}
+    queue = [start]
+    while queue:
+        state = states.get(queue.pop())
+        if state is None:
+            continue
+        for transition in state.get("transitions", []):
+            destination = transition.get("next")
+            if destination and destination not in seen:
+                seen.add(destination)
+                queue.append(destination)
+    return seen
+
+
+def _still_owing(definition: dict, publishers: set[str]) -> set[str]:
+    """Widgets an execution can reach *before* its row has been written.
+
+    Walks forward from the start and stops at each publish widget rather than
+    going through it. What comes back is everything that still owes a row.
+
+    The distinction this draws is the one that matters, and it is not the same
+    as "can reach a publisher":
+
+    * A widget **after** the publish step cannot reach a publisher, and owes
+      nothing - its row exists already.
+    * A widget in a **reminder loop with no exit** also cannot reach a
+      publisher, and owes a row it will never write. That is the defect.
+
+    Judging by "can reach a publisher" alone would silently excuse the second
+    along with the first, which is exactly the class of break-off this module
+    was written to find.
+
+    The walk starts from a *launched* execution, so the trigger's
+    ``incomingMessage`` branch is not followed. That branch is someone writing
+    to the number cold: they were never in the sampling frame, and a flow may
+    quite reasonably acknowledge them and stop without a row. Whether a flow
+    should let them in at all is `respondent-initiated-start`'s question, not
+    this one.
+    """
+    states = {s.get("name"): s for s in definition.get("states", [])}
+    start = definition.get("initial_state") or "Trigger"
+    if start not in states:
+        return set(states)
+
+    owing = {start}
+    queue = [start]
+    while queue:
+        current = queue.pop()
+        # Stop here: anything beyond this widget has already been published.
+        if current in publishers:
+            continue
+        state = states.get(current)
+        if state is None:
+            continue
+        is_trigger = state.get("type") == "trigger"
+        for transition in state.get("transitions", []):
+            if is_trigger and transition.get("event") == "incomingMessage":
+                continue
+            destination = transition.get("next")
+            if destination and destination not in owing:
+                owing.add(destination)
+                queue.append(destination)
+    return owing
+
+
+def _publish_reachability(definition: dict) -> tuple[set[str], set[str]]:
+    """Find the publish widgets, and everything that can still reach one.
+
+    Returns:
+        ``(publishers, reaching)``. A widget in ``reaching`` still has a path to
+        a publish widget, so a row has not been written yet and is still owed.
+        A widget outside it either already published (everything downstream) or
+        never will.
+
+    """
+    states = definition.get("states", [])
+
+    # Only publishers an execution can actually arrive at. A duplicate left on
+    # the canvas - Studio's copy is named `publish_..._copy`, which still
+    # matches - would otherwise drag everything downstream of it into
+    # `reaching`, turning correct terminal paths into findings, and would
+    # itself be reported for the failure branch it inherited. Dead canvas
+    # furniture producing errors is how a check gets switched off.
+    live = _forward_reachable(definition)
+    publishers = {
+        s.get("name") for s in states if _is_publish_widget(s) and s.get("name") in live
+    }
+    if not publishers:
+        return set(), set()
+
+    # Walk edges backwards from the publish widgets.
+    incoming: dict[str, list[str]] = {}
+    for state in states:
+        for transition in state.get("transitions", []):
+            destination = transition.get("next")
+            if destination:
+                incoming.setdefault(destination, []).append(state.get("name"))
+
+    reaching = set(publishers)
+    queue = list(publishers)
+    while queue:
+        node = queue.pop()
+        for parent in incoming.get(node, []):
+            if parent not in reaching:
+                reaching.add(parent)
+                queue.append(parent)
+
+    return publishers, reaching
 
 
 def unpublished_paths(definition: dict) -> list[tuple[str, str, str]]:
@@ -219,40 +440,153 @@ def unpublished_paths(definition: dict) -> list[tuple[str, str, str]]:
 
     """
     states = definition.get("states", [])
-    publishers = {s["name"] for s in states if _is_publish_widget(s)}
+    publishers, reaching = _publish_reachability(definition)
     if not publishers:
         return []
 
-    # Walk edges backwards from the publish widgets to find everything that can
-    # still reach one.
-    incoming: dict[str, list[str]] = {}
-    for state in states:
-        for transition in state.get("transitions", []):
-            destination = transition.get("next")
-            if destination:
-                incoming.setdefault(destination, []).append(state["name"])
-
-    reaching = set(publishers)
-    queue = list(publishers)
-    while queue:
-        node = queue.pop()
-        for parent in incoming.get(node, []):
-            if parent not in reaching:
-                reaching.add(parent)
-                queue.append(parent)
+    owing = _still_owing(definition, publishers)
 
     stranded = []
     for state in states:
+        name = state.get("name")
+
+        # Only widgets that still owe a row. A question placed *after* the
+        # publish step would otherwise be reported as a break-off that never
+        # publishes, when its row was written before it ran.
+        if name not in owing:
+            continue
+
         for transition in state.get("transitions", []):
             event = transition.get("event")
-            if event not in ("timeout", "deliveryFailure"):
+            if event not in _BREAK_OFF_EVENTS:
                 continue
             destination = transition.get("next")
             if destination is None:
-                stranded.append((state["name"], event, "<dead end>"))
+                stranded.append((name, event, "<dead end>"))
             elif destination not in reaching:
-                stranded.append((state["name"], event, destination))
+                stranded.append((name, event, destination))
     return stranded
+
+
+def discarded_paths(definition: dict) -> list[tuple[str, str, str]]:
+    """Find any *other* branch that gives up the chance to publish.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        ``(widget, event, destination)`` for every transition that leaves a
+        widget which could still have published, and lands somewhere that
+        cannot.
+
+    :func:`unpublished_paths` only ever looked at ``timeout`` and
+    ``deliveryFailure``, so a run-function ``fail``, a split ``noMatch`` that
+    dead-ends, and any transition with no destination were all invisible. This
+    covers those.
+
+    The publish widget's *own* branches are deliberately not covered here -
+    :func:`publish_failure_reaches_message` owns those, and the reasoning is at
+    the exclusion below. So this is not the check that catches ``publish
+    --fail--> closing_message``; that one is.
+
+    Reported as warnings rather than errors. Some of these are deliberate - a
+    flow may intend a cold inbound message to end without a row - and a check
+    that fires on legitimate work gets switched off, which is worse than no
+    check.
+
+    """
+    states = definition.get("states", [])
+    publishers, reaching = _publish_reachability(definition)
+    if not publishers:
+        return []
+
+    owing = _still_owing(definition, publishers)
+
+    discarded = []
+    for state in states:
+        name = state.get("name")
+
+        # The trigger's own routing is judged by `respondent-initiated-start`;
+        # reporting it here as well would be the same finding twice.
+        if state.get("type") == "trigger":
+            continue
+
+        # Only widgets that still owe a row: not the ones after the publish
+        # step, and not orphans no execution can reach.
+        if name not in owing:
+            continue
+
+        # The publish widget's own branches are governed by
+        # `publish_failure_reaches_message`. Reporting them here as well would
+        # be noise, and for the failure branch it would be a tautology: if
+        # publishing is what failed, no onward path can publish either. What
+        # matters there is whether the respondent is told the survey landed.
+        if name in publishers:
+            continue
+
+        for transition in state.get("transitions", []):
+            event = transition.get("event")
+
+            # Break-offs are already reported, as errors.
+            if event in _BREAK_OFF_EVENTS:
+                continue
+
+            destination = transition.get("next")
+            if destination is None:
+                discarded.append((name, event or "<none>", "<dead end>"))
+            elif destination not in reaching:
+                discarded.append((name, event or "<none>", destination))
+
+    return discarded
+
+
+def publish_failure_reaches_message(definition: dict) -> list[tuple[str, str]]:
+    """Find publish failures that still send the respondent a message.
+
+    Returns:
+        ``(publish widget, messaging widget)`` for each publish ``fail``
+        transition from which a message is still sent.
+
+    This is the specific shape of the bug worth naming on its own, because of
+    what it looks like from the outside: the respondent completes the survey,
+    receives a warm closing message, and goes away satisfied, while the row that
+    was supposed to record them does not exist. Nothing in the send side reports
+    an error. It is only discoverable months later as missing data, by which
+    point the respondent cannot be re-contacted.
+
+    """
+    states = {s["name"]: s for s in definition.get("states", [])}
+    publishers, reaching = _publish_reachability(definition)
+
+    offenders = []
+    for name in sorted(publishers):
+        for transition in states[name].get("transitions", []):
+            if transition.get("event") in _FUNCTION_SUCCESS_EVENTS:
+                continue
+            destination = transition.get("next")
+            if not destination or destination in reaching:
+                continue
+
+            # Breadth-first, so the message reported is the *nearest* one the
+            # respondent would receive. Depth-first returns whichever branch the
+            # stack happened to reach first, which on a five-way closing split
+            # named the message sent to people who never replied - the least
+            # representative of the set, and ten minutes of confusion.
+            seen: set[str] = set()
+            queue = deque([destination])
+            while queue:
+                node = queue.popleft()
+                if node in seen or node not in states:
+                    continue
+                seen.add(node)
+                if states[node].get("type") in _SENDING_TYPES:
+                    offenders.append((name, node))
+                    break
+                for onward in states[node].get("transitions", []):
+                    if onward.get("next"):
+                        queue.append(onward["next"])
+
+    return offenders
 
 
 def evaluate_condition(kind: str, value: str, reply: str) -> bool:
@@ -383,10 +717,6 @@ def unmatchable_conditions(definition: dict) -> list[str]:
                         "usually a comma inside an option label"
                     )
     return problems
-
-
-#: Widget types that put a message on the wire.
-_SENDING_TYPES = frozenset({"send-message", "send-and-wait-for-reply"})
 
 
 def opening_sends(definition: dict) -> list[str]:
@@ -832,6 +1162,33 @@ def check_flow(
     findings: list[Finding] = []
     publishes = any(_is_publish_widget(s) for s in states)
 
+    # Said first, because it changes how everything below should be read. Five
+    # checks - the three publish-path ones, the encryption one and the
+    # final-status one - are all gated on having found a publish widget, and
+    # `_is_publish_widget` recognises one by name: a `run-function` called
+    # `publish_*` or containing `gsheet`. A flow that writes its row through an
+    # HTTP Request widget, or names the step `write_row`, matches nothing, and
+    # every one of those checks returns clean on a flow with no guarantee that
+    # any respondent is recorded at all. That is the failure mode this whole
+    # module exists to prevent, so it has to announce itself rather than pass.
+    if states and not publishes:
+        findings.append(
+            Finding(
+                "warning",
+                "no-publish-widget-found",
+                "No publish widget was recognised, so the checks that guarantee "
+                "every respondent produces a row did not run",
+                [
+                    "A publish step is recognised as a `run-function` widget "
+                    "named `publish_*` or containing `gsheet`.",
+                    "If this flow publishes another way - an HTTP Request "
+                    "widget, or a differently named function - rename it, or "
+                    "the break-off, publish-failure and final-status checks "
+                    "will keep reporting nothing.",
+                ],
+            )
+        )
+
     # Every break-off must still produce a row.
     stranded = unpublished_paths(definition)
     if stranded:
@@ -841,6 +1198,92 @@ def check_flow(
                 "unpublished-paths",
                 f"{len(stranded)} break-off path(s) never reach the publish widget",
                 [f"{w} --{e}--> {d}" for w, e, d in stranded[:10]],
+            )
+        )
+
+    # Somebody has to be able to stop.
+    questions = [s for s in states if s.get("type") in QUESTION_TYPES]
+    if questions and not _honours_stop(definition):
+        findings.append(
+            Finding(
+                "warning",
+                "no-optout-path",
+                "No question routes a request to stop, so a mid-survey 'STOP' "
+                "is treated as an answer and the next question is sent anyway",
+                [
+                    "Twilio's opt-out handling covers the carrier keywords for "
+                    "SMS. Inside a WhatsApp session a stop word arrives as an "
+                    "ordinary reply and nothing looks at it unless the flow does.",
+                    "Add a split ahead of each store widget matching "
+                    + ", ".join(sorted(_STOP_WORDS)),
+                ],
+            )
+        )
+
+    # A publish failure that still thanks the respondent is the worst version of
+    # this: it looks like success from every side at the moment it fails.
+    disguised = publish_failure_reaches_message(definition)
+    if disguised:
+        findings.append(
+            Finding(
+                "error",
+                "publish-failure-thanks-respondent",
+                "A failed publish still sends the respondent a message, so a "
+                "lost row looks like a completed survey",
+                [
+                    f"{publisher} --fail--> ... --> {messenger} (sends a message)"
+                    for publisher, messenger in disguised[:10]
+                ],
+            )
+        )
+
+    # An encryption failure that still publishes writes a row whose identifier
+    # columns are empty - indistinguishable from a respondent who had no name.
+    # Unless a status column says which it was, in which case publishing anyway
+    # is the right call: a row without identifiers beats no row at all.
+    encrypt_failures = []
+    publishers, _ = _publish_reachability(definition)
+    has_status_column = any(
+        "status" in name.lower() and "enc" in name.lower()
+        for name, _source in published_columns(definition)
+    )
+    for state in states:
+        if not _is_encrypt_widget(state):
+            continue
+        for transition in state.get("transitions", []):
+            if transition.get("event") in _FUNCTION_SUCCESS_EVENTS:
+                continue
+            if transition.get("next") in publishers:
+                encrypt_failures.append(
+                    f"{state.get('name')} --{transition.get('event')}--> "
+                    f"{transition.get('next')}"
+                )
+    if encrypt_failures and not has_status_column:
+        findings.append(
+            Finding(
+                "warning",
+                "encrypt-failure-publishes-anyway",
+                "An encryption failure still publishes, writing blank identifier "
+                "columns that look like missing data rather than a failure",
+                encrypt_failures[:10]
+                + [
+                    "Publish a status column naming the failure - something "
+                    "like `enc_status` - so a blank identifier can be read as "
+                    "'this respondent had no name' rather than 'encryption "
+                    "failed and nobody knew'."
+                ],
+            )
+        )
+
+    # Every other branch that quietly gives up the chance to publish.
+    discarded = discarded_paths(definition)
+    if discarded:
+        findings.append(
+            Finding(
+                "warning",
+                "discarded-paths",
+                f"{len(discarded)} path(s) end without publishing a row",
+                [f"{w} --{e}--> {d}" for w, e, d in discarded[:10]],
             )
         )
 
@@ -1031,8 +1474,8 @@ def check_flow(
             Finding(
                 "warning",
                 "no-encryption",
-                "Publishes to Sheets with no encryption widget; any identifier "
-                "in the payload is written in plain text",
+                "Publishes with no encryption widget; any identifier in the "
+                "payload is written to the warehouse in plain text",
             )
         )
 
