@@ -14,10 +14,10 @@ whole-spec comparison.
 """
 
 import json
-import zipfile
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 
 from requests_to_twilio.spec import (
     DEFAULT_CONSTRAINTS,
@@ -664,27 +664,43 @@ class TestTheCommittedSampleTemplate:
             "sample_template.xlsx is missing. Regenerate it with `just survey-sample`."
         )
 
-    def test_it_still_matches_what_the_generator_produces(self, tmp_path):
-        """Entry by entry, which is what `_make_reproducible` exists to allow.
+    @staticmethod
+    def _contents(path):
+        """Return what the workbook says, with nothing about how it was written.
 
-        Not `read_bytes()` on the whole file: an xlsx is a zip, and the deflate
-        stream depends on the zlib build that wrote it, so identical documents
-        packed on Windows and on Linux differ as files. Comparing the members
-        keeps the check exact about the document and silent about the packing.
+        Sheet names, every cell value, and the dropdown ranges - the things a
+        person opening the file would see. Deliberately not the bytes, and not
+        the XML: openpyxl's serialisation is not stable across platforms, so a
+        file generated on Linux differs from the same document generated on
+        Windows while saying exactly the same thing. Comparing what it says
+        catches drift in the schema and the starter content, which is the whole
+        point of the check, and stops the build failing over a serialiser.
         """
-        stale = (
+        workbook = load_workbook(path)
+        try:
+            return {
+                sheet.title: {
+                    "cells": [[cell.value for cell in row] for row in sheet.rows],
+                    "validations": sorted(
+                        (str(v.sqref), v.formula1 or "")
+                        for v in sheet.data_validations.dataValidation
+                    ),
+                }
+                for sheet in workbook.worksheets
+            }
+        finally:
+            workbook.close()
+
+    def test_it_still_matches_what_the_generator_produces(self, tmp_path):
+        """What the workbook says must match what the generator produces now."""
+        fresh = tmp_path / "fresh.xlsx"
+        write_xlsx(starter_spec(), fresh)
+        assert self._contents(fresh) == self._contents(self.SAMPLE), (
             "sample_template.xlsx no longer matches starter_spec(). The schema "
             "or the starter content has changed - regenerate it with "
             "`just survey-sample` and commit the result, so the reference people "
             "open is the format the code actually reads."
         )
-        fresh = tmp_path / "fresh.xlsx"
-        write_xlsx(starter_spec(), fresh)
-
-        with zipfile.ZipFile(fresh) as new, zipfile.ZipFile(self.SAMPLE) as committed:
-            assert new.namelist() == committed.namelist(), stale
-            for name in new.namelist():
-                assert new.read(name) == committed.read(name), f"{stale} ({name})"
 
     def test_it_reads_back_as_a_valid_spec(self):
         spec = read_xlsx(self.SAMPLE)

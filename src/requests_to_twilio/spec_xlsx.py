@@ -518,16 +518,17 @@ def _make_reproducible(path: Path) -> None:
 
     Nobody regenerates the committed sample in place - an RA writes their own
     workbook to their own path and the sample stays as the reference - so churn
-    is not the problem this solves. What it buys is the ability to tell whether
-    the committed sample still matches the schema: with timestamps and the
-    create-system byte fixed, the archive is a function of the spec alone, so a
-    test can regenerate it and compare.
+    is not the problem this solves. What it buys is that regenerating an
+    unchanged spec produces an unchanged file, so `git status` stays quiet and a
+    real edit to the schema is the only thing that ever shows up as a diff.
 
-    One thing this cannot pin is the deflate stream itself. Compressed bytes
-    depend on the zlib build doing the compressing, which varies across
-    platforms, so the comparison is made entry by entry over the decompressed
-    payloads rather than over the whole file - see the test. That still catches
-    every change to the document; it only declines to care how it was packed.
+    It does not buy byte-equality across machines, and nothing here could. The
+    deflate stream depends on the zlib build doing the compressing, and
+    openpyxl's XML serialisation is not stable across platforms either, so the
+    same document written on Linux and on Windows is two different files. The
+    test that guards the committed sample against drift therefore compares what
+    the workbook says - sheets, cells, dropdowns - rather than how it was
+    written.
 
     That check earns its place. A sample that drifts out of date teaches the
     format it was generated from rather than the one in the code, and this
