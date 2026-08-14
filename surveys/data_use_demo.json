@@ -1,0 +1,564 @@
+{
+  "settings": {
+    "form_id": "data_use_demo",
+    "form_title": "Data use demo (ARM1/ARM2 experiment)",
+    "languages": [
+      "en",
+      "es"
+    ],
+    "default_language": "en",
+    "functions_service": "rtt-survey",
+    "default_timeout": 3600,
+    "default_retries": 2,
+    "preloads": [
+      "caseid",
+      "name",
+      "arm",
+      "sent_at"
+    ],
+    "flow_name": {
+      "en": "data_use_demo_en",
+      "es": "data_use_demo_es"
+    },
+    "description": {
+      "en": "Data use demo (ARM1/ARM2 experiment) - English, RST Jaipur 2026",
+      "es": "Data use demo (ARM1/ARM2 experiment) - Spanish"
+    }
+  },
+  "survey": [
+    {
+      "type": "template",
+      "name": "intro",
+      "role": "intro",
+      "retries": 0,
+      "template": {
+        "en": "rst2026_intro",
+        "es": "data_use_demo_intro_es"
+      },
+      "stop_check": false,
+      "publish": false
+    },
+    {
+      "type": "select_button consent",
+      "name": "consent",
+      "role": "consent",
+      "label": {
+        "en": "👋 Before we start - would you like to take part?\n\nIt takes about 3 minutes. Taking part is voluntary, you can stop at any time by not replying, and your answers are confidential.",
+        "es": "👋 Antes de empezar - ¿quieres participar?\n\nToma unos 3 minutos. La participación es voluntaria, puedes dejar de responder en cualquier momento y tus respuestas son confidenciales."
+      },
+      "retries": 1,
+      "stop_check": false
+    },
+    {
+      "type": "begin group",
+      "name": "ARM1",
+      "label": {
+        "en": "ARM 1 - dense prose, typed answers, no validation",
+        "es": "ARM 1 - dense prose, typed answers, no validation"
+      },
+      "relevance": "${arm}='1'"
+    },
+    {
+      "type": "text",
+      "name": "P1",
+      "label": {
+        "en": "In the last four (4) weeks, on how many occasions have you drawn on quantitative or qualitative data (for example databases, administrative records, statistical reports, surveys, dashboards) as an input to decisions related to your work?\n\n_Reply with an exact number (e.g. 0, 3, 12)._",
+        "es": "Durante las últimas cuatro (4) semanas, ¿en cuántas ocasiones has recurrido al uso de información basada en datos cuantitativos o cualitativos (por ejemplo, bases de datos, registros administrativos, informes estadísticos, encuestas, paneles de control) como insumo para adoptar decisiones relacionadas con tu trabajo?\n\n_Responde con un número exacto (ej.: 0, 3, 12)._"
+      },
+      "retries": 0
+    },
+    {
+      "type": "text",
+      "name": "P2",
+      "label": {
+        "en": "In the last four (4) weeks, in how many projects, tasks or formal processes you took part in was data or empirical evidence used as explicit support for decision making (for example adjusting strategy, allocating resources, redesigning a process)?\n\n_Reply with an exact number (e.g. 0, 3, 12)._",
+        "es": "Durante las últimas cuatro (4) semanas, ¿en cuántos proyectos, tareas o procesos formales de tu organización en los que participaste se utilizaron datos o evidencia empírica como apoyo explícito para la toma de decisiones (por ejemplo, ajuste de estrategias, asignación de recursos, rediseño de procesos)?\n\n_Responde con un número exacto (ej.: 0, 3, 12)._"
+      },
+      "retries": 0
+    },
+    {
+      "type": "text",
+      "name": "P3",
+      "label": {
+        "en": "Over the last year, how often did you, or the organisation you work for, carry out systematic data collection (for example running surveys, filling in forms, extracting information from internal systems, updating databases) that was then used as an input for decisions in your work?\n\n_Reply with a short phrase (e.g. \"never\", \"sometimes\", \"almost always\", or an approximate percentage)._",
+        "es": "Durante el último año, ¿con qué frecuencia tú, o la entidad en la que trabajas, llevaron a cabo actividades de recolección sistemática de datos (por ejemplo, aplicación de encuestas, diligenciamiento de formularios, extracción de información de sistemas internos, actualización de bases de datos) que luego fueron utilizados como insumo para la toma de decisiones en tu trabajo?\n\n_Escribe una frase breve (ej.: \"nunca\", \"a veces\", \"casi siempre\", o un porcentaje aproximado)._"
+      },
+      "retries": 0
+    },
+    {
+      "type": "text",
+      "name": "P4",
+      "label": {
+        "en": "Over the last year, when you needed to collect information or data to support decisions in your work, what was the main mode of data collection you used?\n\n_For example: online surveys, paper forms, phone interviews, internal administrative records, analysis of existing databases._",
+        "es": "Durante el último año, cuando fue necesario recolectar información o datos para apoyar la toma de decisiones en tu trabajo, ¿cuál fue la modalidad predominante de recolección de datos que utilizaste?\n\n_Por ejemplo: encuestas en línea, formularios en papel, entrevistas telefónicas, registros administrativos internos, análisis de bases de datos existentes._"
+      },
+      "retries": 0
+    },
+    {
+      "type": "end group",
+      "name": "ARM1"
+    },
+    {
+      "type": "begin group",
+      "name": "ARM2",
+      "label": {
+        "en": "ARM 2 - plain language, tappable lists, validated",
+        "es": "ARM 2 - plain language, tappable lists, validated"
+      },
+      "relevance": "${arm}='2'"
+    },
+    {
+      "type": "select_list p1",
+      "name": "P1",
+      "label": {
+        "en": "📊 Question 1 of 4\n\nIn the last 4 weeks, how many times have you used data to make decisions in your work?",
+        "es": "📊 Pregunta 1 de 4\n\nEn las últimas 4 semanas, ¿cuántas veces has usado datos para tomar decisiones en tu trabajo?"
+      },
+      "retries": 2,
+      "list_button": {
+        "en": "Choose an answer",
+        "es": "Elige tu respuesta"
+      }
+    },
+    {
+      "type": "select_list p2",
+      "name": "P2",
+      "label": {
+        "en": "Question 2 of 4\n\nIn the last 4 weeks, in how many projects was data used to make decisions?",
+        "es": "Pregunta 2 de 4\n\nEn las últimas 4 semanas, ¿en cuántos proyectos se usaron datos para tomar decisiones?"
+      },
+      "retries": 2,
+      "list_button": {
+        "en": "Choose an answer",
+        "es": "Elige tu respuesta"
+      }
+    },
+    {
+      "type": "select_list p3",
+      "name": "P3",
+      "label": {
+        "en": "Question 3 of 4 - almost there\n\nOver the last year, how often did you or your organisation collect the data used to make decisions?",
+        "es": "Pregunta 3 de 4 - ya casi\n\nDurante el último año, ¿con qué frecuencia recolectaste tú o tu entidad los datos usados para tomar decisiones?"
+      },
+      "retries": 2,
+      "list_button": {
+        "en": "Choose an answer",
+        "es": "Elige tu respuesta"
+      }
+    },
+    {
+      "type": "select_list p4",
+      "name": "P4",
+      "label": {
+        "en": "🙌 Last one - question 4 of 4\n\nOver the last year, when you needed to collect information, which mode did you mainly use?",
+        "es": "🙌 La última - pregunta 4 de 4\n\nEn el último año, cuando fue necesario recolectar información, ¿qué modalidad usaste principalmente?"
+      },
+      "retries": 2,
+      "list_button": {
+        "en": "Choose an answer",
+        "es": "Elige tu respuesta"
+      }
+    },
+    {
+      "type": "end group",
+      "name": "ARM2"
+    },
+    {
+      "type": "note",
+      "name": "close_complete",
+      "role": "close",
+      "label": {
+        "en": "🙏 Thank you for completing the survey.\n\nYou took part in an experiment with two versions of the same survey: one asking openly in dense prose, and one asking the same things in plain language with tappable answers. You saw one of them.\n\nThe second version is the one we recommend, and in the session we will show what your group's answers looked like - and how much the format alone changed them.\n\nSee you there.",
+        "es": "🙏 Gracias por completar la encuesta.\n\nHiciste parte de un experimento con dos versiones de la misma encuesta: una que pregunta de forma abierta y compleja, y otra que pregunta lo mismo en lenguaje sencillo con respuestas que se pueden tocar. Tú viste una de las dos.\n\nLa segunda es la que recomendamos, y en la sesión mostraremos cómo se vieron las respuestas de tu grupo - y cuánto cambió el formato por sí solo.\n\nNos vemos allá."
+      },
+      "relevance": "${outcome}='complete'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_declined",
+      "role": "close",
+      "label": {
+        "en": "Thank you for your reply. We understand and respect your decision not to take part in the exercise.\n\nYou are still very welcome in the session, where we will look at how WhatsApp data collection works and where it goes wrong.",
+        "es": "Gracias por tu respuesta. Entendemos y respetamos que hayas decidido no participar en el ejercicio.\n\nAun así, estás muy bienvenid@ a la sesión, donde hablaremos de cómo funciona la recolección de datos por WhatsApp y de sus riesgos."
+      },
+      "relevance": "${outcome}='declined'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_incomplete",
+      "role": "close",
+      "label": {
+        "en": "Thank you for the answers you gave - they are recorded.\n\nWe will look at how the format of a question changes the answers it gets, live in the session. See you there.",
+        "es": "Gracias por las respuestas que alcanzaste a dar - quedaron registradas.\n\nVeremos cómo el formato de una pregunta cambia las respuestas que recibe, en vivo durante la sesión. Nos vemos allá."
+      },
+      "relevance": "${outcome}='incomplete'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_optout",
+      "role": "close",
+      "label": {
+        "en": "Understood - I have stopped here and will not send anything else about this survey.\n\nThe answers you already gave are kept; nothing further is asked. Thank you for your time.",
+        "es": "Entendido - me detengo aquí y no te enviaré nada más sobre esta encuesta.\n\nLas respuestas que ya diste se conservan; no se pregunta nada más. Gracias por tu tiempo."
+      },
+      "relevance": "${outcome}='optout'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_never_started",
+      "role": "close",
+      "relevance": "${outcome}='unreachable'",
+      "template": {
+        "en": "rst2026_close",
+        "es": "data_use_demo_close_es"
+      },
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "unsolicited_reply",
+      "role": "unsolicited",
+      "label": {
+        "en": "👋 Thanks for your message.\n\nThis number only runs a short survey during the session, so there is nothing further needed from you here.\n\nIf you have a question, the IPA team at the training can help.",
+        "es": "👋 Gracias por tu mensaje.\n\nEste número solo se usa para una encuesta corta durante la sesión, así que no necesitas hacer nada más por aquí.\n\nSi tienes una pregunta, el equipo de IPA en la sesión puede ayudarte."
+      },
+      "publish": false
+    }
+  ],
+  "choices": [
+    {
+      "list_name": "consent",
+      "value": "yes",
+      "option_id": "consent_yes",
+      "label": {
+        "en": "Yes, I'll take part",
+        "es": "Sí, participo"
+      },
+      "typed": {
+        "en": "1|yes|y",
+        "es": "1|si|sí|s"
+      }
+    },
+    {
+      "list_name": "consent",
+      "value": "no",
+      "option_id": "consent_no",
+      "label": {
+        "en": "No, thanks",
+        "es": "No, gracias"
+      },
+      "typed": {
+        "en": "2|no|n",
+        "es": "2|no|n"
+      }
+    },
+    {
+      "list_name": "p1",
+      "value": "1",
+      "option_id": "p1_0",
+      "label": {
+        "en": "0 times",
+        "es": "0 veces"
+      },
+      "description": {
+        "en": "I did not use data in the last 4 weeks",
+        "es": "No usé datos en las últimas 4 semanas"
+      }
+    },
+    {
+      "list_name": "p1",
+      "value": "2",
+      "option_id": "p1_1_2",
+      "label": {
+        "en": "1-2 times",
+        "es": "1-2 veces"
+      },
+      "description": {
+        "en": "Once or twice",
+        "es": "Una o dos veces"
+      }
+    },
+    {
+      "list_name": "p1",
+      "value": "3",
+      "option_id": "p1_3_5",
+      "label": {
+        "en": "3-5 times",
+        "es": "3-5 veces"
+      },
+      "description": {
+        "en": "A handful of times",
+        "es": "Unas pocas veces"
+      }
+    },
+    {
+      "list_name": "p1",
+      "value": "4",
+      "option_id": "p1_6_10",
+      "label": {
+        "en": "6-10 times",
+        "es": "6-10 veces"
+      },
+      "description": {
+        "en": "Most weeks",
+        "es": "Casi todas las semanas"
+      }
+    },
+    {
+      "list_name": "p1",
+      "value": "5",
+      "option_id": "p1_gt10",
+      "label": {
+        "en": "More than 10 times",
+        "es": "Más de 10 veces"
+      },
+      "description": {
+        "en": "Almost daily",
+        "es": "Casi a diario"
+      }
+    },
+    {
+      "list_name": "p2",
+      "value": "1",
+      "option_id": "p2_0",
+      "label": {
+        "en": "0 projects",
+        "es": "0 proyectos"
+      },
+      "description": {
+        "en": "No project used data",
+        "es": "Ningún proyecto usó datos"
+      }
+    },
+    {
+      "list_name": "p2",
+      "value": "2",
+      "option_id": "p2_1",
+      "label": {
+        "en": "1 project",
+        "es": "1 proyecto"
+      },
+      "description": {
+        "en": "One project used data",
+        "es": "Un proyecto usó datos"
+      }
+    },
+    {
+      "list_name": "p2",
+      "value": "3",
+      "option_id": "p2_2_3",
+      "label": {
+        "en": "2-3 projects",
+        "es": "2-3 proyectos"
+      },
+      "description": {
+        "en": "A few projects used data",
+        "es": "Algunos proyectos usaron datos"
+      }
+    },
+    {
+      "list_name": "p2",
+      "value": "4",
+      "option_id": "p2_4_5",
+      "label": {
+        "en": "4-5 projects",
+        "es": "4-5 proyectos"
+      },
+      "description": {
+        "en": "Several projects used data",
+        "es": "Varios proyectos usaron datos"
+      }
+    },
+    {
+      "list_name": "p2",
+      "value": "5",
+      "option_id": "p2_gt5",
+      "label": {
+        "en": "More than 5 projects",
+        "es": "Más de 5 proyectos"
+      },
+      "description": {
+        "en": "Most or all projects used data",
+        "es": "La mayoría o todos"
+      }
+    },
+    {
+      "list_name": "p3",
+      "value": "1",
+      "option_id": "p3_never",
+      "label": {
+        "en": "We never collect data",
+        "es": "Nunca recolectamos"
+      },
+      "description": {
+        "en": "We only use data others collect",
+        "es": "Solo usamos datos que recolectan otros"
+      }
+    },
+    {
+      "list_name": "p3",
+      "value": "2",
+      "option_id": "p3_lt25",
+      "label": {
+        "en": "A few projects",
+        "es": "Pocos proyectos"
+      },
+      "description": {
+        "en": "Less than 25% of projects",
+        "es": "Menos del 25% de los proyectos"
+      }
+    },
+    {
+      "list_name": "p3",
+      "value": "3",
+      "option_id": "p3_25_50",
+      "label": {
+        "en": "About half",
+        "es": "Cerca de la mitad"
+      },
+      "description": {
+        "en": "Between 25% and 50% of projects",
+        "es": "Entre el 25% y el 50%"
+      }
+    },
+    {
+      "list_name": "p3",
+      "value": "4",
+      "option_id": "p3_51_75",
+      "label": {
+        "en": "Most projects",
+        "es": "La mayoría"
+      },
+      "description": {
+        "en": "Between 51% and 75% of projects",
+        "es": "Entre el 51% y el 75%"
+      }
+    },
+    {
+      "list_name": "p3",
+      "value": "5",
+      "option_id": "p3_gt75",
+      "label": {
+        "en": "Almost all projects",
+        "es": "Casi todos"
+      },
+      "description": {
+        "en": "More than 75% of projects",
+        "es": "Más del 75% de los proyectos"
+      }
+    },
+    {
+      "list_name": "p4",
+      "value": "1",
+      "option_id": "p4_capi",
+      "label": {
+        "en": "In person (CAPI)",
+        "es": "Presencial (CAPI)"
+      },
+      "description": {
+        "en": "Face-to-face interviews",
+        "es": "Entrevistas cara a cara"
+      }
+    },
+    {
+      "list_name": "p4",
+      "value": "2",
+      "option_id": "p4_cati",
+      "label": {
+        "en": "Phone (CATI)",
+        "es": "Telefónica (CATI)"
+      },
+      "description": {
+        "en": "Interviews by phone call",
+        "es": "Entrevistas por llamada"
+      }
+    },
+    {
+      "list_name": "p4",
+      "value": "3",
+      "option_id": "p4_web",
+      "label": {
+        "en": "Web or online",
+        "es": "Web o en línea"
+      },
+      "description": {
+        "en": "Self-completed online forms",
+        "es": "Formularios en línea"
+      }
+    },
+    {
+      "list_name": "p4",
+      "value": "4",
+      "option_id": "p4_whatsapp",
+      "label": {
+        "en": "WhatsApp",
+        "es": "Por WhatsApp"
+      },
+      "description": {
+        "en": "Surveys over WhatsApp like this one",
+        "es": "Encuestas por WhatsApp como esta"
+      }
+    },
+    {
+      "list_name": "p4",
+      "value": "5",
+      "option_id": "p4_other",
+      "label": {
+        "en": "Another mode",
+        "es": "Otra modalidad"
+      },
+      "description": {
+        "en": "Administrative records or something else",
+        "es": "Registros administrativos u otra"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "key": "error_numeric",
+      "text": {
+        "en": "Please reply with a number only.\n\n_Reply with an exact number (e.g. 0, 3, 12)._\n\nI am a bot and cannot understand everything that is written to me.",
+        "es": "Por favor responde solo con un número.\n\n_Responde con un número exacto (ej.: 0, 3, 12)._\n\nSoy un robot y no entiendo todo lo que me escribes."
+      }
+    },
+    {
+      "key": "error_option",
+      "text": {
+        "en": "No problem - I could not read that one.\n\nTap *{button}* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options.",
+        "es": "Sin problema - no pude leer esa respuesta.\n\nToca *{button}* en el mensaje anterior y selecciona de la lista. También puedes responder con el número de tu respuesta.\n\nSoy un robot, así que solo entiendo las opciones."
+      }
+    },
+    {
+      "key": "error_option_labels",
+      "text": {
+        "en": "No problem - I could not read that one.\n\nTap *{button}* on the message above and pick from the list, or type the option exactly as it appears.\n\nI am a bot, so I only understand the options.",
+        "es": "Sin problema - no pude leer esa respuesta.\n\nToca *{button}* en el mensaje anterior y selecciona de la lista, o escribe la opción tal como aparece.\n\nSoy un robot, así que solo entiendo las opciones."
+      }
+    },
+    {
+      "key": "unsolicited",
+      "text": {
+        "en": "👋 Thanks for your message.\n\nThis number only runs a short survey during the session, so there is nothing further needed from you here.\n\nIf you have a question, the IPA team at the training can help.",
+        "es": "👋 Gracias por tu mensaje.\n\nEste número solo se usa para una encuesta corta durante la sesión, así que no necesitas hacer nada más por aquí.\n\nSi tienes una pregunta, el equipo de IPA en la sesión puede ayudarte."
+      }
+    },
+    {
+      "key": "list_button",
+      "text": {
+        "en": "Choose an answer",
+        "es": "Elige tu respuesta"
+      }
+    },
+    {
+      "key": "stop_words",
+      "text": {
+        "en": "stop, quit, unsubscribe, cancel, end",
+        "es": "stop, parar, cancelar, salir, baja, no molestar, quit"
+      }
+    }
+  ]
+}

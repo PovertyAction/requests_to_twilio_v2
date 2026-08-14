@@ -1,0 +1,21 @@
+lang,arm,question,variable,code,option_id,label,description
+en,2,ARM2_P1,ARM2_P1_code,1,p1_0,0 times,I did not use data in the last 4 weeks
+en,2,ARM2_P1,ARM2_P1_code,2,p1_1_2,1-2 times,Once or twice
+en,2,ARM2_P1,ARM2_P1_code,3,p1_3_5,3-5 times,A handful of times
+en,2,ARM2_P1,ARM2_P1_code,4,p1_6_10,6-10 times,Most weeks
+en,2,ARM2_P1,ARM2_P1_code,5,p1_gt10,More than 10 times,Almost daily
+en,2,ARM2_P2,ARM2_P2_code,1,p2_0,0 projects,No project used data
+en,2,ARM2_P2,ARM2_P2_code,2,p2_1,1 project,One project used data
+en,2,ARM2_P2,ARM2_P2_code,3,p2_2_3,2-3 projects,A few projects used data
+en,2,ARM2_P2,ARM2_P2_code,4,p2_4_5,4-5 projects,Several projects used data
+en,2,ARM2_P2,ARM2_P2_code,5,p2_gt5,More than 5 projects,Most or all projects used data
+en,2,ARM2_P3,ARM2_P3_code,1,p3_never,We never collect data,We only use data others collect
+en,2,ARM2_P3,ARM2_P3_code,2,p3_lt25,A few projects,Less than 25% of projects
+en,2,ARM2_P3,ARM2_P3_code,3,p3_25_50,About half,Between 25% and 50% of projects
+en,2,ARM2_P3,ARM2_P3_code,4,p3_51_75,Most projects,Between 51% and 75% of projects
+en,2,ARM2_P3,ARM2_P3_code,5,p3_gt75,Almost all projects,More than 75% of projects
+en,2,ARM2_P4,ARM2_P4_code,1,p4_capi,In person (CAPI),Face-to-face interviews
+en,2,ARM2_P4,ARM2_P4_code,2,p4_cati,Phone (CATI),Interviews by phone call
+en,2,ARM2_P4,ARM2_P4_code,3,p4_web,Web or online,Self-completed online forms
+en,2,ARM2_P4,ARM2_P4_code,4,p4_whatsapp,WhatsApp,Surveys over WhatsApp like this one
+en,2,ARM2_P4,ARM2_P4_code,5,p4_other,Another mode,Administrative records or something else

@@ -1,7 +1,0 @@
-pandas
-requests
-xlrd
-openpyxl
-ftfy
-twilio
-pycryptodome==3.15

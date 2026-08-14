@@ -1,0 +1,33 @@
+# docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for more information:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+# https://containers.dev/guide/dependabot
+
+version: 2
+updates:
+  # "uv", not "pip". This project is uv-managed and CI runs `uv sync --locked`
+  # (.github/workflows/tests.yml), so an update that touches pyproject.toml
+  # without also updating uv.lock produces a PR that fails the lockfile check.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(actions)"
+  # The Twilio MCP server is an alpha package pinned in .mcp.json, and it is
+  # handed a Twilio API key with write access. Upgrades should arrive as a
+  # reviewable PR rather than silently on the next `npx`.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"

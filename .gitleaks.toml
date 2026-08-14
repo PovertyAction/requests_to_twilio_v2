@@ -1,0 +1,35 @@
+# gitleaks configuration.
+#
+# The default rules are kept in full - this file only exempts specific strings
+# that the `generic-api-key` heuristic mistakes for credentials. Each entry
+# matches the *value* gitleaks extracted, anchored, so nothing else is muted:
+# no file is excluded, and every other rule still applies everywhere.
+#
+# The rule fires on `<word containing "key"/"token"> <separator> <10+ chars>`,
+# which a type annotation and a Liquid variable name both satisfy.
+#
+# Do not add a path here to silence a finding. If a real secret ever lands in
+# this repository the remedy is to rotate it, not to allowlist it.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives from the generic-api-key heuristic"
+regexes = [
+  # `private_key: X25519PrivateKey | None = None` in crypto.py and decryptor.py.
+  # The "secret" is the name of a type imported from the cryptography package.
+  '''^X25519PrivateKey$''',
+
+  # Studio flow definitions count attempts per question in a flow variable, so
+  # the generated JSON is full of `"key": "tries_ARM2_P1"` pairs. These are
+  # variable names in a committed flow, readable in the Twilio Console.
+  '''^tries_[A-Za-z0-9_]+$''',
+
+  # tests/test_crypto.py: a ciphertext fixture for the pre-2.0 AES-128-CBC
+  # format, kept so the legacy reader stays tested. It was produced by the
+  # original CryptoJS helper with the dummy secret "shortkey" and decrypts to
+  # the string "Maria Gomez". Both the secret and the plaintext are in the test
+  # beside it; nothing here ever protected real data.
+  '''^AbdeCVNijCKhK7PnEEypxN3PvDyA1nGiZynDDisntU4=$''',
+]

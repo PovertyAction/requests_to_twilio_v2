@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "CLOSING template for the data-use demo, Spanish. The mirror of",
+    "templates/rst2026_close.json - read that file's comment for why this",
+    "exists; the reasoning is identical and is not repeated here.",
+    "",
+    "In short: it goes only to people who never replied to the opener. They",
+    "never opened the 24-hour window, so a free-form message to them fails with",
+    "63016 and an approved template is the only way to give them closure.",
+    "",
+    "Copy must match the `close_never_started` widget that",
+    "scripts/build_data_use_demo.py emits for Spanish. Framed for UTILITY.",
+    "Submission is irreversible."
+  ],
+  "friendly_name": "data_use_demo_close_es",
+  "language": "es",
+  "variables": {
+    "1": "Ana"
+  },
+  "types": {
+    "twilio/text": {
+      "body": "Hola {{1}}, gracias por tu tiempo. La breve encuesta por WhatsApp que te enviamos ya se cerró.\n\nNo necesitas responder nada y no volveremos a escribirte sobre este ejercicio.\n\nSi quieres conocer lo que mostró el ejercicio, te esperamos en la sesión.\n\n_Equipo IPA_"
+    }
+  }
+}
