@@ -34,6 +34,22 @@ from .flows import Finding
 #: an orphan whatever else it contains.
 DEFAULT_KEY = "caseid"
 
+#: Outcome values this tooling's flows emit. Seeing none of them in a dataset
+#: means the outcome column is missing, misnamed, or carries some other
+#: vocabulary - and without one, completion cannot be told from break-off.
+#:
+#: `unreachable`, `undeliverable` and `optout` were emitted by the flows long
+#: before they were listed here, which meant a round consisting entirely of
+#: non-responders was reported as having no recognisable outcome at all.
+RECOGNISED_OUTCOMES = (
+    "complete",
+    "declined",
+    "incomplete",
+    "unreachable",
+    "undeliverable",
+    "optout",
+)
+
 
 def duplicate_observations(
     frame: pd.DataFrame, key: str = DEFAULT_KEY
@@ -145,9 +161,7 @@ def check_dataset(frame: pd.DataFrame, key: str = DEFAULT_KEY) -> list[Finding]:
         )
 
     outcomes = outcome_counts(frame)
-    if outcomes and not any(
-        o in outcomes for o in ("complete", "declined", "incomplete")
-    ):
+    if outcomes and not any(o in outcomes for o in RECOGNISED_OUTCOMES):
         findings.append(
             Finding(
                 "warning",
