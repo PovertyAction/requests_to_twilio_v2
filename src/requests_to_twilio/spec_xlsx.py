@@ -206,6 +206,11 @@ def _headers(spec: Spec, sheet: str) -> list[str]:
     return columns
 
 
+#: Flags that only mean something on a row that waits for a reply, paired with
+#: the value that means "nothing unusual here".
+_QUESTION_ONLY_FLAGS = (("stop_check", True), ("publish", True), ("encrypt", False))
+
+
 def _survey_values(spec: Spec, row: SurveyRow, headers: list[str]) -> list[str]:
     """Render one survey row against the header order."""
     plain: dict[str, Any] = {
@@ -217,11 +222,22 @@ def _survey_values(spec: Spec, row: SurveyRow, headers: list[str]) -> list[str]:
         "timeout": row.timeout,
         "constraint": row.constraint,
         "constraint_message": row.constraint_message,
-        "stop_check": row.stop_check,
-        "publish": row.publish,
-        "encrypt": row.encrypt,
         _WIDGETS_COLUMN: spec.widget_count(row),
     }
+
+    # `stop_check: yes` against a `begin group` row is not wrong, it is
+    # meaningless - a group does not wait for a reply, so there is nothing to
+    # check for a request to stop. Printing it anyway invites somebody to reason
+    # about it, or to "fix" it, and a sheet full of cells that do not matter is
+    # how the cells that do matter stop being read.
+    #
+    # Left in wherever the value is *not* the default, though, because there it
+    # is the whole point: a `note` row carrying `publish: no` is saying that a
+    # closing message produces no column, which is worth seeing. Blanking it
+    # would also break the round trip, since blank reads back as the default.
+    for flag, uninteresting in _QUESTION_ONLY_FLAGS:
+        value = getattr(row, flag)
+        plain[flag] = value if (row.is_question or value != uninteresting) else ""
     translatable = {
         "label": row.label,
         "list_button": row.list_button,
@@ -358,6 +374,10 @@ def write_xlsx(spec: Spec, path: Path) -> Path:
     Returns:
         The path written.
 
+    Raises:
+        SpecError: If the file cannot be written - which on Windows is almost
+            always Excel holding it open.
+
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -421,7 +441,20 @@ def write_xlsx(spec: Spec, path: Path) -> Path:
     _write_settings(workbook, spec)
     _write_help(workbook, spec)
 
-    workbook.save(path)
+    try:
+        workbook.save(path)
+    except PermissionError as exc:
+        # Excel takes an exclusive lock on an open workbook, and this is the
+        # normal way to hit it: regenerate the view while still looking at the
+        # last one. The bare OSError reads like a filesystem problem, so it is
+        # worth naming the actual cause and the one-step fix.
+        raise SpecError(
+            f"Could not write {path}: it is open in another program.\n"
+            f"Close it in Excel and run this again - the workbook is a generated "
+            f"view, so nothing in it is lost."
+        ) from exc
+    except OSError as exc:
+        raise SpecError(f"Could not write {path}: {exc}") from exc
     return path
 
 

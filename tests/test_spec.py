@@ -605,3 +605,41 @@ class TestExcelSpecificHazards:
         book["survey"].append([None] * 8)
         book.save(tmp_path / "s.xlsx")
         assert len(read_xlsx(tmp_path / "s.xlsx").survey) == 2
+
+    def test_flags_are_blank_where_they_mean_nothing(self, tmp_path):
+        """A `stop_check: yes` on a group row is noise, not information."""
+        import openpyxl
+
+        spec = load_spec(DEMO)
+        write_xlsx(spec, tmp_path / "demo.xlsx")
+        sheet = openpyxl.load_workbook(tmp_path / "demo.xlsx")["survey"]
+        head = [c.value for c in sheet[1]]
+
+        by_name = {}
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            by_name[(row[head.index("type")], row[head.index("name")])] = row
+
+        # openpyxl reads a genuinely empty cell as None rather than "".
+        group = by_name[("begin group", "ARM1")]
+        for flag in ("stop_check", "publish", "encrypt"):
+            assert group[head.index(flag)] in (None, ""), (
+                f"{flag} should be blank on a group row"
+            )
+
+        # But a non-default value stays, because there it is the point: a closing
+        # message publishes no column, and that is worth seeing.
+        closing = by_name[("note", "close_complete")]
+        assert closing[head.index("publish")] == "no"
+        assert closing[head.index("stop_check")] in (None, "")
+
+        # And a real question still says all three.
+        question = by_name[("select_list p1", "P1")]
+        assert question[head.index("stop_check")] == "yes"
+        assert question[head.index("publish")] == "yes"
+        assert question[head.index("encrypt")] == "no"
+
+    def test_blanking_those_flags_does_not_break_the_round_trip(self, tmp_path):
+        """Blank reads back as the default, which is what was blanked."""
+        spec = load_spec(DEMO)
+        write_xlsx(spec, tmp_path / "demo.xlsx")
+        assert spec_to_dict(read_xlsx(tmp_path / "demo.xlsx")) == spec_to_dict(spec)

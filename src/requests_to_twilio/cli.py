@@ -1460,16 +1460,22 @@ def survey_convert(
     except SpecError as exc:
         _fail(str(exc))
 
-    to_workbook = destination.suffix.lower() in {".xlsx", ".xlsm"}
-    if to_workbook:
-        written = write_xlsx(spec, destination)
-    elif destination.suffix.lower() == ".json":
-        written = save_spec(spec, destination)
-    else:
+    suffix = destination.suffix.lower()
+    to_workbook = suffix in {".xlsx", ".xlsm"}
+    if not to_workbook and suffix != ".json":
         _fail(
             f"Cannot tell what to write from {destination.suffix!r}. Use .json "
             "for the canonical spec or .xlsx for the workbook."
         )
+
+    try:
+        written = (
+            write_xlsx(spec, destination)
+            if to_workbook
+            else save_spec(spec, destination)
+        )
+    except SpecError as exc:
+        _fail(str(exc))
 
     typer.secho(f"{source}  ->  {written}", fg=typer.colors.GREEN)
     if to_workbook:
