@@ -15,16 +15,35 @@ jobs:
   # block the gitleaks binary under Application Control policy, so a local hook
   # would fail for everyone. This repository has shipped a live Google
   # service-account key before, so the check is worth keeping somewhere.
+  #
+  # The gitleaks *action* (v2) requires a paid GITLEAKS_LICENSE on
+  # organization-owned repositories, and this repository is one. Without the
+  # secret the job does not scan - it either fails or exits having checked
+  # nothing, which is the worst outcome for a guard whose entire purpose is to
+  # catch what nobody noticed. The binary carries no such condition, so it is
+  # invoked directly and its exit code is the result.
   secret-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+      - name: Scan the working tree
+        run: gitleaks detect --source . --no-git --redact --verbose
+      - name: Scan the commits in this PR
+        # Only the new commits: the leaked service-account key from 2023 is
+        # still in history and cannot be un-committed, so scanning the whole
+        # history would fail every run and teach everyone to ignore this job.
+        if: github.event_name == 'pull_request'
+        run: |
+          gitleaks detect --source . --redact --verbose \
+            --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
   test:
     runs-on: ${{ matrix.os }}
