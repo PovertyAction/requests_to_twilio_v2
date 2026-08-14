@@ -7,6 +7,7 @@ silently: an over-long list item, a comma inside a label, an emoji in a string
 that gets compared literally.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -617,3 +618,51 @@ class TestBuild:
         )
         params = {p["key"]: p["value"] for p in publish["properties"]["parameters"]}
         assert params["lang"] == lang
+
+
+class TestTheBuilderStillEmitsTheCommittedFlow:
+    """The regression gate for every future change to the builder.
+
+    `flows/data_use_demo_en.json` is what a round actually runs. It is also the
+    only artifact anyone reviews - nobody reads a 73-widget canvas - so a
+    refactor that quietly changes one widget is a change to the instrument that
+    no reviewer would catch.
+
+    The content SIDs and Functions coordinates are recovered from the committed
+    flow itself rather than stubbed, which is what makes the comparison exact
+    instead of merely structural: those are the only per-account values in the
+    file, so supplying them back means everything else has to match on its own.
+
+    This is deliberately a *pinning* test. If the flow is meant to change, the
+    committed JSON is rebuilt in the same commit and the diff is the review.
+    """
+
+    def _coordinates(self, committed):
+        """Recover the per-account values from the committed definition."""
+        sids, functions = {}, {}
+        for state in committed["states"]:
+            properties = state.get("properties", {})
+            if properties.get("content_sid"):
+                sids[state["name"]] = properties["content_sid"]
+            if state.get("type") == "run-function":
+                functions.setdefault("service_sid", properties["service_sid"])
+                functions.setdefault("environment_sid", properties["environment_sid"])
+                which = "encrypt" if "encrypt" in state["name"] else "publish"
+                functions[f"{which}_sid"] = properties["function_sid"]
+                functions[f"{which}_url"] = properties["url"]
+        return sids, functions
+
+    def test_rebuilding_english_reproduces_the_committed_definition(self):
+        path = Path(__file__).resolve().parents[1] / "flows" / "data_use_demo_en.json"
+        committed = json.loads(path.read_text(encoding="utf-8"))
+        sids, functions = self._coordinates(committed)
+
+        by_name = {
+            demo.EN["intro_template"]: sids["intro"],
+            demo.EN["close_template"]: sids["close_never_started"],
+            demo.consent_template_name("en"): sids["consent"],
+        }
+        for key in demo.QUESTION_KEYS:
+            by_name[demo.question_template_name("en", key)] = sids[f"ARM2_{key}"]
+
+        assert demo.build("en", by_name, functions) == committed
