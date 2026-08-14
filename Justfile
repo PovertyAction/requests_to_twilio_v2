@@ -17,9 +17,15 @@ system-info:
     @echo "Operating system type: {{ os_family() }}"
     @echo "Operating system: {{ os() }}"
 
-# Clean venv
+# Delete the virtual environment
+[windows]
 clean:
-    rm -rf .venv
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue {{ venv_dir }}
+
+# Delete the virtual environment
+[unix]
+clean:
+    rm -rf {{ venv_dir }}
 
 # Setup environment
 get-started: pre-install venv
@@ -60,6 +66,7 @@ fmt-md f:
 fmt-check-markdown:
     markdownlint-cli2 --config {{ justfile_directory() }}/.markdownlint.yaml "**/*.{md,qmd}" "#.venv"
 
+# Lint and format everything: python then markdown
 fmt-all: lint-py fmt-python fmt-markdown
 
 # Run pre-commit hooks
@@ -74,13 +81,16 @@ test:
 test-cov:
     uv run pytest --cov=requests_to_twilio --cov-report=term-missing
 
-# Check for private keys in tracked files. Full gitleaks scanning runs in CI,
-# because IPA-managed Windows blocks the gitleaks binary (Application Control).
+# Full gitleaks scanning runs in CI instead, because IPA-managed Windows blocks
+# the gitleaks binary under Application Control. This catches private keys only.
+[doc("Scan tracked files for private keys")]
 scan-secrets:
     uv run pre-commit run detect-private-key --all-files
 
-# Generate .claude/settings.local.json from the credentials in .env, so the
-# Twilio MCP server can resolve the ${...} placeholders in .mcp.json.
+# .mcp.json is committed and shared, so it names credentials as ${VAR} rather
+# than holding them. This writes them to .claude/settings.local.json, which is
+# gitignored. Restart Claude Code afterwards, then run /mcp to confirm.
+[doc("Write the Twilio MCP credentials from .env into Claude Code settings")]
 mcp-setup:
     uv run python scripts/mcp_settings.py
 
@@ -92,19 +102,21 @@ mcp-list:
 template-list *ARGS:
     uv run rtt template list {{ ARGS }}
 
-# Create a template in Twilio from templates/<name>.json. Does NOT submit to
-# Meta - the wording can still be changed at this stage.
+# Creates the template in Twilio but does NOT submit it to Meta, so the wording
+# can still be changed at this stage.
+[doc("Create a WhatsApp template from templates/<name>.json")]
 template-create FILE *ARGS:
     uv run rtt template create {{ FILE }} {{ ARGS }}
 
-# Submit a template to Meta for WhatsApp approval. IRREVERSIBLE: submitted
-# templates can never be edited, so review the wording first.
+# IRREVERSIBLE. A submitted template can never be edited - only deleted and
+# recreated under a new name - so review the wording before running this.
+[doc("Submit a template to Meta for WhatsApp approval (IRREVERSIBLE)")]
 template-submit NAME *ARGS:
     uv run rtt template submit {{ NAME }} {{ ARGS }}
 
-# Delete an unsubmitted template so its wording can be redone. Twilio has no
-# update operation for content, so this is how a draft gets revised. Refuses
-# anything already submitted to Meta.
+# Twilio has no update operation for content, so deleting is how a draft gets
+# revised. Refuses anything already submitted to Meta.
+[doc("Delete an unsubmitted template so its wording can be redone")]
 template-delete NAME *ARGS:
     uv run rtt template delete {{ NAME }} {{ ARGS }}
 
@@ -128,26 +140,38 @@ launch *ARGS:
 decrypt *ARGS:
     uv run rtt decrypt {{ ARGS }}
 
-# Pull executions from Twilio to reconcile against the Google Sheet.
+# Pull executions from Twilio to reconcile against the published table
 fetch *ARGS:
     uv run rtt fetch {{ ARGS }}
 
-# Load a dataset into MotherDuck.
+# Load a dataset into MotherDuck. Appends by default; --mode replace DROPS
+[doc("Load a dataset into MotherDuck")]
 push *ARGS:
     uv run rtt push {{ ARGS }}
 
+# Node is not optional and was missing from the non-Windows recipes: the
+# cross-language interop test runs the real Twilio JavaScript, and the Twilio
+# MCP server is launched with npx. (`just` itself is already present - you are
+# running it.)
+
+# Install the toolchain: uv, gh, Node, markdownlint
 [windows]
 pre-install:
     winget install Casey.Just astral-sh.uv GitHub.cli OpenJS.NodeJS
     npm install -g markdownlint-cli2
 
+# Install the toolchain: uv, gh, Node, markdownlint
 [linux]
 pre-install:
-    brew install just uv gh markdownlint-cli2
+    sudo apt-get update
+    sudo apt-get install -y nodejs npm gh
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    npm install -g markdownlint-cli2
 
+# Install the toolchain: uv, gh, Node, markdownlint
 [macos]
 pre-install:
-    brew install just uv gh markdownlint-cli2
+    brew install uv gh node markdownlint-cli2
 
 # List Studio flows
 flow-list:
@@ -157,24 +181,27 @@ flow-list:
 flow-pull NAME *ARGS:
     uv run rtt flow pull {{ NAME }} {{ ARGS }}
 
-# High-frequency checks for flows: verify the instrument was coded correctly.
-# Omit NAME to check every flow on the account.
+# The instrument-side equivalent of high-frequency checks: it verifies the
+# survey was coded correctly. Omit NAME to check every flow on the account.
+[doc("Check a flow for coding defects. Exits non-zero on an error")]
 flow-check *ARGS:
     uv run rtt flow check {{ ARGS }}
 
-# Build the data-use demo flow in both languages, plus the content templates
-# its interactive questions need. Pass --lang en or --lang es for just one.
+# Builds both languages from one structure and two string tables, so a fix to
+# the graph lands in both. Pass --lang en or --lang es for just one. Needs live
+# Twilio credentials: the content templates are looked up by name.
+[doc("Build the data-use demo flow and the templates its questions need")]
 build-demo-flow *ARGS:
     uv run python scripts/build_data_use_demo.py {{ ARGS }}
 
-# Create every content template the demo flow needs that does not exist yet.
-# These are in-session only (quick-reply buttons and list pickers), so none of
-# them is ever submitted to Meta - only the two bookends need approval. Safe to
-# re-run: --skip-existing leaves a template that is already there alone rather
-# than creating a second one with the same name.
+# These are in-session only (quick-reply buttons and list pickers), so none is
+# ever submitted to Meta - only the two bookends need approval. Safe to re-run:
+# --skip-existing leaves an existing template alone rather than creating a
+# second one with the same name.
 #
 # The directory is passed to the CLI rather than looped over here: a shell loop
 # needs a bash shebang, which `just` cannot run on Windows without cygpath.
+[doc("Create the demo flow's in-session content templates")]
 demo-templates-create:
     uv run rtt template create templates/generated --skip-existing --yes
 
@@ -186,14 +213,17 @@ deploy-functions:
 flow-deploy FILE *ARGS:
     uv run rtt flow deploy {{ FILE }} {{ ARGS }}
 
-# Print CREATE TABLE DDL matching what a flow publishes. The publish Function
-# only inserts into columns that already exist, so a question added to the flow
-# with no matching column is dropped silently behind a 200.
+# The publish Function only inserts into columns that already exist, so a
+# question added to the flow with no matching column is dropped silently behind
+# a 200. Run this after changing the instrument, and apply the difference.
+[doc("Print CREATE TABLE DDL matching what a flow publishes")]
 flow-schema FILE *ARGS:
     uv run rtt flow schema {{ FILE }} {{ ARGS }}
 
-# High-frequency checks on collected data: one observation per respondent, every
-# row joinable back to the sampling frame, outcomes recorded. The instrument-side
-# equivalent is `just flow-check`.
+# One observation per respondent, every row joinable back to the sampling frame,
+# outcomes recorded. Meant to be run on a loop during a live round, so findings
+# are warnings: by the time data exists there is nothing left to prevent. The
+# instrument-side equivalent is `just flow-check`.
+[doc("Run high-frequency checks on collected data")]
 data-check FILE *ARGS:
     uv run rtt data-check {{ FILE }} {{ ARGS }}

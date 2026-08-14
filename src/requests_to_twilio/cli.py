@@ -29,6 +29,7 @@ from .flows import (
     check_preloaded,
     inbound_flow_sid,
     list_flows,
+    load_definition_file,
     published_columns,
     published_revision,
     referenced_content_types,
@@ -211,7 +212,7 @@ def _check_inbound_routing(
             "SMS address.\n"
             "           Inbound routing below describes SMS, not WhatsApp. If "
             "this round is\n"
-            "           WhatsApp, set RTT_FROM_NUMBER to "
+            f"           WhatsApp, set {cfg.ENV_FROM_NUMBER} to "
             f"'whatsapp:{from_number}'.",
             fg=typer.colors.YELLOW,
         )
@@ -271,6 +272,24 @@ def _check_inbound_routing(
     if not typer.confirm("\nSend anyway?"):
         typer.echo("Aborted.")
         raise typer.Exit(code=1)
+
+
+def _print_findings(label: str, findings: list) -> None:
+    """Render one flow's findings. Errors red, warnings yellow, clean green."""
+    if not findings:
+        typer.secho(f"{label}: all checks passed", fg=typer.colors.GREEN)
+        return
+
+    typer.echo("")
+    typer.secho(label, bold=True)
+    for finding in findings:
+        colour = (
+            typer.colors.RED if finding.severity == "error" else typer.colors.YELLOW
+        )
+        typer.secho(f"  [{finding.severity}] {finding.code}", fg=colour, nl=False)
+        typer.echo(f"  {finding.summary}")
+        for line in finding.detail:
+            typer.echo(f"      {line}")
 
 
 def _private_key():
@@ -409,7 +428,7 @@ def launch_cmd(
 @app.command("decrypt")
 def decrypt_cmd(
     input_file: Annotated[
-        Path, typer.Argument(help="Dataset downloaded from Google Sheets.")
+        Path, typer.Argument(help="Collected dataset: a warehouse or sheet export.")
     ],
     columns: Annotated[
         str,
@@ -483,6 +502,12 @@ def decrypt_cmd(
                 table=to_motherduck,
                 database=resolve_database(database),
                 columns=subset or None,
+                # Explicit, and deliberately not the `append` default. This
+                # loads a whole decrypted export into a derived table, so it is
+                # a snapshot: decrypting Tuesday's file and then Wednesday's
+                # would otherwise leave the table holding both, most of it the
+                # same respondents twice.
+                mode="replace",
             )
         except WarehouseError as exc:
             _fail(str(exc))
@@ -491,8 +516,16 @@ def decrypt_cmd(
 @app.command()
 def fetch(
     output: Annotated[
-        Path, typer.Option("--output", "-o", help="Where to write the executions.")
-    ] = Path("executions.csv"),
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Where to write. Defaults to executions.csv, or missing.csv "
+                "with --against."
+            ),
+        ),
+    ] = None,
     flow_id: Annotated[
         str | None, typer.Option("--flow-id", help="Studio flow SID. Overrides .env.")
     ] = None,
@@ -530,10 +563,21 @@ def fetch(
     ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Pull executions from Twilio, to reconcile against the Google Sheet."""
+    """Pull executions from Twilio, to reconcile against the published table.
+
+    The output is unencrypted: the Studio execution context holds the answers
+    as the respondent sent them, along with their number. Encryption protects
+    the copy in the warehouse, never the copy inside Twilio.
+    """
     configure(verbose)
     cfg.load_env()
     client, conf = _client()
+
+    # The two modes write very different things - a full export, or only the
+    # rows that are missing from it - so they get different default names. One
+    # shared default meant a reconcile could silently replace a 3,000-row export
+    # with a three-row diff at the same path.
+    destination = output or Path("missing.csv" if against else "executions.csv")
 
     try:
         resolved_flow = conf.resolve_flow_id(flow_id)
@@ -562,7 +606,7 @@ def fetch(
             typer.secho("Nothing to write.", fg=typer.colors.GREEN)
             return
 
-        write_output(frame, output)
+        write_output(frame, destination)
     except FetchError as exc:
         _fail(str(exc))
 
@@ -572,6 +616,12 @@ def fetch(
                 frame=frame,
                 table=to_motherduck,
                 database=resolve_database(database),
+                # A snapshot of what Twilio currently believes, not an
+                # accumulation. `rtt fetch` re-walks the whole retention window
+                # on every run and is meant to be run repeatedly during a
+                # round, so appending would duplicate every overlapping
+                # execution each time.
+                mode="replace",
             )
         except WarehouseError as exc:
             _fail(str(exc))
@@ -642,8 +692,11 @@ def push(
     ] = None,
     mode: Annotated[
         str,
-        typer.Option("--mode", help="replace, append, or create."),
-    ] = "replace",
+        typer.Option(
+            "--mode",
+            help="append (default), replace, or create. replace DROPS the table.",
+        ),
+    ] = "append",
     columns: Annotated[
         str,
         typer.Option("--columns", help="Restrict the load to these columns."),
@@ -655,6 +708,10 @@ def push(
     Decrypted survey data is Confidential under IPA's data classification.
     Push it only to a database approved and access-controlled for that, and
     consider --columns to leave direct identifiers behind.
+
+    The default is --mode append. `replace` issues CREATE OR REPLACE TABLE, so
+    pointing it at the table the flow publishes to destroys the round's data;
+    that has to be asked for explicitly.
     """
     configure(verbose)
     cfg.load_env()
@@ -785,7 +842,12 @@ def flow_pull(
 def flow_check(
     identifier: Annotated[
         str | None,
-        typer.Argument(help="Flow SID or name. Omit to check every flow."),
+        typer.Argument(
+            help=(
+                "Flow SID, name, or a local definition file. "
+                "Omit to check every flow on the account."
+            )
+        ),
     ] = None,
     errors_only: Annotated[
         bool, typer.Option("--errors-only", help="Hide warnings.")
@@ -800,6 +862,24 @@ def flow_check(
     produces will be analysable. Run before a round and after any edit.
     """
     configure(verbose)
+
+    # A local file needs no credentials and no network, which matters: this is
+    # the check you want to run on a flow you have just generated and not yet
+    # deployed, and in CI where there are no Twilio credentials at all.
+    local = Path(identifier) if identifier else None
+    if local is not None and local.is_file():
+        try:
+            definition = load_definition_file(local)
+        except FlowError as exc:
+            _fail(str(exc))
+        findings = check_flow(definition)
+        if errors_only:
+            findings = [f for f in findings if f.severity == "error"]
+        _print_findings(local.name, findings)
+        if any(f.severity == "error" for f in findings):
+            raise typer.Exit(code=1)
+        return
+
     cfg.load_env()
     client, _ = _client()
 
@@ -885,11 +965,11 @@ def flow_schema(
     configure(verbose)
 
     try:
-        definition = json.loads(definition_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        _fail(f"Could not read {definition_file}: {exc}")
-
-    try:
+        # Shared with `flow check` and `flow deploy`, so all three accept both a
+        # bare definition and the wrapper `flow pull` writes. They used to
+        # disagree, and `flow schema` on a pulled file reported "Flow publishes
+        # nothing" rather than "wrong shape".
+        definition = load_definition_file(definition_file)
         typer.echo(warehouse_schema(definition, table))
     except FlowError as exc:
         _fail(str(exc))
@@ -1306,10 +1386,28 @@ def template_status(
 
 
 def main() -> None:
-    """Entry point used by the ``rtt`` script."""
+    """Entry point for the ``rtt`` script.
+
+    Wired in ``pyproject.toml`` as ``rtt = "requests_to_twilio.cli:main"``. It
+    used to point at ``app`` directly, which meant this function - and the
+    Ctrl-C handling below - never ran: interrupting a live send printed a
+    traceback rather than a message.
+    """
+    # IPA machines are Windows, where stdout defaults to the system code page.
+    # Template bodies and question text carry emoji and non-Latin script, so
+    # `rtt template create > log.txt` died with UnicodeEncodeError partway
+    # through - after creating some of the templates. Encoding is a property of
+    # where output is going, not of the data, so it is set once here.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
     try:
         app()
     except KeyboardInterrupt:
+        # A round is launched in batches, so Ctrl-C is a normal way to stop one.
+        # The tracker is flushed per row, making the interrupted run resumable.
         typer.secho("\nInterrupted.", fg=typer.colors.YELLOW, err=True)
         sys.exit(130)
 
