@@ -376,7 +376,7 @@
           "y": -300
         },
         "from": "{{flow.channel.address}}",
-        "body": "In the last four (4) weeks, on how many occasions have you drawn on quantitative or qualitative data (for example databases, administrative records, statistical reports, surveys, dashboards) as an input to decisions related to your work?\n\n_Reply with an exact number (e.g. 0, 3, 12)._",
+        "body": "Considering the training week currently underway in its entirety, and taking into account the plenary sessions, the practical exercises and the periods of informal exchange between them, which single day would you identify as having been, on balance, the most valuable to you?\n\n_Reply with the day._",
         "timeout": "3600"
       },
       "transitions": [
@@ -456,7 +456,7 @@
           "y": 40
         },
         "from": "{{flow.channel.address}}",
-        "body": "In the last four (4) weeks, in how many projects, tasks or formal processes you took part in was data or empirical evidence used as explicit support for decision making (for example adjusting strategy, allocating resources, redesigning a process)?\n\n_Reply with an exact number (e.g. 0, 3, 12)._",
+        "body": "During the lunch interval earlier today, did the meal you consumed include a dessert course, or any sweet item taken at or immediately following that meal?\n\n_Reply yes or no._",
         "timeout": "3600"
       },
       "transitions": [
@@ -536,7 +536,7 @@
           "y": 380
         },
         "from": "{{flow.channel.address}}",
-        "body": "Over the last year, how often did you, or the organisation you work for, carry out systematic data collection (for example running surveys, filling in forms, extracting information from internal systems, updating databases) that was then used as an input for decisions in your work?\n\n_Reply with a short phrase (e.g. \"never\", \"sometimes\", \"almost always\", or an approximate percentage)._",
+        "body": "Since waking this morning, and counting only those beverages consumed prior to the commencement of the first session of the day, how many separate servings of coffee or tea did you drink?\n\n_Reply with an exact number (e.g. 0, 1, 3)._",
         "timeout": "3600"
       },
       "transitions": [
@@ -616,7 +616,7 @@
           "y": 720
         },
         "from": "{{flow.channel.address}}",
-        "body": "Over the last year, when you needed to collect information or data to support decisions in your work, what was the main mode of data collection you used?\n\n_For example: online surveys, paper forms, phone interviews, internal administrative records, analysis of existing databases._",
+        "body": "Across the range of tools you have occasion to use in the course of your work, including those you use only intermittently, please indicate every piece of software with which you would describe yourself as comfortable.\n\n_Reply with all that apply, separated by commas (for example: Stata, R)._",
         "timeout": "3600"
       },
       "transitions": [
@@ -683,6 +683,86 @@
       "transitions": [
         {
           "event": "next",
+          "next": "ARM1_P5"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P5",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 1060
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Reflecting on your overall experience of responding to this questionnaire, how would you characterise your general disposition toward receiving surveys of this kind in future?\n\n_Reply in your own words._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM1_P5"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM1_P5",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 1120
+        },
+        "input": "{{widgets.ARM1_P5.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P5"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P5.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P5",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 1200
+        },
+        "variables": [
+          {
+            "key": "ARM1_P5_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
           "next": "mark_complete"
         }
       ]
@@ -697,7 +777,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX77d5103b1a36cb99b5def7c579944c2c",
+        "content_sid": "HXc8e69e652f3ab62a5a3cefa38f64599a",
         "timeout": "3600"
       },
       "transitions": [
@@ -766,12 +846,12 @@
           "next": "store_ARM2_P1",
           "conditions": [
             {
-              "friendly_name": "tapped or typed one of 5 options",
+              "friendly_name": "tapped or typed one of 6 options",
               "arguments": [
                 "{{widgets.ARM2_P1.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:p1_0|0 times|p1_1_2|1-2 times|p1_3_5|3-5 times|p1_6_10|6-10 times|p1_gt10|More than 10 times)\\s*)"
+              "value": "(?:\\s*(?:p1_sun|Sunday|\\(?1[.)]?|p1_mon|Monday|\\(?2[.)]?|p1_tue|Tuesday|\\(?3[.)]?|p1_wed|Wednesday|\\(?4[.)]?|p1_thu|Thursday|\\(?5[.)]?|p1_fri|Friday|\\(?6[.)]?)\\s*)"
             }
           ]
         }
@@ -792,7 +872,7 @@
           },
           {
             "key": "ARM2_P1_code",
-            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p1_0\" or \"0 times\" %}1{% when \"p1_1_2\" or \"1-2 times\" %}2{% when \"p1_3_5\" or \"3-5 times\" %}3{% when \"p1_6_10\" or \"6-10 times\" %}4{% when \"p1_gt10\" or \"more than 10 times\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P1.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p1_sun\" or \"sunday\" or \"1\" %}1{% when \"p1_mon\" or \"monday\" or \"2\" %}2{% when \"p1_tue\" or \"tuesday\" or \"3\" %}3{% when \"p1_wed\" or \"wednesday\" or \"4\" %}4{% when \"p1_thu\" or \"thursday\" or \"5\" %}5{% when \"p1_fri\" or \"friday\" or \"6\" %}6{% else %}other{% endcase %}"
           }
         ]
       },
@@ -879,7 +959,7 @@
           "y": -140
         },
         "from": "{{flow.channel.address}}",
-        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list, or type the option exactly as it appears.\n\nI am a bot, so I only understand the options."
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
       },
       "transitions": [
         {
@@ -928,7 +1008,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX4a9d532e22493a9e3cc93da860064218",
+        "content_sid": "HX1fd75e7703ddc1bcfabcc218a0fde315",
         "timeout": "3600"
       },
       "transitions": [
@@ -997,12 +1077,12 @@
           "next": "store_ARM2_P2",
           "conditions": [
             {
-              "friendly_name": "tapped or typed one of 5 options",
+              "friendly_name": "tapped or typed one of 2 options",
               "arguments": [
                 "{{widgets.ARM2_P2.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:p2_0|0 projects|p2_1|1 project|p2_2_3|2-3 projects|p2_4_5|4-5 projects|p2_gt5|More than 5 projects)\\s*)"
+              "value": "(?:\\s*(?:p2_yes|Yes|\\(?1[.)]?|p2_no|No|\\(?2[.)]?)\\s*)"
             }
           ]
         }
@@ -1023,7 +1103,7 @@
           },
           {
             "key": "ARM2_P2_code",
-            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p2_0\" or \"0 projects\" %}1{% when \"p2_1\" or \"1 project\" %}2{% when \"p2_2_3\" or \"2-3 projects\" %}3{% when \"p2_4_5\" or \"4-5 projects\" %}4{% when \"p2_gt5\" or \"more than 5 projects\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P2.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p2_yes\" or \"yes\" or \"1\" %}1{% when \"p2_no\" or \"no\" or \"2\" %}2{% else %}other{% endcase %}"
           }
         ]
       },
@@ -1110,7 +1190,7 @@
           "y": 200
         },
         "from": "{{flow.channel.address}}",
-        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list, or type the option exactly as it appears.\n\nI am a bot, so I only understand the options."
+        "body": "No problem - I could not read that one.\n\nTap one of the buttons on the message above. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
       },
       "transitions": [
         {
@@ -1158,8 +1238,7 @@
           "y": 380
         },
         "from": "{{flow.channel.address}}",
-        "message_type": "content_template",
-        "content_sid": "HX5ef0187c1635994f1501a907dbbcea74",
+        "body": "☕ Question 3 of 5\n\nHow many cups of coffee or tea did you have this morning?\n\n_Reply with a number from 0 to 10._",
         "timeout": "3600"
       },
       "transitions": [
@@ -1228,12 +1307,12 @@
           "next": "store_ARM2_P3",
           "conditions": [
             {
-              "friendly_name": "tapped or typed one of 5 options",
+              "friendly_name": "replied with an in-range number",
               "arguments": [
                 "{{widgets.ARM2_P3.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:p3_never|We never collect data|\\(?1[.)]?|p3_lt25|A few projects|\\(?2[.)]?|p3_25_50|About half|\\(?3[.)]?|p3_51_75|Most projects|\\(?4[.)]?|p3_gt75|Almost all projects|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:10|[0-9])\\s*)"
             }
           ]
         }
@@ -1253,8 +1332,8 @@
             "value": "answered"
           },
           {
-            "key": "ARM2_P3_code",
-            "value": "{% assign reply = widgets.ARM2_P3.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p3_never\" or \"we never collect data\" or \"1\" %}1{% when \"p3_lt25\" or \"a few projects\" or \"2\" %}2{% when \"p3_25_50\" or \"about half\" or \"3\" %}3{% when \"p3_51_75\" or \"most projects\" or \"4\" %}4{% when \"p3_gt75\" or \"almost all projects\" or \"5\" %}5{% else %}other{% endcase %}"
+            "key": "ARM2_P3_value",
+            "value": "{{widgets.ARM2_P3.inbound.Body | strip}}"
           }
         ]
       },
@@ -1341,7 +1420,7 @@
           "y": 540
         },
         "from": "{{flow.channel.address}}",
-        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+        "body": "Please reply with a number from 0 to 10.\n\n_Just the digits, for example 0, 2 or 10._\n\nI am a bot and cannot understand everything that is written to me."
       },
       "transitions": [
         {
@@ -1368,7 +1447,7 @@
             "value": "multierror"
           },
           {
-            "key": "ARM2_P3_code",
+            "key": "ARM2_P3_value",
             "value": ""
           }
         ]
@@ -1390,7 +1469,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX742e0756705dc593bda1bc47a1b42339",
+        "content_sid": "HX8b1bb3c66c43400dfd90dafb0b2944a7",
         "timeout": "3600"
       },
       "transitions": [
@@ -1459,12 +1538,12 @@
           "next": "store_ARM2_P4",
           "conditions": [
             {
-              "friendly_name": "tapped or typed one of 5 options",
+              "friendly_name": "tapped or typed one of 7 options",
               "arguments": [
                 "{{widgets.ARM2_P4.inbound.Body}}"
               ],
               "type": "regex",
-              "value": "(?:\\s*(?:p4_capi|In person \\(CAPI\\)|\\(?1[.)]?|p4_cati|Phone \\(CATI\\)|\\(?2[.)]?|p4_web|Web or online|\\(?3[.)]?|p4_whatsapp|WhatsApp|\\(?4[.)]?|p4_other|Another mode|\\(?5[.)]?)\\s*)"
+              "value": "(?:\\s*(?:p4_python|Python|\\(?1[.)]?|p4_stata|Stata|\\(?2[.)]?|p4_r|R|\\(?3[.)]?|p4_surveycto|SurveyCTO|\\(?4[.)]?|p4_twilio|Twilio|\\(?5[.)]?|p4_exotel|Exotel|\\(?6[.)]?|p4_office|Microsoft Office|\\(?7[.)]?)\\s*)"
             }
           ]
         }
@@ -1485,14 +1564,14 @@
           },
           {
             "key": "ARM2_P4_code",
-            "value": "{% assign reply = widgets.ARM2_P4.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p4_capi\" or \"in person capi\" or \"1\" %}1{% when \"p4_cati\" or \"phone cati\" or \"2\" %}2{% when \"p4_web\" or \"web or online\" or \"3\" %}3{% when \"p4_whatsapp\" or \"whatsapp\" or \"4\" %}4{% when \"p4_other\" or \"another mode\" or \"5\" %}5{% else %}other{% endcase %}"
+            "value": "{% assign reply = widgets.ARM2_P4.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p4_python\" or \"python\" or \"1\" %}1{% when \"p4_stata\" or \"stata\" or \"2\" %}2{% when \"p4_r\" or \"r\" or \"3\" %}3{% when \"p4_surveycto\" or \"surveycto\" or \"4\" %}4{% when \"p4_twilio\" or \"twilio\" or \"5\" %}5{% when \"p4_exotel\" or \"exotel\" or \"6\" %}6{% when \"p4_office\" or \"microsoft office\" or \"7\" %}7{% else %}other{% endcase %}"
           }
         ]
       },
       "transitions": [
         {
           "event": "next",
-          "next": "mark_complete"
+          "next": "ARM2_P5"
         }
       ]
     },
@@ -1600,6 +1679,237 @@
           },
           {
             "key": "ARM2_P4_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "ARM2_P5"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P5",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1060
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HXcc019e7a3ca90cae48b1681ec6851e89",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM2_P5"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P5",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1100
+        },
+        "input": "{{widgets.ARM2_P5.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P5"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P5.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|quit|unsubscribe|cancel|end)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P5",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1140
+        },
+        "input": "{{widgets.ARM2_P5.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P5"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P5",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 5 options",
+              "arguments": [
+                "{{widgets.ARM2_P5.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:p5_loved|Loved it|\\(?1[.)]?|p5_liked|Liked it|\\(?2[.)]?|p5_fine|It was fine|\\(?3[.)]?|p5_meh|Not really|\\(?4[.)]?|p5_disliked|Did not like it|\\(?5[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P5",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1220
+        },
+        "variables": [
+          {
+            "key": "ARM2_P5_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P5_code",
+            "value": "{% assign reply = widgets.ARM2_P5.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p5_loved\" or \"loved it\" or \"1\" %}1{% when \"p5_liked\" or \"liked it\" or \"2\" %}2{% when \"p5_fine\" or \"it was fine\" or \"3\" %}3{% when \"p5_meh\" or \"not really\" or \"4\" %}4{% when \"p5_disliked\" or \"did not like it\" or \"5\" %}5{% else %}other{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P5",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 1140
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P5",
+            "value": "{% assign current = flow.variables.tries_ARM2_P5 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P5"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P5",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 1220
+        },
+        "input": "{{flow.variables.tries_ARM2_P5}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P5"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P5",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P5}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P5",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P5}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P5",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 1220
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "No problem - I could not read that one.\n\nTap *Choose an answer* on the message above and pick from the list. You can also just reply with the number of your answer.\n\nI am a bot, so I only understand the options."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P5"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P5"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P5",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 1300
+        },
+        "variables": [
+          {
+            "key": "ARM2_P5_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P5_code",
             "value": ""
           }
         ]
@@ -1925,6 +2235,14 @@
             "value": "{{flow.variables.ARM1_P4_status}}"
           },
           {
+            "key": "ARM1_P5",
+            "value": "{{widgets.ARM1_P5.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P5_status",
+            "value": "{{flow.variables.ARM1_P5_status}}"
+          },
+          {
             "key": "ARM2_P1",
             "value": "{{widgets.ARM2_P1.inbound.Body}}"
           },
@@ -1957,8 +2275,8 @@
             "value": "{{flow.variables.ARM2_P3_status}}"
           },
           {
-            "key": "ARM2_P3_code",
-            "value": "{{flow.variables.ARM2_P3_code}}"
+            "key": "ARM2_P3_value",
+            "value": "{{flow.variables.ARM2_P3_value}}"
           },
           {
             "key": "ARM2_P4",
@@ -1971,6 +2289,18 @@
           {
             "key": "ARM2_P4_code",
             "value": "{{flow.variables.ARM2_P4_code}}"
+          },
+          {
+            "key": "ARM2_P5",
+            "value": "{{widgets.ARM2_P5.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P5_status",
+            "value": "{{flow.variables.ARM2_P5_status}}"
+          },
+          {
+            "key": "ARM2_P5_code",
+            "value": "{{flow.variables.ARM2_P5_code}}"
           }
         ]
       },
