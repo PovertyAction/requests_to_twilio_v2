@@ -4,11 +4,9 @@ on:
   push:
     branches:
       - main
-      - master
   pull_request:
     branches:
       - main
-      - master
 
 jobs:
   # Runs here rather than as a pre-commit hook: IPA-managed Windows machines
