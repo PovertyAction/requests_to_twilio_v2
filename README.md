@@ -89,7 +89,8 @@ reports real defects in it, which is part of why it is worth keeping.
 | [START-HERE.md](START-HERE.md) | Zero to a launched round, in order, with the lead times |
 | [docs/setup.md](docs/setup.md) | Every configuration value and where it comes from |
 | [docs/running-a-round.md](docs/running-a-round.md) | All 16 commands, and what each check blocks on |
-| [docs/flow-design.md](docs/flow-design.md) | Building your own instrument |
+| [docs/writing-a-survey.md](docs/writing-a-survey.md) | Writing an instrument as a spreadsheet — start here to build one |
+| [docs/flow-design.md](docs/flow-design.md) | The survey-research conventions behind that format |
 | [docs/writing-templates.md](docs/writing-templates.md) | Template copy, categories, and Meta review |
 | [docs/encryption.md](docs/encryption.md) | The threat model, and IRB-ready wording |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Error codes, and the failures that look like success |

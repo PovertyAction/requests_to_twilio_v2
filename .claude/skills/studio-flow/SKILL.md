@@ -21,6 +21,47 @@ Read `references/ipa-flow-conventions.md` before designing anything. It is the
 measured house style: variable vocabulary, timeout defaults, what gets
 encrypted, the publish payload shape.
 
+## Do not hand-build a survey flow - write a spec
+
+**If the task is "build a survey", the answer is `rtt survey`, not Studio JSON.**
+The instrument is described as spreadsheet rows and compiled; the eight-widget
+per-question subgraph, the consent gate, the publish convergence and the closings
+are all generated, so they cannot be got subtly wrong one question at a time.
+
+```bash
+just survey-template --output my_survey.xlsx   # documented starter workbook
+just survey-json my_survey.xlsx                # -> my_survey.json, the tracked copy
+just survey-check my_survey.json               # runs every generated condition
+just survey-rows my_survey.json                # read the whole instrument at once
+```
+
+`sample_template.xlsx` at the repo root is a committed, filled-in example. A test
+regenerates it and compares byte-for-byte, so it cannot go stale - which matters,
+because a stale reference teaches the format it was generated from rather than the
+one the code reads. This document made exactly that mistake once: see the tap
+table under Stage 2.
+
+One row is one question **and** its whole subgraph - eight widgets for a closed
+question with retries, three for open text, and `rtt survey check` prints the
+count per row.
+
+**The spec is for SURVEYS, and only surveys.** It assumes consent is asked before
+any question, that every terminal path publishes exactly one row per respondent,
+that closings are chosen from a fixed outcome vocabulary, and that one execution
+is one respondent answering once.
+
+A **reminder** flow breaks that: repeated sends to the same person, no answer
+collected, probably one row per send. A **multi-wave intervention** breaks it:
+consent taken at enrolment rather than in the message, the same person contacted
+by design. A **notification** flow may publish nothing at all. Those are not
+lesser flows - they are a different shape, and forcing them through this format
+would either fight them or misdescribe them.
+
+So: **surveys get a spec. Everything else is hand-built Studio JSON, and the rest
+of this document is how to do that well** - and `rtt flow check` judges the result
+on its own terms either way. Full guide for the spec path:
+`docs/writing-a-survey.md`.
+
 ## The six-stage skeleton
 
 Every IPA survey flow follows this spine. Design against it; audit against it.

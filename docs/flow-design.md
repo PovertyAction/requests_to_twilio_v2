@@ -1,8 +1,14 @@
 # Designing your own instrument
 
-The demo flow is a specimen, not a template engine. To build your own survey you
-edit `scripts/build_data_use_demo.py` — a Python script that emits Studio JSON —
-or copy it. This page is what to know before you do.
+**To write a survey, start at [docs/writing-a-survey.md](writing-a-survey.md).**
+You describe the instrument as spreadsheet rows and the toolkit generates the
+flow; you do not edit Studio, and you do not copy an existing survey. This page
+is the reasoning *behind* that format — what to know before you design the
+questions themselves.
+
+Read it if you are choosing between a list and open text, deciding how many
+options an item should have, working out what to encrypt, or wondering why the
+conventions here differ from the flows already on our account.
 
 The rules below are IPA survey-research conventions, not generic Twilio chatbot
 practice, and several of them are deliberate departures from what the flows on

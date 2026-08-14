@@ -194,6 +194,31 @@ name, so the flow it writes points at *your* account.
 `flow-deploy` refuses to ship a flow that fails the checks. That is deliberate:
 refusing to deploy costs you a fix, whereas a defective flow costs you a round.
 
+### Writing your own survey, rather than the demo
+
+The demo is a specimen. For your own instrument you do not edit Studio and you do
+not copy someone else's flow — you describe the survey as spreadsheet rows:
+
+```powershell
+just survey-template --output my_survey.xlsx   # a documented starter workbook
+# ...fill it in in Excel...
+just survey-json my_survey.xlsx                # → my_survey.json, the tracked copy
+just survey-check my_survey.json               # must pass before you build
+```
+
+One row is one question *and* the whole subgraph it becomes — eight Studio widgets
+for a closed question with retries, three for open text. `sample_template.xlsx` in
+the repository root is a filled-in example you can open right now, and its
+`help-survey` sheet documents every column.
+
+**This format is for surveys.** It assumes consent is asked before any question,
+that every path publishes one row per respondent, and that one execution is one
+person answering once. Reminder campaigns, multi-wave interventions and
+notification flows break those assumptions — build those as Studio flows and check
+them with `just flow-check`, which judges a graph on its own terms.
+
+Full guide: [docs/writing-a-survey.md](docs/writing-a-survey.md).
+
 ## 10. Launch to a test number
 
 Put your own number in a sample file first. `sample_input.xlsx` is the shape:
