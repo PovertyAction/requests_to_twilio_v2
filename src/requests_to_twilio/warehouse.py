@@ -77,7 +77,7 @@ def push_dataframe(
     frame: pd.DataFrame,
     table: str,
     database: str,
-    mode: str = "replace",
+    mode: str = "append",
     columns: list[str] | None = None,
 ) -> int:
     """Write a dataframe to a MotherDuck table.
@@ -86,8 +86,10 @@ def push_dataframe(
         frame: The data to load.
         table: Target table name, optionally schema-qualified.
         database: Target MotherDuck database.
-        mode: ``replace`` overwrites, ``append`` adds rows, ``create`` fails if
-            the table already exists.
+        mode: ``append`` adds rows and is the default, because the table a flow
+            publishes to is the database of record for a round. ``replace``
+            issues ``CREATE OR REPLACE TABLE`` and therefore destroys it;
+            ``create`` fails if the table already exists.
         columns: Restrict to these columns. Use this to leave direct identifiers
             out of the warehouse.
 
@@ -130,7 +132,12 @@ def push_dataframe(
             connection.execute(
                 f'CREATE TABLE IF NOT EXISTS "{table}" AS SELECT * FROM _rtt_payload LIMIT 0'  # noqa: S608
             )
-            statement = f'INSERT INTO "{table}" SELECT * FROM _rtt_payload'  # noqa: S608
+            # BY NAME, not positional. A plain INSERT ... SELECT * matches by
+            # position, so a dataset whose columns are ordered differently from
+            # the existing table writes every value into its neighbour's column.
+            # Everything published by the flow is VARCHAR, so there is no type
+            # error to catch it - the data is simply wrong.
+            statement = f'INSERT INTO "{table}" BY NAME SELECT * FROM _rtt_payload'  # noqa: S608
 
         connection.execute(statement)
     except Exception as exc:
@@ -154,7 +161,7 @@ def push_file(
     path: Path,
     table: str,
     database: str,
-    mode: str = "replace",
+    mode: str = "append",
     columns: list[str] | None = None,
 ) -> int:
     """Read a CSV or Excel file and push it to MotherDuck.
@@ -177,10 +184,14 @@ def push_file(
         raise WarehouseError(f"File not found: {path}")
 
     try:
+        # dtype=str throughout, matching every other reader in the package. A
+        # caseid like `007` is an identifier, not a number, and inferring types
+        # here would push `7` into the warehouse and break the join back to the
+        # sampling frame.
         if path.suffix.lower() in {".xlsx", ".xlsm"}:
-            frame = pd.read_excel(path)
+            frame = pd.read_excel(path, dtype=str)
         else:
-            frame = pd.read_csv(path)
+            frame = pd.read_csv(path, dtype=str)
     except Exception as exc:
         raise WarehouseError(f"Could not read {path}: {exc}") from exc
 
