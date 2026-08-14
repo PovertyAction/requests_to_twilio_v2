@@ -14,6 +14,7 @@ whole-spec comparison.
 """
 
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -664,15 +665,26 @@ class TestTheCommittedSampleTemplate:
         )
 
     def test_it_still_matches_what_the_generator_produces(self, tmp_path):
-        """Byte-for-byte, which is what `_make_reproducible` exists to allow."""
-        fresh = tmp_path / "fresh.xlsx"
-        write_xlsx(starter_spec(), fresh)
-        assert fresh.read_bytes() == self.SAMPLE.read_bytes(), (
+        """Entry by entry, which is what `_make_reproducible` exists to allow.
+
+        Not `read_bytes()` on the whole file: an xlsx is a zip, and the deflate
+        stream depends on the zlib build that wrote it, so identical documents
+        packed on Windows and on Linux differ as files. Comparing the members
+        keeps the check exact about the document and silent about the packing.
+        """
+        stale = (
             "sample_template.xlsx no longer matches starter_spec(). The schema "
             "or the starter content has changed - regenerate it with "
             "`just survey-sample` and commit the result, so the reference people "
             "open is the format the code actually reads."
         )
+        fresh = tmp_path / "fresh.xlsx"
+        write_xlsx(starter_spec(), fresh)
+
+        with zipfile.ZipFile(fresh) as new, zipfile.ZipFile(self.SAMPLE) as committed:
+            assert new.namelist() == committed.namelist(), stale
+            for name in new.namelist():
+                assert new.read(name) == committed.read(name), f"{stale} ({name})"
 
     def test_it_reads_back_as_a_valid_spec(self):
         spec = read_xlsx(self.SAMPLE)

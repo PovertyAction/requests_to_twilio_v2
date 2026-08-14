@@ -483,6 +483,12 @@ _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 #: The same instant, for the timestamps openpyxl writes inside the document.
 _FIXED_TIMESTAMP = datetime(*_ZIP_EPOCH)
 
+#: The zip "create system" byte, pinned to 0 (MS-DOS/FAT). `zipfile` picks this
+#: from the host platform, so without pinning it the same spec yields different
+#: archives on Windows and Linux. The value is arbitrary; only its fixity
+#: matters.
+_ZIP_CREATE_SYSTEM = 0
+
 
 #: Where the document's own created/modified timestamps live inside the zip.
 _CORE_PROPS = "docProps/core.xml"
@@ -513,9 +519,15 @@ def _make_reproducible(path: Path) -> None:
     Nobody regenerates the committed sample in place - an RA writes their own
     workbook to their own path and the sample stays as the reference - so churn
     is not the problem this solves. What it buys is the ability to tell whether
-    the committed sample still matches the schema: with timestamps fixed the
-    bytes are a function of the spec alone, so a test can regenerate it and
-    compare.
+    the committed sample still matches the schema: with timestamps and the
+    create-system byte fixed, the archive is a function of the spec alone, so a
+    test can regenerate it and compare.
+
+    One thing this cannot pin is the deflate stream itself. Compressed bytes
+    depend on the zlib build doing the compressing, which varies across
+    platforms, so the comparison is made entry by entry over the decompressed
+    payloads rather than over the whole file - see the test. That still catches
+    every change to the document; it only declines to care how it was packed.
 
     That check earns its place. A sample that drifts out of date teaches the
     format it was generated from rather than the one in the code, and this
@@ -537,6 +549,10 @@ def _make_reproducible(path: Path) -> None:
                 fixed = zipfile.ZipInfo(info.filename, date_time=_ZIP_EPOCH)
                 fixed.compress_type = info.compress_type
                 fixed.external_attr = info.external_attr
+                # ZipInfo defaults this to 0 on Windows and 3 (Unix) elsewhere,
+                # and it is written into the archive, so leaving it alone makes
+                # the bytes depend on who ran the generator.
+                fixed.create_system = _ZIP_CREATE_SYSTEM
                 target.writestr(fixed, payload)
     except (OSError, zipfile.BadZipFile) as exc:
         # The workbook itself is already written and valid; only reproducibility
