@@ -19,8 +19,12 @@ ENV_ACCOUNT_SID = "TWILIO_ACCOUNT_SID"
 ENV_AUTH_TOKEN = "TWILIO_AUTH_TOKEN"  # noqa: S105 - a variable name, not a secret
 ENV_FROM_NUMBER = "TWILIO_NUMBER"
 ENV_FLOW_ID = "TWILIO_FLOW_ID"
-ENV_ENCRYPTION_KEY = "ENCRYPTION_KEY"
 ENV_LEGACY_SECRET = "LEGACY_SECRET_KEY"  # noqa: S105 - a variable name, not a secret
+
+# There is deliberately no ENV_ENCRYPTION_KEY. The private key is read by the
+# CLI from ENCRYPTION_PRIVATE_KEY or ENCRYPTION_PRIVATE_KEY_FILE, and a bare
+# "ENCRYPTION_KEY" invites the pre-2.0 reading of a single shared secret that
+# both encrypts and decrypts - which is the design this version replaced.
 
 
 class ConfigError(Exception):

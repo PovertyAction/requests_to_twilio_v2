@@ -1,4 +1,7 @@
-"""Decrypt the encrypted columns of a dataset downloaded from Google Sheets.
+"""Decrypt the encrypted columns of a collected dataset.
+
+The input is whatever the publish step wrote - a MotherDuck export, a Google
+Sheet downloaded as CSV, or an Excel file - so nothing here assumes a source.
 
 The pre-2.0 version refused to run unless the file sat on an ``X:`` drive, which
 was Boxcryptor's mount point. Boxcryptor has since been discontinued, so that
@@ -49,6 +52,40 @@ def find_encrypted_columns(frame: pd.DataFrame) -> list[str]:
     return encrypted
 
 
+def _attempt(text: str, legacy_secret: str | None) -> bool:
+    """Whether this particular value is worth handing to ``decrypt``.
+
+    A column qualifies as encrypted when *any* of its values carries the marker,
+    so a column can hold a mix - encryption switched on mid-round, or a publish
+    that wrote a plaintext fallback. Deciding per column would then hand a
+    plaintext answer to ``decrypt``, which raises, and the answer would be
+    replaced by :data:`FAILURE_MARKER`. That is silent data loss in the output
+    file, so the decision is made per value instead.
+
+    A ``v2:`` value is certainly ciphertext. Without the marker there is nothing
+    to try unless a legacy secret was supplied, since v1 is indistinguishable
+    from plain text by construction - see :func:`_failure_is_real` for what
+    happens when that guess turns out to be wrong.
+    """
+    return text.startswith(V2_PREFIX) or legacy_secret is not None
+
+
+def _failure_is_real(text: str) -> bool:
+    """Whether a failed decryption should be recorded as a failure.
+
+    A value carrying the ``v2:`` marker *is* ciphertext, so failing to decrypt
+    it is a genuine failure worth making loud - usually the wrong private key.
+
+    A value without the marker was only ever a guess: v1 carries no marker, so
+    every plain-text value in the column gets attempted too once a legacy secret
+    is in play. Marking those failures would put :data:`FAILURE_MARKER` over
+    every plain answer in a mixed file - and because ``LEGACY_SECRET_KEY`` can
+    sit in ``.env``, that would happen on runs where nobody asked for legacy
+    handling at all. A failed guess means it was plain text; leave it alone.
+    """
+    return text.startswith(V2_PREFIX)
+
+
 def decrypt_dataset(
     *,
     input_path: Path,
@@ -77,6 +114,22 @@ def decrypt_dataset(
     if not input_path.is_file():
         raise DecryptionError(f"File not found: {input_path}")
 
+    destination = output_path or input_path.with_name(
+        f"{input_path.stem}_decrypted.csv"
+    )
+
+    # Checked before any work, not just before the write. Writing over the
+    # input would replace the only copy of the ciphertext with its plain-text
+    # form - and with a failure marker anywhere decryption did not work, which
+    # is unrecoverable. `resolve()` so a relative path, a `..` hop or a
+    # different spelling of the same file is caught too.
+    if destination.resolve() == input_path.resolve():
+        raise DecryptionError(
+            f"That would overwrite the input file ({input_path}). The "
+            f"ciphertext is the only copy of the encrypted values; write the "
+            f"result somewhere else."
+        )
+
     suffix = input_path.suffix.lower()
     try:
         if suffix in {".xlsx", ".xlsm"}:
@@ -85,7 +138,7 @@ def decrypt_dataset(
             frame = pd.read_csv(input_path, dtype=str)
         else:
             raise DecryptionError(
-                f"Unsupported format {suffix!r}; download the sheet as .csv."
+                f"Unsupported format {suffix!r}; export the data as .csv."
             )
     except DecryptionError:
         raise
@@ -112,6 +165,7 @@ def decrypt_dataset(
 
     decrypted_count = 0
     failed_count = 0
+    passed_through_count = 0
     reported: set[str] = set()
 
     for column in targets:
@@ -126,10 +180,23 @@ def decrypt_dataset(
                 results.append("")
                 continue
 
+            if not _attempt(text, legacy_secret):
+                # Plaintext in an otherwise-encrypted column. Pass it through
+                # rather than overwriting a real answer with a failure marker.
+                results.append(value)
+                passed_through_count += 1
+                continue
+
             try:
                 results.append(decrypt(text, private_key, legacy_secret=legacy_secret))
                 decrypted_count += 1
             except CryptoError as exc:
+                if not _failure_is_real(text):
+                    # A legacy guess that did not pan out: this was plain text.
+                    results.append(value)
+                    passed_through_count += 1
+                    continue
+
                 results.append(FAILURE_MARKER)
                 failed_count += 1
                 # Report each distinct reason once; a wrong key produces one
@@ -141,10 +208,10 @@ def decrypt_dataset(
 
         frame[column] = results
 
-    destination = output_path or input_path.with_name(
-        f"{input_path.stem}_decrypted.csv"
-    )
-    frame.to_csv(destination, index=False)
+    # utf-8-sig, not utf-8: Excel reads a BOM-less CSV as the system code page,
+    # which turns Spanish and Hindi answers into mojibake for the researcher who
+    # opens it by double-clicking. Every other reader tolerates the BOM.
+    frame.to_csv(destination, index=False, encoding="utf-8-sig")
 
     logger.info(
         "Decrypted %d value(s) across %d column(s); %d failed",
@@ -152,6 +219,24 @@ def decrypt_dataset(
         len(targets),
         failed_count,
     )
+    if passed_through_count:
+        logger.info(
+            "%d value(s) in those column(s) were already plain text and were "
+            "left unchanged.",
+            passed_through_count,
+        )
+
+    # Auto-detection cannot produce this - it only picks columns that carry the
+    # marker. A named column that decrypted nothing means --columns pointed at
+    # the wrong thing, and without saying so the run reports success having done
+    # nothing at all.
+    if columns and decrypted_count == 0:
+        logger.warning(
+            "Nothing was decrypted. Column(s) %s hold no recognisable "
+            "ciphertext - check the names, and check --legacy-secret if this is "
+            "data from before version 2.0.",
+            ", ".join(targets),
+        )
     logger.warning(
         "%s now contains plain-text PII. Store it per IPA policy - inside a "
         "Cryptomator vault or an access-controlled Box folder - and do not "

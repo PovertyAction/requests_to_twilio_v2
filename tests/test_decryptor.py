@@ -140,6 +140,114 @@ class TestDecryptDataset:
         assert count == 1
         assert list(pd.read_csv(out, dtype=str)["name"]) == ["Ana"]
 
+    def test_plain_values_in_an_encrypted_column_survive(self, tmp_path, keypair):
+        """A column can hold both ciphertext and plain text, and must survive.
+
+        Encryption switched on mid-round, or a publish that wrote a plaintext
+        fallback, leaves a mixed column. Detection is per column - one marker
+        makes the whole column a target - so deciding per column would hand the
+        plain answers to `decrypt`, which raises, and they would be replaced by
+        the failure marker. That is silent data loss in the output file.
+        """
+        public = load_public_key(keypair.public_b64)
+        path = tmp_path / "mixed.csv"
+        pd.DataFrame(
+            {"name": [encrypt("Ana", public), "Beto typed in the clear"]}
+        ).to_csv(path, index=False)
+
+        private = load_private_key(keypair.private_b64)
+        out, count, failed = decrypt_dataset(input_path=path, private_key=private)
+
+        assert (count, failed) == (1, 0)
+        result = pd.read_csv(out, dtype=str)
+        assert list(result["name"]) == ["Ana", "Beto typed in the clear"]
+
+    def test_plain_values_survive_when_columns_named(self, tmp_path, keypair):
+        """The same protection applies on the explicit --columns path."""
+        public = load_public_key(keypair.public_b64)
+        path = tmp_path / "mixed_named.csv"
+        pd.DataFrame({"name": [encrypt("Ana", public), "not encrypted"]}).to_csv(
+            path, index=False
+        )
+
+        private = load_private_key(keypair.private_b64)
+        out, count, failed = decrypt_dataset(
+            input_path=path, private_key=private, columns=["name"]
+        )
+
+        assert (count, failed) == (1, 0)
+        assert list(pd.read_csv(out, dtype=str)["name"]) == ["Ana", "not encrypted"]
+
+    def test_a_legacy_secret_does_not_destroy_plain_text(self, tmp_path, keypair):
+        """The mixed-column protection must survive a legacy secret being set.
+
+        v1 ciphertext carries no marker, so once a legacy secret is in play
+        every unmarked value gets attempted - including plain text. If a failed
+        attempt were recorded as a failure, every plain answer in the file would
+        become a failure marker. And because LEGACY_SECRET_KEY can sit in .env,
+        that would happen on runs where nobody asked for legacy handling at all.
+        """
+        public = load_public_key(keypair.public_b64)
+        path = tmp_path / "mixed_legacy.csv"
+        pd.DataFrame(
+            {
+                "name": [
+                    encrypt("Ana", public),
+                    "AbdeCVNijCKhK7PnEEypxN3PvDyA1nGiZynDDisntU4=",
+                    "Carlos in the clear",
+                ]
+            }
+        ).to_csv(path, index=False)
+
+        private = load_private_key(keypair.private_b64)
+        out, count, failed = decrypt_dataset(
+            input_path=path, private_key=private, legacy_secret="shortkey"
+        )
+
+        assert failed == 0
+        assert list(pd.read_csv(out, dtype=str)["name"]) == [
+            "Ana",
+            "Maria Gomez",
+            "Carlos in the clear",
+        ]
+        assert count == 2
+
+    def test_a_wrong_key_is_still_reported_on_v2_values(self, sheet):
+        """Passing plain text through must not silence a genuine key mismatch.
+
+        A `v2:` value IS ciphertext, so failing to decrypt it is real and has to
+        stay loud - otherwise the protection above would turn a wrong-key run
+        into a silent no-op.
+        """
+        other = load_private_key(KeyPair.generate().private_b64)
+        out, count, failed = decrypt_dataset(
+            input_path=sheet, private_key=other, legacy_secret="shortkey"
+        )
+        assert (count, failed) == (0, 4)
+        assert set(pd.read_csv(out, dtype=str)["name"]) == {FAILURE_MARKER}
+
+    def test_output_over_input_is_refused(self, sheet, keypair):
+        """Writing over the input destroys the only copy of the ciphertext."""
+        private = load_private_key(keypair.private_b64)
+        with pytest.raises(DecryptionError, match="overwrite the input"):
+            decrypt_dataset(input_path=sheet, private_key=private, output_path=sheet)
+
+    def test_output_over_input_is_refused_via_indirect_path(self, sheet, keypair):
+        """The guard compares resolved paths, not the strings it was handed."""
+        private = load_private_key(keypair.private_b64)
+        indirect = sheet.parent / "sub" / ".." / sheet.name
+        indirect.parent.mkdir(exist_ok=True)
+        with pytest.raises(DecryptionError, match="overwrite the input"):
+            decrypt_dataset(input_path=sheet, private_key=private, output_path=indirect)
+
+    def test_refusing_leaves_the_input_intact(self, sheet, keypair):
+        """The refusal must happen before the file is opened for writing."""
+        private = load_private_key(keypair.private_b64)
+        before = sheet.read_bytes()
+        with pytest.raises(DecryptionError):
+            decrypt_dataset(input_path=sheet, private_key=private, output_path=sheet)
+        assert sheet.read_bytes() == before
+
     def test_legacy_columns_named_explicitly(self, tmp_path):
         """Pre-2.0 data has no marker, so it must be named and given a secret."""
         path = tmp_path / "old.csv"
