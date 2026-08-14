@@ -83,21 +83,31 @@ class DeliveryRecord:
         return {column: data[column] for column in TRACKER_COLUMNS}
 
 
-def _is_retryable(exc: BaseException) -> bool:
+def is_retryable(exc: BaseException) -> bool:
     """Decide whether a Twilio failure is worth retrying.
 
     Rate limits and server-side faults are transient. A 400 for a malformed
     number, or a 401 for bad credentials, will fail identically every time, so
     retrying only delays the error the operator needs to see.
+
+    Public because :mod:`requests_to_twilio.fetch` needs the same judgement: it
+    makes one API call per execution, which is the other place in this package
+    that generates enough traffic to be throttled.
     """
     if isinstance(exc, TwilioRestException):
-        return exc.status == 429 or exc.status >= 500
+        # `status` is None when the request never got a response. Comparing that
+        # to 500 raises TypeError, which would replace the failure being handled
+        # with a confusing one from inside the handler.
+        status = exc.status
+        if status is None:
+            return True
+        return status == 429 or status >= 500
     # Connection-level failures surface as plain OSErrors.
     return isinstance(exc, OSError)
 
 
 @retry(
-    retry=retry_if_exception(_is_retryable),
+    retry=retry_if_exception(is_retryable),
     wait=wait_exponential(multiplier=1, min=2, max=30),
     stop=stop_after_attempt(4),
     reraise=True,
@@ -202,7 +212,17 @@ class _TrackerWriter:
 
     def __init__(self, path: Path) -> None:
         self._path = path
-        self._existed = path.is_file()
+        # Size, not existence: a run that died before writing its first record
+        # leaves a zero-byte file behind. Treating that as "already has a
+        # header" produces a tracker whose first data row is read back as the
+        # header, so `already_sent` reports nothing sent and --resume re-sends
+        # to the first respondent.
+        self._existed = path.is_file() and path.stat().st_size > 0
+        # Plain utf-8, deliberately not utf-8-sig like the CSVs meant for
+        # Excel. The tracker is read back by `already_sent` with the stdlib
+        # `csv` module, which does not strip a BOM: the first fieldname would
+        # become "﻿number", `row.get("number")` would return None, and
+        # --resume would report nothing sent and re-send to everyone.
         self._handle = path.open("a", newline="", encoding="utf-8")
         self._writer = csv.DictWriter(self._handle, fieldnames=TRACKER_COLUMNS)
         if not self._existed:
@@ -258,6 +278,37 @@ def launch(
     """
     frame = read_input(input_file, columns_to_send)
     tracker = tracker_path(input_file)
+
+    # A tracker with content in it means this sample was launched before. The
+    # writer opens in append mode, so a second run without --resume would send
+    # to everyone again and record it in the same file with nothing marking
+    # where run one ended - each respondent getting a second execution and a
+    # second warehouse row. Refuse instead, and say which flag resolves it.
+    #
+    # Size, not just existence: a run that died before writing its first record
+    # leaves a zero-byte file carrying no information, and refusing that would
+    # block a launch that never happened.
+    if tracker.is_file() and tracker.stat().st_size > 0 and not resume and not dry_run:
+        previously_sent = already_sent(tracker)
+        if previously_sent:
+            detail = f"{len(previously_sent)} number(s) recorded as sent"
+            remedy = "  --resume     send only to the numbers that have not gone out\n"
+        else:
+            # Every attempt failed - a bad sending number, the wrong flow SID,
+            # an unapproved template. Offering --resume here would be actively
+            # misleading, since it would retry the same broken configuration.
+            detail = "every attempt in it failed"
+            remedy = (
+                "  Fix the cause of the failures first - the tracker's "
+                "`error` column says what Twilio returned.\n"
+            )
+        raise LaunchError(
+            f"{tracker.name} already exists: this sample has been launched "
+            f"before ({detail}).\n\n"
+            f"{remedy}"
+            f"  --dry-run    show what would be sent, without sending\n\n"
+            f"To start over, move or delete {tracker.name} first."
+        )
 
     skip = already_sent(tracker) if resume else set()
     if resume:

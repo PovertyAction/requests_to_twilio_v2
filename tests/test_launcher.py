@@ -261,6 +261,67 @@ class TestLaunch:
         assert second.studio.v2.flows.return_value.executions.create.call_count == 1
 
 
+class TestRelaunchGuard:
+    """A second launch without --resume used to send to everyone again.
+
+    The tracker is opened in append mode, so run two would land in run one's
+    file with nothing marking the boundary - every respondent getting a second
+    execution and, because the publish Function does a plain INSERT, a second
+    warehouse row. `hfc.duplicate_observations` finds that afterwards, by which
+    point there is no way to tell which of two disagreeing rows to keep.
+    """
+
+    def _launch(self, sample, **overrides):
+        kwargs = {
+            "client": fake_client(),
+            "flow_id": "FW" + "0" * 32,
+            "from_number": "whatsapp:+15555550199",
+            "input_file": sample,
+            "columns_to_send": ["name", "city"],
+            "batch_size": 10,
+            "sec_between_batches": 0,
+        }
+        kwargs.update(overrides)
+        return launch(**kwargs)
+
+    def test_second_launch_without_resume_is_refused(self, sample):
+        self._launch(sample)
+        with pytest.raises(LaunchError, match="already exists"):
+            self._launch(sample)
+
+    def test_the_refusal_names_the_flags_that_resolve_it(self, sample):
+        self._launch(sample)
+        with pytest.raises(LaunchError) as caught:
+            self._launch(sample)
+        message = str(caught.value)
+        assert "--resume" in message and "--dry-run" in message
+
+    def test_nothing_is_sent_when_refused(self, sample):
+        self._launch(sample)
+        client = fake_client()
+        with pytest.raises(LaunchError):
+            self._launch(sample, client=client)
+        assert client.studio.v2.flows.return_value.executions.create.call_count == 0
+
+    def test_first_launch_is_unaffected(self, sample):
+        tracker = self._launch(sample)
+        assert tracker.is_file()
+
+    def test_resume_still_works(self, sample):
+        self._launch(sample)
+        # Everything succeeded, so a resumed run has nothing left to send.
+        client = fake_client()
+        self._launch(sample, client=client, resume=True)
+        assert client.studio.v2.flows.return_value.executions.create.call_count == 0
+
+    def test_dry_run_is_allowed_over_an_existing_tracker(self, sample):
+        """Inspecting what would be sent must never be blocked."""
+        self._launch(sample)
+        client = fake_client()
+        self._launch(sample, client=client, dry_run=True)
+        assert client.studio.v2.flows.return_value.executions.create.call_count == 0
+
+
 class TestAlreadySent:
     def test_missing_tracker_is_empty(self, tmp_path):
         assert already_sent(tmp_path / "none.csv") == set()
