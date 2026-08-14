@@ -15,6 +15,7 @@ exactly that reason.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -24,6 +25,18 @@ from .log import get_logger
 
 ENV_TOKEN = "MOTHERDUCK_TOKEN"  # noqa: S105 - a variable name, not a secret
 ENV_DATABASE = "MOTHERDUCK_DATABASE"
+
+#: Set in `.env` for the publish Function, which reaches MotherDuck over the
+#: Postgres wire protocol from inside Twilio and needs the `pg.` endpoint. The
+#: DuckDB extension reads the same variable name and means something else by it:
+#: the host it fetches extension metadata from. The Postgres endpoint does not
+#: serve that, so leaving this set makes every local connection fail with
+#: "Failed to download .../extension_version" - a message that names neither
+#: MotherDuck nor the variable that caused it.
+#:
+#: One name, two protocols, one `.env`. The Function still gets its value; this
+#: module just declines to read the Function's configuration as its own.
+ENV_FUNCTION_HOST = "MOTHERDUCK_HOST"
 
 #: How an existing table is treated.
 WRITE_MODES = ("replace", "append", "create")
@@ -52,6 +65,10 @@ def _connect(database: str):
 
     token = require(ENV_TOKEN)
 
+    # Hidden from the extension for the length of the connect call only - see
+    # ENV_FUNCTION_HOST. Restored afterwards because `rtt deploy-functions`
+    # reads it from this same process to configure the Function.
+    stashed = os.environ.pop(ENV_FUNCTION_HOST, None)
     try:
         # The token is passed via the connection config rather than the DSN so
         # it does not end up in a connection string that might get logged.
@@ -60,6 +77,9 @@ def _connect(database: str):
         raise WarehouseError(
             f"Could not connect to MotherDuck database {database!r}: {exc}"
         ) from exc
+    finally:
+        if stashed is not None:
+            os.environ[ENV_FUNCTION_HOST] = stashed
 
 
 def resolve_database(override: str | None) -> str:

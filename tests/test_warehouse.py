@@ -6,11 +6,16 @@ it needs a live MotherDuck token.
 """
 
 import inspect
+import os
+import sys
+import types
 
 import pandas as pd
 import pytest
 
+from requests_to_twilio import warehouse
 from requests_to_twilio.warehouse import (
+    ENV_FUNCTION_HOST,
     WarehouseError,
     push_dataframe,
     push_file,
@@ -27,6 +32,62 @@ def frame():
             "answer": ["yes", "no"],
         }
     )
+
+
+class TestTheFunctionHostDoesNotReachTheLocalClient:
+    """`MOTHERDUCK_HOST` configures the publish Function, not this module.
+
+    The Function talks to MotherDuck over the Postgres wire protocol from inside
+    Twilio and needs the `pg.` endpoint. The DuckDB extension reads a variable of
+    the same name and means the host it fetches extension metadata from, which
+    that endpoint does not serve - so with both in one `.env`, every local
+    connection failed with a download error naming neither MotherDuck nor the
+    variable responsible.
+    """
+
+    @pytest.fixture
+    def fake_duckdb(self, monkeypatch):
+        """Stand in for duckdb, recording the environment at connect time."""
+        seen = {}
+
+        def connect(dsn, config=None):
+            seen["host_visible"] = os.environ.get(ENV_FUNCTION_HOST)
+            seen["dsn"] = dsn
+            return "connection"
+
+        monkeypatch.setitem(
+            sys.modules, "duckdb", types.SimpleNamespace(connect=connect)
+        )
+        monkeypatch.setenv("MOTHERDUCK_TOKEN", "t")
+        return seen
+
+    def test_it_is_hidden_while_connecting(self, fake_duckdb, monkeypatch):
+        monkeypatch.setenv(ENV_FUNCTION_HOST, "pg.us-east-1-aws.motherduck.com")
+        warehouse._connect("db")
+        assert fake_duckdb["host_visible"] is None
+
+    def test_it_is_restored_afterwards(self, fake_duckdb, monkeypatch):
+        """`rtt deploy-functions` reads it from this same process."""
+        monkeypatch.setenv(ENV_FUNCTION_HOST, "pg.us-east-1-aws.motherduck.com")
+        warehouse._connect("db")
+        assert os.environ[ENV_FUNCTION_HOST] == "pg.us-east-1-aws.motherduck.com"
+
+    def test_it_is_restored_even_when_the_connection_fails(self, monkeypatch):
+        def boom(dsn, config=None):
+            raise RuntimeError("refused")
+
+        monkeypatch.setitem(sys.modules, "duckdb", types.SimpleNamespace(connect=boom))
+        monkeypatch.setenv("MOTHERDUCK_TOKEN", "t")
+        monkeypatch.setenv(ENV_FUNCTION_HOST, "pg.us-east-1-aws.motherduck.com")
+        with pytest.raises(WarehouseError):
+            warehouse._connect("db")
+        assert os.environ[ENV_FUNCTION_HOST] == "pg.us-east-1-aws.motherduck.com"
+
+    def test_an_unset_host_is_not_invented(self, fake_duckdb, monkeypatch):
+        """Restoring a variable that was never set would be its own bug."""
+        monkeypatch.delenv(ENV_FUNCTION_HOST, raising=False)
+        warehouse._connect("db")
+        assert ENV_FUNCTION_HOST not in os.environ
 
 
 class TestResolveDatabase:
