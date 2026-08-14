@@ -233,9 +233,12 @@ data-check FILE *ARGS:
 # from the data rather than incomplete in it - and a reply Twilio could not hand
 # to the flow reads as `received` everywhere while the answer is gone.
 #
-# Safe to re-run: the log is keyed by message SID and rewritten, so polling every
-# 30 minutes during a round keeps it current without growing it.
-[doc("Poll message delivery status into a running log")]
+# One row per number, not per message: failed / sent / delivered / answered_back.
+# The first and last are final and stop being polled, so the loop ends by itself
+# once every number has settled rather than spending rate limit on a done round.
+#
+#   just monitor "--tracker sample_output.csv --hours 4"
+[doc("Watch a round land, one row per number")]
 monitor *ARGS:
     uv run rtt monitor {{ ARGS }}
 

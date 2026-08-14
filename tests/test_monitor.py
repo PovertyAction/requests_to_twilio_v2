@@ -6,7 +6,7 @@ Both look like success everywhere else, so the tests here are mostly about the
 monitor refusing to report success.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pandas as pd
@@ -15,10 +15,14 @@ from twilio.base.exceptions import TwilioRestException
 
 from requests_to_twilio.monitor import (
     LOG_COLUMNS,
+    NUMBER_COLUMNS,
     MonitorError,
+    by_number,
+    launch_failures,
+    launch_window,
+    pending,
     poll_delivery,
-    problems,
-    summarise,
+    read_tracker,
     update_log,
 )
 
@@ -62,6 +66,78 @@ def rows(*specs):
     )
 
 
+def tracker(*records, path=None):
+    """Write a delivery tracker the way `rtt launch` does."""
+    frame = pd.DataFrame(
+        records, columns=["number", "status", "execution_sid", "error", "sent_at"]
+    )
+    if path is not None:
+        frame.to_csv(path, index=False)
+    return frame
+
+
+class TestScopingToARound:
+    """A date is the wrong unit for a window.
+
+    On the first live round of this instrument, `--since` at day resolution
+    returned 91 messages for a round of 4 - the account's whole day, including
+    traffic from unrelated flows. The tracker knows when the launch happened.
+    """
+
+    def test_the_window_starts_just_before_the_first_send(self):
+        frame = tracker(
+            ("+15555550100", "active", "FN1", "", "2026-08-14T21:20:14+00:00"),
+            ("+15555550101", "active", "FN2", "", "2026-08-14T21:20:16+00:00"),
+        )
+        started = launch_window(frame)
+        # The earliest send, less the margin - `sent_at` and Twilio's `date_sent`
+        # can disagree by a moment, and the first message must not fall outside
+        # its own round.
+        assert started == datetime(2026, 8, 14, 21, 19, 14, tzinfo=UTC)
+
+    def test_a_tracker_with_no_usable_stamp_has_no_window(self):
+        assert launch_window(tracker(("+1", "failed", "", "HTTP 400", ""))) is None
+
+    def test_a_file_that_is_not_a_tracker_is_refused(self, tmp_path):
+        path = tmp_path / "not_a_tracker.csv"
+        pd.DataFrame({"a": [1]}).to_csv(path, index=False)
+        with pytest.raises(MonitorError, match="does not look like a delivery tracker"):
+            read_tracker(path)
+
+    def test_a_missing_file_is_reported_as_itself(self, tmp_path):
+        with pytest.raises(MonitorError, match="Could not read"):
+            read_tracker(tmp_path / "nope.csv")
+
+
+class TestSendsThatNeverLeft:
+    """The rows no other view can show.
+
+    The API refused or Meta rejected, so there is no execution, no message with a
+    delivery status, and no published row. The respondent is absent from the
+    dataset rather than incomplete in it, and this file is the only record that
+    they were contacted at all.
+    """
+
+    def test_a_failed_send_is_reported(self):
+        frame = tracker(
+            ("+15555550100", "failed", "", "HTTP 400 (code 63016)", ""),
+            ("+15555550101", "active", "FN2", "", "2026-08-14T21:20:16+00:00"),
+        )
+        found = launch_failures(frame)
+        assert len(found) == 1
+        assert "63016" in found.iloc[0]["error"]
+
+    def test_numbers_are_masked(self):
+        frame = tracker(("+15555550100", "failed", "", "HTTP 400", ""))
+        assert "5555550100" not in launch_failures(frame).iloc[0]["number"]
+
+    def test_a_clean_launch_reports_nothing(self):
+        frame = tracker(
+            ("+15555550100", "active", "FN1", "", "2026-08-14T21:20:14+00:00")
+        )
+        assert launch_failures(frame).empty
+
+
 class TestPolling:
     def test_a_rate_limit_is_not_an_empty_round(self):
         """The failure this module was written to refuse.
@@ -98,130 +174,180 @@ class TestPolling:
         assert list(frame.columns) == LOG_COLUMNS
 
 
-class TestTheLogUpdatesInPlace:
-    """One row per message however often it is polled."""
+def sends(*specs):
+    """Build a per-message frame as (sid, direction, status, error, sent)."""
+    return rows(
+        *[
+            (
+                sid,
+                "whatsapp:+15555550100"
+                if direction.startswith("outbound")
+                else "whatsapp:+15555550199",
+                "whatsapp:+15555550199"
+                if direction.startswith("outbound")
+                else "whatsapp:+15555550100",
+                direction,
+                status,
+                error,
+                "",
+                sent,
+                sent,
+                "polled",
+            )
+            for sid, direction, status, error, sent in specs
+        ]
+    )
 
-    def test_a_second_poll_does_not_duplicate(self, tmp_path):
-        path = tmp_path / "log.csv"
-        frame = rows(
-            ("SM1", "to", "from", "outbound-api", "sent", "", "", "t", "t", "p")
+
+class TestOneRowPerNumber:
+    """One state per number: did it land, and did they answer.
+
+    A round of 4 produced 71 messages. Nobody watching a live round wants 71
+    rows; they want to know which of the 4 got it and who has gone quiet.
+    """
+
+    def test_a_reply_outranks_everything(self):
+        """A reply proves delivery better than a delivery receipt does."""
+        frame = sends(
+            ("SM1", "outbound-api", "sent", "", "2026-08-14T21:20:00+00:00"),
+            ("SM2", "inbound", "received", "", "2026-08-14T21:21:00+00:00"),
         )
-        update_log(frame, path)
-        update_log(frame, path)
-        assert len(pd.read_csv(path)) == 1
+        assert by_number(frame).iloc[0]["delivery_status"] == "answered_back"
 
-    def test_a_status_change_is_counted_and_written(self, tmp_path):
+    def test_a_failed_opener_is_failed(self):
+        frame = sends(
+            ("SM1", "outbound-api", "undelivered", "63016", "2026-08-14T21:20:00+00:00")
+        )
+        assert by_number(frame).iloc[0]["delivery_status"] == "failed"
+
+    def test_delivered_and_read_are_both_delivered(self):
+        for status in ("delivered", "read"):
+            frame = sends(
+                ("SM1", "outbound-api", status, "", "2026-08-14T21:20:00+00:00")
+            )
+            assert by_number(frame).iloc[0]["delivery_status"] == "delivered"
+
+    def test_anything_else_is_still_only_sent(self):
+        frame = sends(
+            ("SM1", "outbound-api", "queued", "", "2026-08-14T21:20:00+00:00")
+        )
+        assert by_number(frame).iloc[0]["delivery_status"] == "sent"
+
+    def test_only_the_opener_decides(self):
+        """A later hiccup must not erase that the round reached them.
+
+        Messages after the first exist because the respondent was already
+        engaging, so folding them in would let question 4 failing overwrite the
+        fact that the opener landed.
+        """
+        frame = sends(
+            ("SM1", "outbound-api", "delivered", "", "2026-08-14T21:20:00+00:00"),
+            ("SM2", "outbound-api", "undelivered", "", "2026-08-14T21:25:00+00:00"),
+        )
+        assert by_number(frame).iloc[0]["delivery_status"] == "delivered"
+
+    def test_the_respondent_is_not_the_sending_address(self):
+        """Grouping on `to` files every reply under the Twilio number."""
+        frame = sends(
+            ("SM1", "outbound-api", "delivered", "", "2026-08-14T21:20:00+00:00"),
+            ("SM2", "inbound", "received", "", "2026-08-14T21:21:00+00:00"),
+        )
+        result = by_number(frame)
+        assert len(result) == 1
+        assert result.iloc[0]["number"] == "whatsapp:+15555550100"
+
+    def test_an_inbound_error_survives_into_the_row(self):
+        """Error 11200 means their answer reached Twilio and not the flow."""
+        frame = sends(
+            ("SM1", "outbound-api", "delivered", "", "2026-08-14T21:20:00+00:00"),
+            ("SM2", "inbound", "received", "11200", "2026-08-14T21:21:00+00:00"),
+        )
+        assert by_number(frame).iloc[0]["error_codes"] == "11200"
+
+    def test_inbound_only_is_unsolicited(self):
+        """Somebody wrote in without being launched."""
+        frame = sends(("SM1", "inbound", "received", "", "2026-08-14T21:20:00+00:00"))
+        assert by_number(frame).iloc[0]["delivery_status"] == "unsolicited"
+
+
+class TestSettledNumbersStopBeingPolled:
+    def test_pending_excludes_the_settled(self):
+        log = pd.DataFrame(
+            {"delivery_status": ["sent", "delivered", "answered_back", "failed"]}
+        )
+        assert set(pending(log)["delivery_status"]) == {"sent", "delivered"}
+
+    def test_a_settled_row_is_never_walked_back(self, tmp_path):
+        """A later poll with a narrower window must not undo a settled state.
+
+        It might not see the reply that settled the row, which would reset it to
+        `sent` and put it back in the pending set forever.
+        """
         path = tmp_path / "log.csv"
         update_log(
-            rows(("SM1", "to", "f", "outbound-api", "sent", "", "", "t", "t", "p")),
+            by_number(
+                sends(
+                    ("SM1", "outbound-api", "sent", "", "2026-08-14T21:20:00+00:00"),
+                    ("SM2", "inbound", "received", "", "2026-08-14T21:21:00+00:00"),
+                )
+            ),
+            path,
+        )
+        # A narrower poll that only sees the opener.
+        added, changed = update_log(
+            by_number(
+                sends(("SM1", "outbound-api", "sent", "", "2026-08-14T21:20:00+00:00"))
+            ),
+            path,
+        )
+        assert (added, changed) == (0, 0)
+        assert pd.read_csv(path).loc[0, "delivery_status"] == "answered_back"
+
+    def test_a_state_that_moves_forward_is_written(self, tmp_path):
+        path = tmp_path / "log.csv"
+        update_log(
+            by_number(
+                sends(("SM1", "outbound-api", "sent", "", "2026-08-14T21:20:00+00:00"))
+            ),
             path,
         )
         added, changed = update_log(
-            rows(("SM1", "to", "f", "outbound-api", "read", "", "", "t", "t", "p2")),
+            by_number(
+                sends(
+                    (
+                        "SM1",
+                        "outbound-api",
+                        "delivered",
+                        "",
+                        "2026-08-14T21:20:00+00:00",
+                    )
+                )
+            ),
             path,
         )
         assert (added, changed) == (0, 1)
-        assert pd.read_csv(path).loc[0, "status"] == "read"
+        assert pd.read_csv(path).loc[0, "delivery_status"] == "delivered"
 
-    def test_an_unchanged_poll_reports_nothing_moved(self, tmp_path):
-        """A quiet poll should say so rather than report every row as touched."""
-        path = tmp_path / "log.csv"
-        frame = rows(("SM1", "to", "f", "outbound-api", "sent", "", "", "t", "t", "p"))
-        update_log(frame, path)
-        assert update_log(frame, path) == (0, 0)
-
-    def test_rows_outside_the_window_survive(self, tmp_path):
-        """A narrow --since must not delete what it did not look at."""
+    def test_a_number_outside_the_window_survives(self, tmp_path):
         path = tmp_path / "log.csv"
         update_log(
-            rows(("OLD", "to", "f", "outbound-api", "read", "", "", "a", "a", "p")),
+            by_number(
+                sends(("SM1", "outbound-api", "sent", "", "2026-08-14T21:20:00+00:00"))
+            ),
             path,
         )
-        update_log(
-            rows(("NEW", "to", "f", "outbound-api", "sent", "", "", "b", "b", "p")),
-            path,
-        )
-        assert set(pd.read_csv(path)["message_sid"]) == {"OLD", "NEW"}
+        other = sends(("SM9", "outbound-api", "sent", "", "2026-08-14T22:00:00+00:00"))
+        other["to"] = "whatsapp:+15555550777"
+        update_log(by_number(other), path)
+        assert len(pd.read_csv(path)) == 2
 
     def test_an_empty_poll_leaves_the_file_alone(self, tmp_path):
         path = tmp_path / "log.csv"
         update_log(
-            rows(("SM1", "to", "f", "outbound-api", "sent", "", "", "t", "t", "p")),
+            by_number(
+                sends(("SM1", "outbound-api", "sent", "", "2026-08-14T21:20:00+00:00"))
+            ),
             path,
         )
-        assert update_log(pd.DataFrame(columns=LOG_COLUMNS), path) == (0, 0)
+        assert update_log(pd.DataFrame(columns=NUMBER_COLUMNS), path) == (0, 0)
         assert len(pd.read_csv(path)) == 1
-
-
-class TestProblemsCatchesBothDirections:
-    """Reporting only outbound failures was this function's own first bug."""
-
-    def test_an_outbound_failure_is_found(self):
-        frame = rows(
-            (
-                "SM1",
-                "to",
-                "f",
-                "outbound-api",
-                "undelivered",
-                "63016",
-                "no",
-                "t",
-                "t",
-                "p",
-            )
-        )
-        assert len(problems(frame)) == 1
-
-    def test_an_inbound_error_is_found_even_though_it_says_received(self):
-        """Error 11200 on an inbound message: the reply arrived and was dropped.
-
-        Status `received` reads as success and the message did reach Twilio -
-        what failed is the webhook handing it to the flow. Measured live: five
-        replies lost this way while every other surface reported four sends and
-        zero failures.
-        """
-        frame = rows(
-            ("SM1", "to", "f", "inbound", "received", "11200", "", "t", "t", "p")
-        )
-        assert len(problems(frame)) == 1
-
-    def test_a_clean_round_reports_nothing(self):
-        frame = rows(
-            ("SM1", "to", "f", "outbound-api", "delivered", "", "", "t", "t", "p"),
-            ("SM2", "to", "f", "inbound", "received", "", "", "t", "t", "p"),
-        )
-        assert problems(frame).empty
-
-    def test_numbers_are_masked_for_display(self):
-        frame = rows(
-            (
-                "SM1",
-                "whatsapp:+15555550100",
-                "f",
-                "inbound",
-                "received",
-                "11200",
-                "",
-                "t",
-                "t",
-                "p",
-            )
-        )
-        assert "5555550100" not in problems(frame).loc[0, "to"]
-
-
-class TestSummary:
-    def test_anything_with_an_error_sorts_above_a_clean_status(self):
-        """During a round, the only actionable rows go at the top."""
-        frame = rows(
-            *[
-                (f"SM{i}", "to", "f", "inbound", "received", "", "", "t", "t", "p")
-                for i in range(9)
-            ],
-            ("SMX", "to", "f", "inbound", "received", "11200", "", "t", "t", "p"),
-        )
-        assert summarise(frame).loc[0, "error_code"] == "11200"
-
-    def test_an_empty_frame_summarises_to_nothing(self):
-        assert summarise(pd.DataFrame(columns=LOG_COLUMNS)).empty

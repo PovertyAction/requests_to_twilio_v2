@@ -11,7 +11,8 @@ import contextlib
 import json
 import stat
 import sys
-from datetime import datetime
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -45,8 +46,17 @@ from .flows import (
 from .flows import pull as pull_flow
 from .hfc import check_dataset, outcome_counts
 from .launcher import SENT_AT_PARAM, LaunchError, launch
-from .log import configure, configure_output_encoding
-from .monitor import MonitorError, poll_delivery, problems, summarise, update_log
+from .log import configure, configure_output_encoding, mask_phone
+from .monitor import (
+    MonitorError,
+    by_number,
+    launch_failures,
+    launch_window,
+    pending,
+    poll_delivery,
+    read_tracker,
+    update_log,
+)
 from .spec import (
     SCOPE_NOTE,
     SpecError,
@@ -644,9 +654,18 @@ def monitor(
         Path,
         typer.Option("--output", "-o", help="The running log to create or update."),
     ] = Path("delivery_log.csv"),
+    tracker: Annotated[
+        Path | None,
+        typer.Option(
+            "--tracker",
+            help="A delivery tracker from `rtt launch`. Scopes the poll to that round.",
+        ),
+    ] = None,
     since: Annotated[
         datetime | None,
-        typer.Option("--since", formats=["%Y-%m-%d"], help="Only from this date."),
+        typer.Option(
+            "--since", formats=["%Y-%m-%d"], help="Only from this date. Overrides."
+        ),
     ] = None,
     until: Annotated[
         datetime | None,
@@ -655,60 +674,120 @@ def monitor(
     limit: Annotated[
         int | None, typer.Option("--limit", help="Stop after this many messages.")
     ] = None,
+    hours: Annotated[
+        float | None,
+        typer.Option("--hours", help="Keep polling for this long. Omit to poll once."),
+    ] = None,
+    every: Annotated[int, typer.Option("--every", help="Minutes between polls.")] = 30,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Poll message delivery status into a file that keeps updating.
+    """Watch a round land: one row per number, polled until it settles.
+
+    We launched - did it arrive, and did they answer? Each number holds one
+    state, in order of progress:
+
+        failed          the opener did not go out, or came back undelivered
+        sent            accepted by Twilio, not yet confirmed on the handset
+        delivered       it arrived
+        answered_back   they replied, so the flow has taken over
+
+    `failed` and `answered_back` are final and stop being polled: a failure does
+    not un-fail, and once someone is answering, their progress is a question for
+    `rtt fetch`, not for delivery status. When every number has settled the loop
+    stops on its own rather than spending rate limit on a finished round.
 
     Reads the layer `rtt fetch` and `rtt data-check` cannot see. A send that Meta
-    rejects, or that the API refuses, never becomes an execution and never
-    publishes a row - so the respondent is not `incomplete` in the data, they are
-    absent from it. The message is the only record that they were ever contacted.
+    rejects never becomes an execution and never publishes a row, so that person
+    is absent from the data rather than incomplete in it.
 
-    Safe to run on a loop during a round: the log is keyed by message SID and
-    rewritten, so it shows the present state rather than growing with how often
-    you look at it.
+    Pass `--tracker` to scope to one round. A date is the wrong unit: on the
+    first live round of this instrument `--since` at day resolution returned 91
+    messages for a round of 4.
     """
     configure(verbose=verbose)
     cfg.load_env()
     conf = cfg.TwilioConfig.from_env()
 
+    launched: pd.DataFrame | None = None
     try:
-        frame = poll_delivery(
-            client=Client(conf.account_sid, conf.auth_token),
-            since=since,
-            until=until,
-            limit=limit,
-        )
-        update_log(frame, output)
+        if tracker is not None:
+            launched = read_tracker(tracker)
+            # An explicit --since wins: someone narrowing a window by hand has a
+            # reason, and silently overriding it would be worse than ignoring it.
+            if since is None:
+                since = launch_window(launched)
+                if since is None:
+                    _fail(
+                        f"{tracker} has no usable sent_at, so the round has no start."
+                    )
+                typer.echo(f"Round launched {since.isoformat()} (from {tracker.name})")
+
+        # Before anything else: these never became messages, so they cannot
+        # appear in any delivery status below.
+        never_sent = launch_failures(launched) if launched is not None else None
+        if never_sent is not None and not never_sent.empty:
+            typer.secho(
+                f"{len(never_sent)} send(s) never left - no execution, no row:",
+                fg=typer.colors.RED,
+            )
+            for _, row in never_sent.iterrows():
+                typer.echo(f"  {row.get('number', '?')}  {row.get('error', '')}")
+            typer.echo("")
+
+        client = Client(conf.account_sid, conf.auth_token)
+        deadline = None if hours is None else time.monotonic() + hours * 3600
+
+        while True:
+            frame = poll_delivery(client=client, since=since, until=until, limit=limit)
+            added, changed = update_log(by_number(frame), output)
+
+            # Read back rather than trust this poll: the log carries numbers a
+            # narrower window did not cover, and settled rows it refused to move.
+            log = (
+                pd.read_csv(output, dtype=str).fillna("")
+                if output.is_file()
+                else by_number(frame)
+            )
+            waiting = pending(log)
+
+            counts = log["delivery_status"].value_counts().to_dict()
+            stamp = datetime.now(UTC).strftime("%H:%M:%S")
+            summary = "  ".join(f"{v} {k}" for k, v in sorted(counts.items()))
+            typer.echo(f"[{stamp}Z] {summary}   ({added} new, {changed} changed)")
+
+            for _, row in log[log["error_codes"] != ""].iterrows():
+                typer.secho(
+                    f"    {mask_phone(str(row['number']))}  error {row['error_codes']}"
+                    "  reply reached Twilio and was dropped - check the webhook",
+                    fg=typer.colors.YELLOW,
+                )
+
+            if waiting.empty:
+                typer.secho(
+                    "\nEvery number has settled - nothing left to watch.",
+                    fg=typer.colors.GREEN,
+                )
+                break
+            if deadline is None:
+                typer.echo(
+                    f"{len(waiting)} still pending. Pass --hours to keep watching."
+                )
+                break
+            if time.monotonic() >= deadline:
+                typer.secho(
+                    f"\nWindow closed with {len(waiting)} still pending: "
+                    + ", ".join(mask_phone(str(n)) for n in waiting["number"]),
+                    fg=typer.colors.YELLOW,
+                )
+                break
+
+            typer.echo(f"    {len(waiting)} pending, next poll in {every} min")
+            time.sleep(every * 60)
     except MonitorError as exc:
         _fail(str(exc))
-
-    if frame.empty:
-        typer.secho("No messages in this window.", fg=typer.colors.GREEN)
-        return
-
-    for _, row in summarise(frame).iterrows():
-        code = f"  error {row['error_code']}" if row["error_code"] else ""
-        typer.echo(f"  {row['messages']:>4}  {row['status']}{code}")
-
-    found = problems(frame)
-    if found.empty:
-        typer.secho(
-            "\nEvery message arrived and was handed over.", fg=typer.colors.GREEN
-        )
-        return
-
-    # The only part of a live round anyone can still act on.
-    typer.secho(f"\n{len(found)} message(s) need attention:", fg=typer.colors.YELLOW)
-    for _, row in found.iterrows():
-        code = f"error {row['error_code']}" if row["error_code"] else row["status"]
-        typer.echo(f"  {row['to']}  {row['direction']}  {code}  {row['error_message']}")
-    typer.secho(
-        f"\nAn outbound failure means no row will be published for that respondent. "
-        f"An error on an inbound message means their reply reached Twilio and was "
-        f"dropped before the flow saw it - check the webhook. {output} is the record.",
-        fg=typer.colors.YELLOW,
-    )
+    except KeyboardInterrupt:
+        # The log is written after every poll, so stopping loses nothing.
+        typer.secho(f"\nStopped. {output} holds the last poll.", fg=typer.colors.YELLOW)
 
 
 @app.command("data-check")
