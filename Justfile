@@ -227,3 +227,45 @@ flow-schema FILE *ARGS:
 [doc("Run high-frequency checks on collected data")]
 data-check FILE *ARGS:
     uv run rtt data-check {{ FILE }} {{ ARGS }}
+
+# A Studio flow is 73 widgets for 8 questions and nobody can review it. The spec
+# is the same instrument as ~20 rows, in the shape SurveyCTO users already know:
+# one row is one question AND the whole subgraph it becomes.
+#
+# The JSON is canonical - it is what git carries and what a reviewer diffs. The
+# workbook is a generated view, gitignored, and it is what you edit.
+#
+#   just survey-xlsx surveys/data_use_demo.json    # make the workbook
+#   ...edit it in Excel...
+#   just survey-json surveys/data_use_demo.xlsx    # bring the edits back
+#   just survey-check surveys/data_use_demo.json   # then commit the JSON
+
+# Read the whole instrument in the terminal, without Excel
+survey-rows FILE *ARGS:
+    uv run rtt survey rows {{ FILE }} {{ ARGS }}
+
+# The instrument-side equivalent of XLSForm validation: it does not read the
+# option patterns and constraints, it RUNS them, and reports where each possible
+# reply lands. Exits non-zero on a problem, so it can gate a build.
+[doc("Check a survey spec before it becomes a flow")]
+survey-check FILE:
+    uv run rtt survey check {{ FILE }}
+
+# Regenerate the workbook from the canonical JSON. Overwrites it: the workbook is
+# a view, not a document with a history.
+[doc("Write the editable workbook from a spec's JSON")]
+survey-xlsx FILE:
+    uv run rtt survey convert {{ FILE }} {{ without_extension(FILE) }}.xlsx
+
+# Bring an RA's edits back into the tracked JSON. This is the load-bearing
+# direction: what does not survive the trip back is silently lost.
+[doc("Read a workbook's edits back into the canonical JSON")]
+survey-json FILE:
+    uv run rtt survey convert {{ FILE }} {{ without_extension(FILE) }}.json
+
+# One-off, and it will be retired: lifts the demo flow's Python language tables
+# into the spec format. The builder still reads its own tables until the compiler
+# is switched over.
+[doc("Export the demo flow's language tables as a survey spec")]
+export-demo-spec:
+    uv run python scripts/export_demo_spec.py

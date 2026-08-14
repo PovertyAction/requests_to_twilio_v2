@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 
 #: Matches a run of digits long enough to be a phone number, with the separators
 #: people commonly write them with. Deliberately broad: over-masking a number in
@@ -87,3 +88,24 @@ def configure(verbose: bool = False) -> logging.Logger:
 def get_logger() -> logging.Logger:
     """Return the package logger without reconfiguring it."""
     return logging.getLogger(LOGGER_NAME)
+
+
+def configure_output_encoding() -> None:
+    """Make stdout and stderr carry the text this project actually handles.
+
+    IPA machines are Windows, where stdout defaults to the system code page.
+    Question bodies and template copy carry emoji and non-Latin script, so
+    printing them raises ``UnicodeEncodeError`` - and it does so *partway
+    through*, after some of the work has already been done and reported. That is
+    the worst shape for a failure: `rtt template create` died having created some
+    of the templates.
+
+    Encoding is a property of where output is going, not of the data, so it is
+    set once, here, rather than by every caller sanitising its own strings. Any
+    entry point that prints instrument text should call this first - which is
+    every CLI command and every script under ``scripts/``.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")

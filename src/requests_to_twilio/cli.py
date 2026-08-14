@@ -45,7 +45,9 @@ from .flows import (
 from .flows import pull as pull_flow
 from .hfc import check_dataset, outcome_counts
 from .launcher import SENT_AT_PARAM, LaunchError, launch
-from .log import configure
+from .log import configure, configure_output_encoding
+from .spec import SpecError, check_spec, load_spec, review_notes, save_spec
+from .spec_xlsx import read_xlsx, write_xlsx
 from .templates import (
     CATEGORIES,
     TemplateError,
@@ -1393,15 +1395,10 @@ def main() -> None:
     Ctrl-C handling below - never ran: interrupting a live send printed a
     traceback rather than a message.
     """
-    # IPA machines are Windows, where stdout defaults to the system code page.
-    # Template bodies and question text carry emoji and non-Latin script, so
-    # `rtt template create > log.txt` died with UnicodeEncodeError partway
-    # through - after creating some of the templates. Encoding is a property of
-    # where output is going, not of the data, so it is set once here.
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            reconfigure(encoding="utf-8", errors="replace")
+    # Shared with the scripts under scripts/, which print the same instrument
+    # text and hit the same Windows code-page failure. See the reasoning in
+    # `log.configure_output_encoding`.
+    configure_output_encoding()
 
     try:
         app()
@@ -1414,3 +1411,206 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+survey_app = typer.Typer(
+    no_args_is_help=True,
+    help="Read and check the survey spec: the instrument as rows, not widgets.",
+)
+app.add_typer(survey_app, name="survey")
+
+
+def _load_any_spec(path: Path):
+    """Load a spec from either serialisation, choosing by extension.
+
+    The two are the same schema, so which one a command was handed should not
+    change what it does. Only `convert` cares about the difference.
+    """
+    if path.suffix.lower() in {".xlsx", ".xlsm"}:
+        return read_xlsx(path)
+    return load_spec(path)
+
+
+@survey_app.command("convert")
+def survey_convert(
+    source: Annotated[Path, typer.Argument(help="The spec to read: .json or .xlsx.")],
+    destination: Annotated[
+        Path, typer.Argument(help="Where to write it: .xlsx or .json.")
+    ],
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Convert a spec between its JSON and workbook forms.
+
+    The JSON is the canonical copy - it is what git carries and what a reviewer
+    diffs. The workbook is a view of it, regenerated whenever somebody needs to
+    read or edit the instrument, and gitignored because a workbook in a pull
+    request is a binary blob nobody can review.
+
+    So the normal cycle is: convert to .xlsx, edit in Excel, convert back, and
+    commit the JSON. The diff in the pull request is then the change to the
+    instrument, in words.
+    """
+    configure(verbose)
+
+    if source.resolve() == destination.resolve():
+        _fail(f"Source and destination are the same file ({source}).")
+
+    try:
+        spec = _load_any_spec(source)
+    except SpecError as exc:
+        _fail(str(exc))
+
+    to_workbook = destination.suffix.lower() in {".xlsx", ".xlsm"}
+    if to_workbook:
+        written = write_xlsx(spec, destination)
+    elif destination.suffix.lower() == ".json":
+        written = save_spec(spec, destination)
+    else:
+        _fail(
+            f"Cannot tell what to write from {destination.suffix!r}. Use .json "
+            "for the canonical spec or .xlsx for the workbook."
+        )
+
+    typer.secho(f"{source}  ->  {written}", fg=typer.colors.GREEN)
+    if to_workbook:
+        typer.echo(
+            "\nThe workbook is a generated view and is gitignored. Edit it, then "
+            f"convert it back:\n  rtt survey convert {written} {source}"
+        )
+
+    # Silence here would be the wrong default: a conversion is usually a step in
+    # editing the instrument, and an invalid spec should be said at the point it
+    # is produced rather than discovered at build time.
+    problems = check_spec(spec)
+    if problems:
+        typer.echo("")
+        typer.secho(
+            f"{len(problems)} problem(s) - run `rtt survey check` for the detail.",
+            fg=typer.colors.YELLOW,
+        )
+
+
+@survey_app.command("check")
+def survey_check(
+    source: Annotated[Path, typer.Argument(help="The spec to check: .json or .xlsx.")],
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Check a survey spec before it is compiled into a flow.
+
+    The instrument-side equivalent of XLSForm validation, and it does more than
+    read the spec: every option pattern and every constraint is *run*, through
+    the same evaluator Studio uses, and checked for where each possible reply
+    lands. An option a respondent can tap but the flow cannot match is not
+    rejected by Twilio, by Studio, or by anything else - it just sends that
+    respondent the retry nudge and records them as unable to answer.
+
+    Exits non-zero on a problem, so it can gate a build.
+    """
+    configure(verbose)
+
+    try:
+        spec = _load_any_spec(source)
+    except SpecError as exc:
+        _fail(str(exc))
+
+    languages = ", ".join(spec.settings.languages) or "none"
+    questions = spec.questions()
+    typer.secho(f"{source.name}", bold=True)
+    typer.echo(
+        f"  {spec.settings.form_id or 'untitled'}  |  {len(spec.survey)} rows, "
+        f"{len(questions)} questions, {len(spec.choices)} options  |  {languages}"
+    )
+    # The claim the format makes, stated per row: this is not configuration, it
+    # is a subgraph. Somebody adding a third arm should see the cost.
+    typer.echo(
+        f"  {spec.total_widget_count()} widgets before the shared spine "
+        f"(trigger, publish, encryption)"
+    )
+
+    problems = check_spec(spec)
+    if problems:
+        typer.echo("")
+        for problem in problems:
+            typer.secho("  [error] ", fg=typer.colors.RED, nl=False)
+            typer.echo(problem)
+    else:
+        typer.echo("")
+        typer.secho("  all checks passed", fg=typer.colors.GREEN)
+
+    # Not findings, and deliberately not gating the exit code: these are things
+    # no check can judge. Consent wording is the clear case - every check above
+    # can pass on wording that is misleading, and by the time it is wrong
+    # somebody has already agreed to something.
+    for note in review_notes(spec):
+        typer.echo("")
+        typer.secho("  [review] ", fg=typer.colors.CYAN, nl=False)
+        typer.echo(note)
+
+    if problems:
+        raise typer.Exit(code=1)
+
+
+@survey_app.command("rows")
+def survey_rows(
+    source: Annotated[Path, typer.Argument(help="The spec to show: .json or .xlsx.")],
+    lang: Annotated[
+        str | None, typer.Option("--lang", help="Which language's text to show.")
+    ] = None,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Print the instrument as rows, to read it without opening Excel.
+
+    A Studio canvas cannot be read in a terminal and a workbook cannot be read
+    over ssh. This is the whole instrument in one screen, which is the thing the
+    spec exists to make possible.
+    """
+    configure(verbose)
+
+    try:
+        spec = _load_any_spec(source)
+    except SpecError as exc:
+        _fail(str(exc))
+
+    language = lang or spec.settings.default_language
+    if language not in spec.settings.languages:
+        _fail(
+            f"{language!r} is not one of this spec's languages "
+            f"({', '.join(spec.settings.languages)})."
+        )
+
+    indent = 0
+    for row in spec.survey:
+        if row.type == "end group":
+            indent = max(0, indent - 1)
+            continue
+
+        widgets = spec.widget_count(row)
+        text = (row.label.get(language) or "").replace("\n", " ").strip()
+        if row.sends_template:
+            text = f"[template: {row.template.get(language, '?')}]"
+
+        prefix = "  " * indent
+        typer.echo(f"  {widgets:>2}w  {prefix}", nl=False)
+        typer.secho(f"{row.type} ", fg=typer.colors.CYAN, nl=False)
+        typer.secho(f"{row.name}", bold=True, nl=False)
+        if row.relevance:
+            typer.secho(f"  when {row.relevance}", fg=typer.colors.YELLOW, nl=False)
+        typer.echo("")
+
+        if text:
+            typer.echo(f"        {prefix}{text[:90]}")
+        for choice in spec.choice_list(row.list_name) if row.list_name else []:
+            label = choice.label.get(language, "")
+            typer.echo(
+                f"        {prefix}  {choice.value:>4} = {label}  "
+                f"({choice.resolved_id()})"
+            )
+
+        if row.type == "begin group":
+            indent += 1
+
+    typer.echo("")
+    typer.secho(
+        f"  {spec.total_widget_count()} widgets, from {len(spec.survey)} rows",
+        fg=typer.colors.GREEN,
+    )
