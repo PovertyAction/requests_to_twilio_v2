@@ -429,6 +429,74 @@ class TestBuild:
         keys = [p["key"] for p in publish["properties"]["parameters"]]
         assert not any(k.startswith("ARM1_") and k.endswith("_code") for k in keys)
 
+    def test_arm1_asks_every_question_and_validates_none_of_them(self, lang):
+        """The arm's defining property, and the easiest one to erode.
+
+        ARM 1 exists to be the uncontrolled comparison: whatever the respondent
+        types is stored verbatim, and nothing is re-asked. Adding a split here
+        would quietly turn it into ARM 2 and destroy the contrast the whole demo
+        is built to show - and it would look like an improvement in review.
+
+        Measured on the first live round: ARM 1 returned "Thursfay", "NO",
+        "R and surveycto" and "G00d" where ARM 2 returned 4, 1, 1 and 3.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for key in demo.QUESTION_KEYS:
+            ask = states[f"ARM1_{key}"]
+            assert ask["type"] == "send-and-wait-for-reply"
+            # A body, never a content template: no options to render.
+            assert ask["properties"].get("body")
+            assert "content_sid" not in ask["properties"]
+            # Three widgets - ask, stop check, store - and no validation split,
+            # no retry counter and no give-up branch anywhere in the arm.
+            assert f"split_ARM1_{key}" not in states
+            assert f"retry_ARM1_{key}" not in states
+            assert f"giveup_ARM1_{key}" not in states
+            assert f"error_ARM1_{key}" not in states
+            assert states[f"store_ARM1_{key}"]["type"] == "set-variables"
+
+    def test_arm1_chains_in_order_and_ends_at_the_finish(self, lang):
+        """A question that transitions to the wrong place is a skipped question.
+
+        Both arms run the same five keys, so an off-by-one in either chain shows
+        up as a systematically missing variable in one arm only - which reads as
+        a respondent behaviour difference rather than as a wiring bug.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for index, key in enumerate(demo.QUESTION_KEYS):
+            store = states[f"store_ARM1_{key}"]
+            following = [t.get("next") for t in store["transitions"]]
+            expected = (
+                f"ARM1_{demo.QUESTION_KEYS[index + 1]}"
+                if index + 1 < len(demo.QUESTION_KEYS)
+                else "mark_complete"
+            )
+            assert expected in following, (key, following)
+
+    def test_arm1_stop_words_are_honoured_at_every_question(self, lang):
+        """Stopping must work in the arm with no other machinery around it."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for key in demo.QUESTION_KEYS:
+            check = states[f"stopcheck_ARM1_{key}"]
+            for word in demo.LANGS[lang]["stop_words"]:
+                assert route_split(check, word) == "mark_optout", (key, word)
+            # And an ordinary answer must not be mistaken for one.
+            assert route_split(check, "Thursday") == f"store_ARM1_{key}"
+
+    def test_both_arms_ask_the_same_questions(self, lang):
+        """The comparison is only a comparison if the keys line up."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        names = {s["name"] for s in definition["states"]}
+        for key in demo.QUESTION_KEYS:
+            assert f"ARM1_{key}" in names
+            assert f"ARM2_{key}" in names
+
     def test_the_retry_nudge_names_the_button_that_is_on_screen(self, lang):
         """And only names it where there is one.
 
