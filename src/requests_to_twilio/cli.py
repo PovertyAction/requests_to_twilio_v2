@@ -35,6 +35,7 @@ from .flows import (
     published_revision,
     referenced_content_types,
     resolve_flow,
+    sheet_header_row,
     summarize,
     unpaired_answers,
     unpublished_paths,
@@ -46,7 +47,7 @@ from .flows import (
 from .flows import pull as pull_flow
 from .hfc import check_dataset, outcome_counts
 from .launcher import SENT_AT_PARAM, LaunchError, launch
-from .log import configure, configure_output_encoding, mask_phone
+from .log import configure, configure_output_encoding
 from .monitor import (
     MonitorError,
     by_number,
@@ -54,9 +55,11 @@ from .monitor import (
     launch_window,
     pending,
     poll_delivery,
+    read_master_list,
     read_tracker,
     update_log,
 )
+from .sheets import SheetsError, access_token, credentials_from_env, replace_tab
 from .spec import (
     SCOPE_NOTE,
     SpecError,
@@ -674,11 +677,31 @@ def monitor(
     limit: Annotated[
         int | None, typer.Option("--limit", help="Stop after this many messages.")
     ] = None,
+    sample: Annotated[
+        Path | None,
+        typer.Option(
+            "--sample",
+            help=(
+                "The master list the round was launched from. Turns phone "
+                "numbers into caseids; inferred from --tracker when omitted."
+            ),
+        ),
+    ] = None,
     hours: Annotated[
         float | None,
         typer.Option("--hours", help="Keep polling for this long. Omit to poll once."),
     ] = None,
     every: Annotated[int, typer.Option("--every", help="Minutes between polls.")] = 30,
+    sheet: Annotated[
+        bool,
+        typer.Option(
+            "--sheet", help="Also rewrite a Google Sheet tab after every poll."
+        ),
+    ] = False,
+    sheet_tab: Annotated[
+        str,
+        typer.Option("--sheet-tab", help="Which tab to rewrite."),
+    ] = "tracking",
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Watch a round land: one row per number, polled until it settles.
@@ -731,22 +754,45 @@ def monitor(
                 fg=typer.colors.RED,
             )
             for _, row in never_sent.iterrows():
-                typer.echo(f"  {row.get('number', '?')}  {row.get('error', '')}")
+                typer.echo(f"  {row.get('caseid', '?')}  {row.get('error', '')}")
             typer.echo("")
+
+        # The master list is the only file this command reads a phone number
+        # from, and the mapping never leaves memory. Without it every row would
+        # be filed under `unknown-<digest>`, which is technically safe and
+        # useless to watch, so say so rather than degrade quietly.
+        if sample is None and tracker is not None:
+            guess = tracker.with_name(tracker.name.replace("_output.csv", ".xlsx"))
+            if guess != tracker and guess.is_file():
+                sample = guess
+                typer.echo(f"Master list {sample.name} (inferred from --tracker)")
+        caseids = read_master_list(sample) if sample is not None else {}
+        if not caseids:
+            typer.secho(
+                "No master list given, so every respondent will be filed under "
+                "an `unknown-` key. Pass --sample to see caseids.",
+                fg=typer.colors.YELLOW,
+            )
+
+        token = None
+        if sheet:
+            email, key, sheet_id = credentials_from_env()
+            token = access_token(email, key)
+            typer.echo(f"Publishing each poll to tab {sheet_tab!r}")
 
         client = Client(conf.account_sid, conf.auth_token)
         deadline = None if hours is None else time.monotonic() + hours * 3600
 
         while True:
             frame = poll_delivery(client=client, since=since, until=until, limit=limit)
-            added, changed = update_log(by_number(frame), output)
+            added, changed = update_log(by_number(frame, caseids), output)
 
             # Read back rather than trust this poll: the log carries numbers a
             # narrower window did not cover, and settled rows it refused to move.
             log = (
                 pd.read_csv(output, dtype=str).fillna("")
                 if output.is_file()
-                else by_number(frame)
+                else by_number(frame, caseids)
             )
             waiting = pending(log)
 
@@ -757,10 +803,22 @@ def monitor(
 
             for _, row in log[log["error_codes"] != ""].iterrows():
                 typer.secho(
-                    f"    {mask_phone(str(row['number']))}  error {row['error_codes']}"
+                    f"    {row['caseid']}  error {row['error_codes']}"
                     "  reply reached Twilio and was dropped - check the webhook",
                     fg=typer.colors.YELLOW,
                 )
+
+            if token is not None:
+                try:
+                    rows, _ = replace_tab(
+                        log, sheet_id=sheet_id, tab=sheet_tab, token=token
+                    )
+                    typer.echo(f"    sheet updated: {rows} row(s) in {sheet_tab!r}")
+                except SheetsError as exc:
+                    # A sheet that will not update must not end the round's
+                    # monitoring. The CSV is already written and is the record;
+                    # the sheet is a view of it.
+                    typer.secho(f"    sheet not updated: {exc}", fg=typer.colors.YELLOW)
 
             if waiting.empty:
                 typer.secho(
@@ -776,7 +834,7 @@ def monitor(
             if time.monotonic() >= deadline:
                 typer.secho(
                     f"\nWindow closed with {len(waiting)} still pending: "
-                    + ", ".join(mask_phone(str(n)) for n in waiting["number"]),
+                    + ", ".join(str(c) for c in waiting["caseid"]),
                     fg=typer.colors.YELLOW,
                 )
                 break
@@ -1116,16 +1174,30 @@ def flow_schema(
         str,
         typer.Option("--table", help="Fully qualified destination table."),
     ] = "rst_2026.main.data_use",
+    output_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help=(
+                "'ddl' for MotherDuck CREATE TABLE, 'header' for the "
+                "spreadsheet header row publish_gsheets reads."
+            ),
+        ),
+    ] = "ddl",
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Print CREATE TABLE DDL matching what the flow publishes.
+    """Print the destination's shape, matching what the flow publishes.
 
-    The publish Function inserts only into columns that already exist, so a
-    question added to the flow lands in a table with nowhere to put it and is
-    dropped - silently, with a 200 and a row that looks complete. Deriving the
-    schema from the instrument is what keeps the two from drifting.
+    Both publish Functions write only into columns that already exist - a table
+    column for MotherDuck, a header cell for Sheets - so a question added to the
+    flow lands somewhere with nowhere to put it and is dropped, silently, with a
+    200 and a row that looks complete. Deriving the destination's shape from the
+    instrument is what keeps the two from drifting.
     """
     configure(verbose)
+
+    if output_format not in ("ddl", "header"):
+        _fail(f"Unknown --format {output_format!r}. Use 'ddl' or 'header'.")
 
     try:
         # Shared with `flow check` and `flow deploy`, so all three accept both a
@@ -1133,7 +1205,10 @@ def flow_schema(
         # disagree, and `flow schema` on a pulled file reported "Flow publishes
         # nothing" rather than "wrong shape".
         definition = load_definition_file(definition_file)
-        typer.echo(warehouse_schema(definition, table))
+        if output_format == "header":
+            typer.echo(sheet_header_row(definition))
+        else:
+            typer.echo(warehouse_schema(definition, table))
     except FlowError as exc:
         _fail(str(exc))
 

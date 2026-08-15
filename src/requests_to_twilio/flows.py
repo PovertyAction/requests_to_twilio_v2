@@ -810,6 +810,41 @@ def warehouse_schema(definition: dict, table: str) -> str:
     return f"CREATE TABLE IF NOT EXISTS {table} (\n{body}\n);"
 
 
+def sheet_header_row(definition: dict) -> str:
+    """Return the spreadsheet header row matching the flow's publish payload.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        One comma-separated line, ready to paste into row 1 of the target sheet.
+
+    Raises:
+        FlowError: If the flow publishes nothing.
+
+    The Sheets counterpart of :func:`warehouse_schema`, and it exists for the
+    same reason. ``publish_gsheets`` maps a parameter to a column by matching
+    its name against the header row, so a question whose name is not in row 1 is
+    dropped - behind a 200, into a row that looks complete. Typing thirty column
+    names by hand is how one of them ends up as ``ARM2_P3_ code``.
+
+    ``submitted_at`` is appended for the same reason it is in the DDL: the
+    Function stamps it server-side, and every downstream tool - `rtt fetch`,
+    `rtt data-check`, the `final_status` rollup - reads that column by name.
+
+    No quoting or escaping. These are widget parameter names, which Studio
+    already constrains to identifiers, so none of them can contain a comma.
+
+    """
+    columns = [key for key, _ in published_columns(definition)]
+    if not columns:
+        raise FlowError("Flow publishes nothing, so there is no header to build.")
+
+    if "submitted_at" not in columns:
+        columns.append("submitted_at")
+    return ",".join(columns)
+
+
 def missing_warehouse_columns(definition: dict, existing: list[str]) -> list[str]:
     """Return published columns the destination table cannot store.
 

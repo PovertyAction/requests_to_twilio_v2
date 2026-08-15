@@ -190,6 +190,16 @@ flow-check *ARGS:
 # Builds both languages from one structure and two string tables, so a fix to
 # the graph lands in both. Pass --lang en or --lang es for just one. Needs live
 # Twilio credentials: the content templates are looked up by name.
+#
+# --publish-target chooses where a submission is written. Both destinations are
+# deployed by `just deploy-functions`, so switching is a rebuild of the flow
+# rather than a redeployment of the account:
+#
+#   just build-demo-flow "--lang en"                          # MotherDuck
+#   just build-demo-flow "--lang en --publish-target gsheets" # Google Sheets
+#
+# The flow file is written to the same path either way, so `git diff flows/`
+# after switching shows exactly one widget changing - which is the review.
 [doc("Build the data-use demo flow and the templates its questions need")]
 build-demo-flow *ARGS:
     uv run python scripts/build_data_use_demo.py {{ ARGS }}
@@ -205,7 +215,12 @@ build-demo-flow *ARGS:
 demo-templates-create:
     uv run rtt template create templates/generated --skip-existing --yes
 
-# Deploy encrypt_fields.js and publish_motherduck.js as Twilio Functions
+# Deploys encrypt_fields.js and BOTH publish functions. A Twilio deployment is
+# the complete set of functions in its build, so deploying a subset removes the
+# others rather than leaving them alone - and every flow pointing at one starts
+# 404ing mid-execution. Each target's credentials are optional and separately
+# reported; only having none at all is an error.
+[doc("Deploy the encryption and publish Functions to Twilio")]
 deploy-functions:
     uv run python scripts/deploy_twilio_functions.py
 
@@ -219,6 +234,15 @@ flow-deploy FILE *ARGS:
 [doc("Print CREATE TABLE DDL matching what a flow publishes")]
 flow-schema FILE *ARGS:
     uv run rtt flow schema {{ FILE }} {{ ARGS }}
+
+# The Google Sheets counterpart of flow-schema, and it exists for the same
+# reason: publish_gsheets maps a parameter to a column by matching its name
+# against row 1, so a question whose name is not in the header row is dropped
+# behind a 200 and a row that looks complete. Paste the output into row 1 of the
+# target sheet rather than typing thirty column names by hand.
+[doc("Print the spreadsheet header row matching what a flow publishes")]
+flow-header FILE:
+    uv run rtt flow schema {{ FILE }} --format header
 
 # One observation per respondent, every row joinable back to the sampling frame,
 # outcomes recorded. Meant to be run on a loop during a live round, so findings
