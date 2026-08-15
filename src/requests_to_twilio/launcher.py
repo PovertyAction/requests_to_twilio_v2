@@ -34,6 +34,11 @@ from .log import get_logger, mask_phone
 #: The one column an input file must have.
 NUMBER_COLUMN = "Number"
 
+#: The respondent's study identifier in the master list. Everything this project
+#: writes outside the master list is keyed on it, so it is required rather than
+#: optional: without it a round cannot be tracked without recording numbers.
+CASEID_COLUMN = "caseid"
+
 #: Execution parameter carrying the send time in UTC. Supplied by the launcher
 #: rather than read from the sample file, so it is always available to the flow
 #: as ``{{flow.data.sent_at}}`` without anyone having to remember a column.
@@ -45,11 +50,21 @@ SENT_AT_PARAM = "sent_at"
 _VERBOSE_ROW_LIMIT = 25
 
 #: Columns of the delivery tracker, in order.
+#:
+#: Keyed on `caseid`, never on the phone number. An unencrypted number lives in
+#: exactly two places in this project - the master list the round is drawn from,
+#: and the dataset after `rtt decrypt` - and the tracker is neither. It used to
+#: carry the number twice, as `number` and again as `contact` (Twilio returns
+#: the channel address on the execution), which put a Confidential identifier in
+#: a file that gets copied around, mailed, and pasted into tickets.
+#:
+#: Nothing is lost: `caseid` joins to the master list on one side and to the
+#: published row on the other, so the number is always one join away for
+#: whoever is entitled to it.
 TRACKER_COLUMNS = [
-    "number",
+    "caseid",
     "status",
     "execution_sid",
-    "contact",
     "url",
     "error",
     "sent_at",
@@ -67,12 +82,11 @@ class LaunchError(Exception):
 
 @dataclass
 class DeliveryRecord:
-    """One row of the delivery tracker."""
+    """One row of the delivery tracker, identified by caseid rather than number."""
 
-    number: str
+    caseid: str
     status: str = ""
     execution_sid: str = ""
-    contact: str = ""
     url: str = ""
     error: str = ""
     sent_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -166,6 +180,40 @@ def read_input(input_file: Path, columns_to_send: list[str]) -> pd.DataFrame:
             f"Found: {', '.join(map(str, frame.columns))}"
         )
 
+    # Required, not optional. The tracker, the delivery log and both sheet tabs
+    # are keyed on caseid precisely so none of them has to hold a phone number;
+    # without one there is nothing to key them on, and the only way to follow a
+    # round would be to write numbers into all four.
+    if CASEID_COLUMN not in frame.columns:
+        raise LaunchError(
+            f"Input file has no {CASEID_COLUMN!r} column. Every respondent needs "
+            f"one: it is what the delivery tracker, the delivery log and the "
+            f"published row are keyed on, so that none of them has to store a "
+            f"phone number.\nFound: {', '.join(map(str, frame.columns))}"
+        )
+
+    blank = frame[CASEID_COLUMN].isna() | (
+        frame[CASEID_COLUMN].astype(str).str.strip() == ""
+    )
+    if blank.any():
+        rows = ", ".join(str(i + 2) for i in frame.index[blank][:5])
+        raise LaunchError(
+            f"{int(blank.sum())} row(s) have a blank {CASEID_COLUMN!r} "
+            f"(spreadsheet row {rows}). A blank one cannot identify a "
+            f"respondent, so their delivery status would be unattributable."
+        )
+
+    duplicated = frame[CASEID_COLUMN].astype(str).str.strip().duplicated()
+    if duplicated.any():
+        repeats = ", ".join(
+            sorted(set(frame.loc[duplicated, CASEID_COLUMN].astype(str)))[:5]
+        )
+        raise LaunchError(
+            f"{CASEID_COLUMN!r} repeats ({repeats}). It is the key every other "
+            f"file joins on, so a duplicate silently merges two respondents' "
+            f"delivery status into one row."
+        )
+
     missing = [c for c in columns_to_send if c not in frame.columns]
     if missing:
         raise LaunchError(
@@ -186,14 +234,14 @@ def tracker_path(input_file: Path) -> Path:
 
 
 def already_sent(tracker: Path) -> set[str]:
-    """Read a tracker and return the numbers that were successfully sent.
+    """Read a tracker and return the caseids that were successfully sent.
 
     Args:
         tracker: Path to an existing tracker file. A missing file is not an
             error; it simply means nothing has been sent yet.
 
     Returns:
-        The set of numbers to skip on a resumed run.
+        The set of caseids to skip on a resumed run.
 
     """
     if not tracker.is_file():
@@ -203,7 +251,7 @@ def already_sent(tracker: Path) -> set[str]:
     with tracker.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             if (row.get("status") or "").lower() in _SENT_STATUSES:
-                sent.add((row.get("number") or "").strip())
+                sent.add((row.get(CASEID_COLUMN) or "").strip())
     return sent
 
 
@@ -221,7 +269,7 @@ class _TrackerWriter:
         # Plain utf-8, deliberately not utf-8-sig like the CSVs meant for
         # Excel. The tracker is read back by `already_sent` with the stdlib
         # `csv` module, which does not strip a BOM: the first fieldname would
-        # become "﻿number", `row.get("number")` would return None, and
+        # become "﻿caseid", `row.get("caseid")` would return None, and
         # --resume would report nothing sent and re-send to everyone.
         self._handle = path.open("a", newline="", encoding="utf-8")
         self._writer = csv.DictWriter(self._handle, fieldnames=TRACKER_COLUMNS)
@@ -317,7 +365,7 @@ def launch(
     pending = [
         row
         for _, row in frame.iterrows()
-        if str(row[NUMBER_COLUMN]).strip() not in skip
+        if str(row[CASEID_COLUMN]).strip() not in skip
     ]
 
     logger.info(
@@ -357,7 +405,8 @@ def launch(
     with _TrackerWriter(tracker) as writer:
         for position, row in enumerate(pending, start=1):
             to_number = str(row[NUMBER_COLUMN]).strip()
-            record = DeliveryRecord(number=to_number)
+            caseid = str(row[CASEID_COLUMN]).strip()
+            record = DeliveryRecord(caseid=caseid)
 
             parameters = {c: str(row[c]) for c in columns_to_send}
             # The moment this respondent was contacted, in UTC, handed to the
@@ -371,6 +420,12 @@ def launch(
             # agree about when a message went out, to the character.
             parameters[SENT_AT_PARAM] = record.sent_at
 
+            # Logged by caseid, with the masked number beside it. The console is
+            # the one place the operator needs both: they are looking at a
+            # failure and deciding whether the number in the master list is
+            # wrong. Nothing written to disk carries either form.
+            who = f"{caseid} ({mask_phone(to_number)})"
+
             try:
                 execution = _create_execution(
                     client, flow_id, to_number, from_number, parameters
@@ -379,22 +434,21 @@ def launch(
                 record.status = "failed"
                 record.error = f"HTTP {exc.status} (code {exc.code}): {exc.msg}"
                 failed += 1
-                logger.error("%s -> %s", mask_phone(to_number), record.error)
+                logger.error("%s -> %s", who, record.error)
             except Exception as exc:
                 record.status = "failed"
                 record.error = f"{type(exc).__name__}: {exc}"
                 failed += 1
-                logger.error("%s -> %s", mask_phone(to_number), record.error)
+                logger.error("%s -> %s", who, record.error)
             else:
                 record.status = execution.status or "unknown"
                 record.execution_sid = execution.sid or ""
-                record.contact = execution.contact_channel_address or ""
                 record.url = execution.url or ""
                 succeeded += 1
                 logger.log(
                     per_row_level,
                     "%s -> %s (%s)  [%d/%d]",
-                    mask_phone(to_number),
+                    who,
                     record.status,
                     record.execution_sid,
                     position,

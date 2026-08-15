@@ -67,9 +67,13 @@ def rows(*specs):
 
 
 def tracker(*records, path=None):
-    """Write a delivery tracker the way `rtt launch` does."""
+    """Write a delivery tracker the way `rtt launch` does.
+
+    Keyed on caseid: the tracker holds no phone number, so there is nothing in
+    it to mask. The first field of each record is the respondent's caseid.
+    """
     frame = pd.DataFrame(
-        records, columns=["number", "status", "execution_sid", "error", "sent_at"]
+        records, columns=["caseid", "status", "execution_sid", "error", "sent_at"]
     )
     if path is not None:
         frame.to_csv(path, index=False)
@@ -127,9 +131,13 @@ class TestSendsThatNeverLeft:
         assert len(found) == 1
         assert "63016" in found.iloc[0]["error"]
 
-    def test_numbers_are_masked(self):
-        frame = tracker(("+15555550100", "failed", "", "HTTP 400", ""))
-        assert "5555550100" not in launch_failures(frame).iloc[0]["number"]
+    def test_the_failure_is_named_by_caseid_and_carries_no_number(self):
+        # This used to mask a `number` column. There is no longer one to mask:
+        # the tracker is keyed on caseid, so a phone number cannot reach it.
+        frame = tracker(("A1", "failed", "", "HTTP 400", ""))
+        found = launch_failures(frame)
+        assert found.iloc[0]["caseid"] == "A1"
+        assert "number" not in found.columns
 
     def test_a_clean_launch_reports_nothing(self):
         frame = tracker(
@@ -252,9 +260,38 @@ class TestOneRowPerNumber:
             ("SM1", "outbound-api", "delivered", "", "2026-08-14T21:20:00+00:00"),
             ("SM2", "inbound", "received", "", "2026-08-14T21:21:00+00:00"),
         )
-        result = by_number(frame)
+        result = by_number(frame, {"15555550100": "A1"})
         assert len(result) == 1
-        assert result.iloc[0]["number"] == "whatsapp:+15555550100"
+        assert result.iloc[0]["caseid"] == "A1"
+
+    def test_the_number_is_resolved_to_a_caseid_and_never_written(self):
+        frame = sends(
+            ("SM1", "outbound-api", "delivered", "", "2026-08-14T21:20:00+00:00")
+        )
+        result = by_number(frame, {"15555550100": "A1"})
+        assert result.iloc[0]["caseid"] == "A1"
+        # The whole point: nothing written carries the number in any column.
+        assert "5555550100" not in result.astype(str).to_csv(index=False)
+
+    def test_the_master_list_matches_across_spellings(self):
+        # The list holds "+1 555 555 0100"; the API returns
+        # "whatsapp:+15555550100". Comparing them literally matches neither.
+        frame = sends(
+            ("SM1", "outbound-api", "delivered", "", "2026-08-14T21:20:00+00:00")
+        )
+        assert by_number(frame, {"15555550100": "A1"}).iloc[0]["caseid"] == "A1"
+
+    def test_a_number_the_master_list_does_not_know_gets_a_stable_stand_in(self):
+        # Somebody writing in unprompted is worth seeing, not dropping - but
+        # they have no caseid, and the stand-in must not be reversible to a
+        # phone number by anyone reading the log or the sheet.
+        frame = sends(("SM1", "inbound", "received", "", "2026-08-14T21:20:00+00:00"))
+        first = by_number(frame, {}).iloc[0]["caseid"]
+        second = by_number(frame, {}).iloc[0]["caseid"]
+
+        assert first.startswith("unknown-")
+        assert first == second, "the key must not change between polls"
+        assert "5555550100" not in first
 
     def test_an_inbound_error_survives_into_the_row(self):
         """Error 11200 means their answer reached Twilio and not the flow."""

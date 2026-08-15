@@ -30,6 +30,7 @@ rate limit and an absence of data that once passed for Twilio's retention window
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -63,8 +64,16 @@ LOG_COLUMNS = [
 #: to know which of the 4 got their message and who has gone quiet. The
 #: per-message frame is still what the API returns and what the aggregation reads,
 #: but it is not what gets written.
+#:
+#: Keyed on `caseid`, never the phone number. The Messages API can only answer
+#: in phone numbers - `to` and `from_` are the only respondent identity it
+#: returns - so the number is resolved to a caseid against the master list as
+#: each poll is aggregated, and only the caseid is written. An unencrypted
+#: number exists in exactly two places in this project: the master list, and the
+#: dataset after `rtt decrypt`. The delivery log is neither, and it is the one
+#: file most likely to be shared while a round is live.
 NUMBER_COLUMNS = [
-    "number",
+    "caseid",
     "delivery_status",
     "outbound",
     "inbound",
@@ -79,7 +88,17 @@ NUMBER_COLUMNS = [
 LOG_KEY = "message_sid"
 
 #: The key the running log is updated by.
-NUMBER_KEY = "number"
+NUMBER_KEY = "caseid"
+
+#: Prefix for a number the master list does not know. Somebody writing in
+#: unprompted is worth seeing - it is how an unsolicited reply, or a number
+#: typo'd into the sample, first shows up - but they have no caseid to be filed
+#: under, and inventing a sequential one would change meaning between polls.
+#:
+#: The suffix is a truncated digest of the number: stable across polls, distinct
+#: between senders, and not reversible to a phone number by anyone reading the
+#: log or the sheet.
+UNKNOWN_PREFIX = "unknown-"
 
 #: Statuses that will not change again, so a row carrying one is final.
 TERMINAL_STATUSES = frozenset({"delivered", "read", "failed", "undelivered"})
@@ -156,20 +175,20 @@ def launch_window(tracker: pd.DataFrame) -> datetime | None:
 
 
 def launch_failures(tracker: pd.DataFrame) -> pd.DataFrame:
-    """Return the sends that never happened, with numbers masked.
+    """Return the sends that never happened, identified by caseid.
 
     These are the rows no other view can show. The API refused the request or
     Meta rejected it, so no execution was created, no message exists to have a
     delivery status, and no row will ever be published. The respondent is absent
     from the dataset rather than incomplete in it, and the tracker is the only
     place they appear at all.
+
+    No masking is needed any more: the tracker is keyed on caseid and holds no
+    phone number to mask.
     """
     if tracker.empty:
         return tracker
-    failed = tracker[tracker["status"].str.strip() == "failed"].copy()
-    if not failed.empty and "number" in failed.columns:
-        failed["number"] = failed["number"].map(lambda v: mask_phone(str(v)))
-    return failed
+    return tracker[tracker["status"].str.strip() == "failed"].copy()
 
 
 def poll_delivery(
@@ -240,14 +259,79 @@ def poll_delivery(
     return pd.DataFrame(rows, columns=LOG_COLUMNS)
 
 
-def by_number(frame: pd.DataFrame) -> pd.DataFrame:
+def read_master_list(path: Path) -> dict[str, str]:
+    """Map every phone number in the master list to its caseid.
+
+    Args:
+        path: The sample file a round was launched from.
+
+    Returns:
+        Normalised number to caseid. Normalised means digits only, because the
+        same respondent appears as ``+57 300 123 4567`` in a spreadsheet and
+        ``whatsapp:+573001234567`` in the Messages API, and a literal comparison
+        matches neither to the other.
+
+    Raises:
+        MonitorError: If the file cannot be read or lacks the two columns.
+
+    This is the only file `rtt monitor` reads a phone number from, and the
+    mapping stays in memory - nothing it writes carries a number.
+
+    """
+    try:
+        if path.suffix.lower() in {".xlsx", ".xlsm"}:
+            frame = pd.read_excel(path, dtype=str)
+        else:
+            frame = pd.read_csv(path, dtype=str)
+    except OSError as exc:
+        raise MonitorError(f"Could not read {path}: {exc}") from exc
+    except Exception as exc:
+        raise MonitorError(f"Could not read {path}: {exc}") from exc
+
+    frame = frame.fillna("")
+    missing = {"Number", "caseid"} - set(frame.columns)
+    if missing:
+        raise MonitorError(
+            f"{path} is not a master list - no {', '.join(sorted(missing))} "
+            f"column. It should be the same sample file the round was launched "
+            f"from; it is what turns a phone number back into a caseid."
+        )
+
+    return {
+        digits: str(row["caseid"]).strip()
+        for _, row in frame.iterrows()
+        if (digits := normalise_number(str(row["Number"])))
+    }
+
+
+def normalise_number(value: str) -> str:
+    """Reduce a phone number to digits, so the two spellings of it compare.
+
+    A master list holds ``+57 300 123 4567``; the Messages API returns
+    ``whatsapp:+573001234567``. Neither leading ``+``, nor spaces, nor the
+    channel prefix carry meaning for identity.
+    """
+    return "".join(character for character in str(value) if character.isdigit())
+
+
+def _unknown_caseid(number: str) -> str:
+    """Return a stable, non-reversible stand-in for a number we cannot name."""
+    digest = hashlib.sha256(normalise_number(number).encode()).hexdigest()[:8]
+    return f"{UNKNOWN_PREFIX}{digest}"
+
+
+def by_number(frame: pd.DataFrame, caseids: dict[str, str] | None = None) -> pd.DataFrame:
     """Collapse a poll to one row per respondent, as a state.
 
     Args:
         frame: A poll's results, as returned by :func:`poll_delivery`.
+        caseids: Normalised number to caseid, from :func:`read_master_list`. A
+            number that is not in it gets an ``unknown-`` stand-in rather than
+            being dropped: somebody writing in unprompted is exactly what a live
+            round wants to notice.
 
     Returns:
-        One row per number, with :data:`NUMBER_COLUMNS`.
+        One row per respondent, with :data:`NUMBER_COLUMNS`.
 
     The question a live round asks is not "what happened to each of these 71
     messages". It is: **we launched - did it land, and did they answer?** So each
@@ -274,6 +358,7 @@ def by_number(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=NUMBER_COLUMNS)
 
+    lookup = caseids or {}
     working = frame.copy()
     outbound = working["direction"].str.startswith("outbound")
     working["number"] = working["to"].where(outbound, working["from_"])
@@ -305,7 +390,8 @@ def by_number(frame: pd.DataFrame) -> pd.DataFrame:
         )
         rows.append(
             {
-                "number": number,
+                "caseid": lookup.get(normalise_number(str(number)))
+                or _unknown_caseid(str(number)),
                 "delivery_status": state,
                 "outbound": int(group["_out"].sum()),
                 "inbound": int(len(replies)),
