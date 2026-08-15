@@ -60,16 +60,22 @@ one is there:
 | `no-encryption` | publishes with no encryption widget, so identifiers reach the warehouse in clear |
 | `credentials` | a SID or token inside the definition |
 
-### `rtt flow schema` — the table the flow expects
+### `rtt flow schema` — the shape the destination needs
 
 ```powershell
-just flow-schema flows/data_use_demo_en.json --table my_db.main.round1
+just flow-schema flows/data_use_demo_en.json --table my_db.main.round1  # MotherDuck
+just flow-header flows/data_use_demo_en.json                            # Google Sheets
 ```
 
-Prints `CREATE TABLE` DDL derived from the publish widget's parameters. Run it
-after every instrument change: the publish Function inserts only into columns
-that already exist, and a new question with no column is **dropped behind an HTTP
-200**.
+Derived from the publish widget's parameters, so the destination is a function of
+the instrument rather than something maintained alongside it. **Run it after
+every instrument change.** Both publish Functions write only into columns that
+already exist — a table column, or a header cell in row 1 — so a new question
+with nowhere to go is **dropped behind an HTTP 200**, into a row that looks
+complete.
+
+Both Functions log the names they had to drop, so the Twilio Console tells you
+this happened. Nothing in the data does.
 
 ### `rtt flow deploy` — ship it
 
@@ -128,9 +134,16 @@ just launch "sample.xlsx --columns caseid,name,arm --resume"
 | `--columns` | columns to preload into the flow as `{{flow.data.<name>}}` |
 | `--flow-id` / `--from-number` | override `.env` for this run |
 | `--batch-size` / `--sleep` | pace the send |
-| `--resume` | skip numbers already sent successfully, retry only failures |
+| `--resume` | skip respondents already sent successfully, retry only failures |
 | `--dry-run` | run every check, send nothing |
 | `--skip-preload-check` | bypass **all three** pre-flight checks below, including the never-published block |
+
+The sample file needs a `Number` column and a **`caseid`** column. `caseid` is
+required, not optional: the tracker, the delivery log and the published row are
+all keyed on it, so that none of them has to store a phone number. Blanks and
+duplicates are refused up front — a duplicate is the dangerous one, because it
+is the key every other file joins on and it silently merges two respondents'
+delivery status into a single row.
 
 Four things it refuses or warns about before sending:
 
@@ -145,7 +158,10 @@ Four things it refuses or warns about before sending:
    everyone a second time and append into the same file unmarked.
 
 The tracker is written next to the input as `<stem>_output.csv` and flushed after
-every row, so an interrupted run stays resumable.
+every row, so an interrupted run stays resumable. It holds
+`caseid, status, execution_sid, url, error, sent_at` — **no phone number**. It
+used to carry one twice, as `number` and again as `contact`, in the file most
+likely to be mailed around while a round is live.
 
 ## During the round
 
@@ -166,14 +182,14 @@ Only `rtt monitor` can tell you which.
 ### `rtt monitor` — did the round actually land?
 
 ```powershell
-just monitor "--tracker sample_output.csv"
-just monitor "--tracker sample_output.csv --hours 4"
-just monitor "--tracker sample_output.csv --hours 4 --every 15"
+just monitor "--tracker sample_output.csv --sample sample.xlsx"
+just monitor "--tracker sample_output.csv --sample sample.xlsx --hours 4"
+just monitor "--tracker sample_output.csv --sample sample.xlsx --sheet --every 1"
 ```
 
-One row per **number**, not per message — a round of 4 people produces around 70
-messages and nobody watching a live round wants 70 rows. Each number holds one
-state:
+One row per **respondent**, not per message — a round of 4 people produces around
+70 messages and nobody watching a live round wants 70 rows. Each respondent
+holds one state:
 
 | State | Meaning |
 | --- | --- |
@@ -183,15 +199,33 @@ state:
 | `answered_back` | they replied, so the flow has taken over |
 | `unsolicited` | they wrote in without being launched |
 
-`failed` and `answered_back` are final and stop being polled. When every number
+`failed` and `answered_back` are final and stop being polled. When everyone
 has settled the loop stops on its own rather than spending rate limit on a
 finished round.
+
+**That means the monitor can exit within a minute on a small round, and it does
+not mean the survey finished.** Somebody who has `answered_back` is still
+working through the questions; delivery simply has nothing further to say about
+them. Their data row appears only when the flow reaches its publish widget at
+the end. For where a respondent is mid-survey use `rtt fetch`, which reads
+execution state.
 
 **Pass `--tracker`.** It scopes the poll to one round using the launcher's own
 `sent_at`, and it is also the only place a send that never left is recorded —
 those are reported first, because no message exists for them to appear in any
 delivery status. A date is the wrong unit: `--since` at day resolution once
 returned 91 messages for a round of 4.
+
+**Pass `--sample`.** It is the master list, and the only file this command reads
+a phone number from. The Messages API can answer only in phone numbers, so the
+mapping to caseid is built from the master list in memory and nothing written
+carries a number — see [publishing.md](publishing.md). Without it every
+respondent is filed under `unknown-<digest>`, which is safe and useless to
+watch.
+
+**Pass `--sheet`** to rewrite a Google Sheet tab after every poll, so the round
+is visible to people who are not at a terminal. `--sheet-tab` chooses which,
+default `tracking`. The tab must already exist.
 
 Two things worth knowing about what it reports:
 

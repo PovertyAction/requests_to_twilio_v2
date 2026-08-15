@@ -44,12 +44,39 @@ Set `LEGACY_SECRET_KEY` only when you actually need it. It is not dangerous, but
 it makes `rtt decrypt` attempt v1 decryption on unmarked values in every column
 it touches.
 
-### Warehouse
+### Where a submission is written
+
+There are two destinations, and they are peers. Both occupy the same position in
+the flow graph, both are deployed by `just deploy-functions`, and both write the
+same payload. Choose per build:
+
+```powershell
+just build-demo-flow "--lang en"                          # MotherDuck (default)
+just build-demo-flow "--lang en --publish-target gsheets" # Google Sheets
+```
+
+| | Google Sheets | MotherDuck |
+| --- | --- | --- |
+| To get started | a spreadsheet and a service account | a MotherDuck account and a token |
+| Who can read it | anybody you share the sheet with | anybody who can write SQL |
+| Column ceiling | 172, from the header-row lookup | none |
+| Rate limits | Sheets API quota, and it does throttle | none in practice |
+| Best for | a first round, a small instrument, a team that wants to *watch* rows arrive | a real round, a long instrument, analysis that continues after collection |
+
+**Sheets is the lower barrier and often the right first choice.** MotherDuck is
+the default here because that is where this project's own rounds land, not
+because Sheets is a legacy path.
+
+Configure either, or both. `just deploy-functions` reports what each target is
+missing and only fails when *no* target is configured — which would mean a
+completed survey has nowhere to write its row.
+
+#### MotherDuck
 
 | Variable | Used by | |
 | --- | --- | --- |
 | `MOTHERDUCK_TOKEN` | `rtt push`, the publish Function | account-scoped, so it grants more than one database |
-| `MOTHERDUCK_DATABASE` | `rtt push` **and** the publish Function | `just deploy-functions` fails without it |
+| `MOTHERDUCK_DATABASE` | `rtt push` **and** the publish Function | needed for this target |
 | `MOTHERDUCK_HOST` | the publish Function only | e.g. `pg.us-east-1-aws.motherduck.com` |
 | `MOTHERDUCK_TABLE` | the publish Function only | fully qualified: `db.schema.table` |
 
@@ -63,6 +90,50 @@ your Twilio Console grants access to every database on the account. That is a
 reason to use a dedicated service user for a real round, and a reason encryption
 still matters even though the warehouse is yours: it separates *can write* from
 *can read identifiers*.
+
+#### Google Sheets
+
+| Variable | |
+| --- | --- |
+| `GOOGLE_SERVICE_ACCOUNT_FILE` | path to the service account's JSON key, absolute or relative to the repo root |
+| `GOOGLE_SHEET_ID` | the long string between `/d/` and `/edit` in the sheet's URL |
+
+Five steps, once:
+
+1. Google Cloud console → enable the **Google Sheets API** on a project.
+2. IAM & Admin → Service Accounts → create one. **No project roles are needed** —
+   access to the sheet is granted on the sheet, not through IAM.
+3. Its **Keys** tab → Add key → Create new key → JSON. This downloads once.
+4. **Share the sheet with the service account's address** (it ends
+   `.iam.gserviceaccount.com`) as an Editor. A service account is a principal in
+   its own right; creating it grants it nothing. Forgetting this is the single
+   most common reason the first row never appears.
+5. Put a header row in row 1, generated from the instrument rather than typed:
+
+   ```powershell
+   just flow-header flows/data_use_demo_en.json
+   ```
+
+`just deploy-functions` reads the JSON file and sets `GOOGLE_CLIENT_EMAIL` and
+the key on the Twilio Function Service for you. You never paste the key
+anywhere.
+
+> **The JSON key is a live credential.** Anyone holding it can act as that
+> service account. Keep the file outside this repository, or at a gitignored
+> path inside it, and never paste its contents into a chat, an issue, or `.env`.
+> This project published one to a public GitHub repo once, where it stayed valid
+> for roughly 19 months.
+
+Two mechanical details worth knowing, because both fail confusingly:
+
+- **The key does not fit in a Twilio environment variable.** Twilio rejects a
+  value over 450 bytes and an RSA 2048 PEM is about 1,700, so `deploy-functions`
+  splits it across `GOOGLE_PRIVATE_KEY_1`, `_2`, … and the Function rejoins
+  them. `MOTHERDUCK_TOKEN` already needed the same treatment.
+- **Twilio environment variables cannot hold real newlines**, so the PEM travels
+  with literal `\n` sequences and is restored at runtime. A key pasted by hand
+  with real newlines fails with a PEM parse error that says nothing about
+  newlines.
 
 ### Twilio API key — only for the MCP servers
 
