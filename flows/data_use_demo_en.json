@@ -94,7 +94,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX35e7503a420fb2131dc5fc8b914f4f1f",
+        "content_sid": "HXc2b80e3cd36097d505a2591261e9beec",
         "timeout": "3600"
       },
       "transitions": [
@@ -189,7 +189,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX35e7503a420fb2131dc5fc8b914f4f1f",
+        "content_sid": "HXc2b80e3cd36097d505a2591261e9beec",
         "timeout": "3600"
       },
       "transitions": [
@@ -376,7 +376,7 @@
           "y": -300
         },
         "from": "{{flow.channel.address}}",
-        "body": "Considering the training week currently underway in its entirety, and taking into account the plenary sessions, the practical exercises and the periods of informal exchange between them, which single day would you identify as having been, on balance, the most valuable to you?\n\n_Reply with the day._",
+        "body": "Thinking about the training week as a whole, that is the period running from Sunday the 23rd of August to Friday the 28th of August inclusive, and taking into consideration all of its components together - the plenary sessions, the practical exercises, the group work and the informal exchanges between them - which single day of that week would you say is, or you expect will be, the most rewarding for you personally?\n\n[INTERVIEWER: Read out the days one at a time. Record one day only. If the respondent names more than one, probe for the single most rewarding.]\n\n_Reply with the day._",
         "timeout": "3600"
       },
       "transitions": [
@@ -456,7 +456,7 @@
           "y": 40
         },
         "from": "{{flow.channel.address}}",
-        "body": "During the lunch interval earlier today, did the meal you consumed include a dessert course, or any sweet item taken at or immediately following that meal?\n\n_Reply yes or no._",
+        "body": "During the midday meal break held earlier today, Wednesday the 26th of August, immediately preceding the present session, did the meal that you yourself consumed include a dessert - understood as any sweet course, confection, pastry, fruit preparation or other sweet item - whether taken as part of that meal or immediately following it?\n\n[INTERVIEWER: Do not read the response options. Code 'yes' if the respondent reports any sweet item, however small.]\n\n_Reply yes or no._",
         "timeout": "3600"
       },
       "transitions": [
@@ -536,7 +536,7 @@
           "y": 380
         },
         "from": "{{flow.channel.address}}",
-        "body": "Since waking this morning, and counting only those beverages consumed prior to the commencement of the first session of the day, how many separate servings of coffee or tea did you drink?\n\n_Reply with an exact number (e.g. 0, 1, 3)._",
+        "body": "Considering the whole of yesterday, Tuesday the 25th of August, from the time you woke until the time you retired for the night, and counting each serving separately irrespective of its size, its preparation or where it was obtained, how many servings of coffee or tea did you consume in total over the course of that day?\n\n[INTERVIEWER: Record the exact figure. If the respondent is unable to recall precisely, probe for a best estimate.]\n\n_Reply with an exact number (e.g. 0, 1, 3)._",
         "timeout": "3600"
       },
       "transitions": [
@@ -616,7 +616,7 @@
           "y": 720
         },
         "from": "{{flow.channel.address}}",
-        "body": "Across the range of tools you have occasion to use in the course of your work, including those you use only intermittently, please indicate every piece of software with which you would describe yourself as comfortable.\n\n_Reply with all that apply, separated by commas (for example: Stata, R)._",
+        "body": "Across the full range of software tools that you have occasion to employ in the course of your professional duties, whether on a routine basis or only intermittently, and including those used for data collection, data management, analysis or reporting, please indicate every one with which you would describe yourself as comfortable working without assistance.\n\n[INTERVIEWER: Read the list aloud. Record all that apply. Do not prompt for tools the respondent does not mention.]\n\n_Reply with all that apply, separated by commas (for example: Stata, R)._",
         "timeout": "3600"
       },
       "transitions": [
@@ -696,7 +696,7 @@
           "y": 1060
         },
         "from": "{{flow.channel.address}}",
-        "body": "Reflecting on your overall experience of responding to this questionnaire, how would you characterise your general disposition toward receiving surveys of this kind in future?\n\n_Reply in your own words._",
+        "body": "How satisfied are you with the usability and relevance of this instrument, and would you recommend its modality for future data collection exercises?\n\n_Reply in your own words._",
         "timeout": "3600"
       },
       "transitions": [
@@ -777,7 +777,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HXc8e69e652f3ab62a5a3cefa38f64599a",
+        "content_sid": "HXa96aa9a1f9a75a654090179df617c5be",
         "timeout": "3600"
       },
       "transitions": [
@@ -1008,7 +1008,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX1fd75e7703ddc1bcfabcc218a0fde315",
+        "content_sid": "HX7d0da8ef3b77fdf7fb91ea86e5bc82ed",
         "timeout": "3600"
       },
       "transitions": [
@@ -1238,7 +1238,7 @@
           "y": 380
         },
         "from": "{{flow.channel.address}}",
-        "body": "☕ Question 3 of 5\n\nHow many cups of coffee or tea did you have this morning?\n\n_Reply with a number from 0 to 10._",
+        "body": "☕ Question 3 of 5\n\nHow many cups of coffee or tea did you have during the whole day yesterday?\n\n_Reply with a number from 0 to 10._",
         "timeout": "3600"
       },
       "transitions": [
@@ -1420,7 +1420,7 @@
           "y": 540
         },
         "from": "{{flow.channel.address}}",
-        "body": "Please reply with a number from 0 to 10.\n\n_Just the digits, for example 0, 2 or 10._\n\nI am a bot and cannot understand everything that is written to me."
+        "body": "Please reply with a number from 0 to 10.\n\n_Just the digits, for example 0, 2 or 10._\n\nI am a bot, so a plain number is all I can read here."
       },
       "transitions": [
         {
@@ -1469,7 +1469,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX8b1bb3c66c43400dfd90dafb0b2944a7",
+        "content_sid": "HXe991c0fd5635bf6808f78f094b52fe46",
         "timeout": "3600"
       },
       "transitions": [
@@ -2107,7 +2107,7 @@
       "transitions": [
         {
           "event": "success",
-          "next": "publish_motherduck"
+          "next": "publish_gsheets"
         },
         {
           "event": "fail",
@@ -2137,12 +2137,12 @@
       "transitions": [
         {
           "event": "next",
-          "next": "publish_motherduck"
+          "next": "publish_gsheets"
         }
       ]
     },
     {
-      "name": "publish_motherduck",
+      "name": "publish_gsheets",
       "type": "run-function",
       "properties": {
         "offset": {
@@ -2151,8 +2151,8 @@
         },
         "service_sid": "ZS04f75bf125e71003387d709e77f1f6ad",
         "environment_sid": "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92",
-        "function_sid": "ZH08a4b1579e90c2e3a6ea7829a153e842",
-        "url": "https://rtt-survey-2647-prod.twil.io/publish-motherduck",
+        "function_sid": "ZH1f46b2a8a27175c3db8dda84fc8efe24",
+        "url": "https://rtt-survey-2647-prod.twil.io/publish-gsheets",
         "parameters": [
           {
             "key": "caseid",
@@ -2566,7 +2566,7 @@
           "y": 1800
         },
         "from": "{{flow.channel.address}}",
-        "body": "Understood - I have stopped here and will not send anything else about this survey.\n\nThe answers you already gave are kept; nothing further is asked. Thank you for your time."
+        "body": "Understood - I have stopped here and will not send anything else about this survey.\n\nThe answers you already gave are kept, and I will not ask you anything more. Thank you for your time."
       },
       "transitions": [
         {

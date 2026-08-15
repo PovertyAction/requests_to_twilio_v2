@@ -155,11 +155,56 @@ TIMEOUT = "3600"  # 1 hour, as in the source flow
 #: that stopped another team running this.
 FUNCTIONS_SERVICE_NAME = "rtt-survey"
 ENCRYPT_FUNCTION_NAME = "encrypt_fields"
-PUBLISH_FUNCTION_NAME = "publish_motherduck"
 
-#: The paths those functions are deployed at, from `deploy_twilio_functions.py`.
+#: The path the encryption function is deployed at, from
+#: `deploy_twilio_functions.py`.
 ENCRYPT_PATH = "/encrypt-fields"
-PUBLISH_PATH = "/publish-motherduck"
+
+#: Where a submission is written, and therefore which Function the last widget
+#: calls. Both destinations are real and both are supported; they differ in what
+#: the person running the round has to obtain first.
+#:
+#:   motherduck  an INSERT over the Postgres wire protocol. No column ceiling,
+#:               no per-write quota, and the data lands where analysis already
+#:               happens. Needs a MotherDuck account and a token.
+#:   gsheets     an append to a spreadsheet's next row. The lowest barrier there
+#:               is - a sheet, a service account, and anybody on the team can
+#:               open the result and read it - which is why it stays a
+#:               first-class path rather than a legacy one. Needs a Google Cloud
+#:               service account, and carries the Sheets API quota and the
+#:               172-column ceiling of a header-row lookup.
+#:
+#: The widget name is part of the target because it is what a reviewer reads on
+#: the Studio canvas, and a canvas that says `publish_motherduck` while writing
+#: to a spreadsheet is worse than no label at all. Every name here starts with
+#: `publish_`, which is what `rtt flow check` matches on to find the step that
+#: writes the row - see `_is_publish_widget` in flows.py.
+PUBLISH_TARGETS: dict[str, dict[str, str]] = {
+    "motherduck": {
+        "function": "publish_motherduck",
+        "path": "/publish-motherduck",
+        "widget": "publish_motherduck",
+    },
+    "gsheets": {
+        "function": "publish_gsheets",
+        "path": "/publish-gsheets",
+        "widget": "publish_gsheets",
+    },
+}
+
+#: What `just build-demo-flow` writes when told nothing.
+#:
+#: Google Sheets, because this is the choice a new user should not have to make
+#: before their first round. A spreadsheet and a service account is the shortest
+#: path from "cloned the repo" to "watched a reply arrive", and everyone on a
+#: team can open the result without being taught a query language. MotherDuck is
+#: better for a long instrument or for analysis that outlives collection, and it
+#: is one flag away.
+#:
+#: Neither is the right answer for everybody - this is a per-round decision, and
+#: `--publish-target` is how it is made. What a default settles is only which
+#: one you get by not deciding.
+DEFAULT_PUBLISH_TARGET = "gsheets"
 
 QUESTION_KEYS = ("P1", "P2", "P3", "P4", "P5")
 
@@ -252,7 +297,7 @@ EN: dict[str, Any] = {
     "consent": {
         "body": (
             "👋 Before we start - would you like to take part?\n\n"
-            "It takes about 3 minutes. Taking part is voluntary, you can stop "
+            "It takes about 3 minutes. Taking part is voluntary: you can stop "
             "at any time by not replying, and your answers are confidential."
         ),
         # Commas are fine in a label now that the splits use regex; under
@@ -270,62 +315,141 @@ EN: dict[str, Any] = {
     "stop_ack": (
         "Understood - I have stopped here and will not send anything else "
         "about this survey.\n\n"
-        "The answers you already gave are kept; nothing further is asked. "
-        "Thank you for your time."
+        "The answers you already gave are kept, and I will not ask you "
+        "anything more. Thank you for your time."
     ),
-    # ARM 1 - open and dense. Deliberately harder to answer; this is the arm
-    # whose break-off and unusable-answer rates the session compares against.
+    # ARM 1 - a competent face-to-face questionnaire, on the wrong platform.
+    #
+    # These are NOT badly written. That is the entire point, and the thing the
+    # session turns on. Each one does the job a survey methodologist would ask
+    # of it: a dated reference frame so every respondent counts the same window,
+    # exhaustive enumeration so nothing is ambiguous, an explicit single-versus-
+    # multiple answer instruction, and an interviewer note carrying the probing
+    # rules. Every one of those is correct practice for CAPI.
+    #
+    # Every one of them also breaks here. There is no interviewer to read the
+    # note, no showcard to read aloud from, and no patience for a 60-word frame
+    # on a phone screen somebody is reading between sessions. ARM 2 is better
+    # not because it is written better, but because it was written for this
+    # channel.
+    #
+    # P5 is the exception: it is a genuinely bad question, deliberately. See
+    # the note above it.
+    #
+    # WARNING - THESE DATES ARE THE AUGUST 2026 RST JAIPUR SESSION.
+    # The session runs Sunday 23 to Friday 28 August 2026 and presents on
+    # Wednesday 26 August at 14:00, so "earlier today" is Wednesday's lunch and
+    # "yesterday" is Tuesday the 25th. Move the training and all five of these
+    # strings are wrong - specifically, silently wrong, because a reference
+    # frame that names the wrong day still reads as a well-formed question.
     "arm1": {
+        # The whole week, including the days that have not happened when this
+        # is sent at 14:00 on the Wednesday. "is, or you expect will be" is how
+        # a CAPI question covers an open window without leading the respondent
+        # toward the days already held.
         "P1": (
-            "Considering the training week currently underway in its entirety, "
-            "and taking into account the plenary sessions, the practical "
-            "exercises and the periods of informal exchange between them, which "
-            "single day would you identify as having been, on balance, the most "
-            "valuable to you?\n\n"
+            "Thinking about the training week as a whole, that is the period "
+            "running from Sunday the 23rd of August to Friday the 28th of "
+            "August inclusive, and taking into consideration all of its "
+            "components together - the plenary sessions, the practical "
+            "exercises, the group work and the informal exchanges between "
+            "them - which single day of that week would you say is, or you "
+            "expect will be, the most rewarding for you personally?\n\n"
+            "[INTERVIEWER: Read out the days one at a time. Record one day "
+            "only. If the respondent names more than one, probe for the single "
+            "most rewarding.]\n\n"
             "_Reply with the day._"
         ),
         "P2": (
-            "During the lunch interval earlier today, did the meal you consumed "
-            "include a dessert course, or any sweet item taken at or "
-            "immediately following that meal?\n\n"
+            "During the midday meal break held earlier today, Wednesday the "
+            "26th of August, immediately preceding the present session, did "
+            "the meal that you yourself consumed include a dessert - "
+            "understood as any sweet course, confection, pastry, fruit "
+            "preparation or other sweet item - whether taken as part of that "
+            "meal or immediately following it?\n\n"
+            "[INTERVIEWER: Do not read the response options. Code 'yes' if "
+            "the respondent reports any sweet item, however small.]\n\n"
             "_Reply yes or no._"
         ),
         "P3": (
-            "Since waking this morning, and counting only those beverages "
-            "consumed prior to the commencement of the first session of the "
-            "day, how many separate servings of coffee or tea did you "
-            "drink?\n\n"
+            "Considering the whole of yesterday, Tuesday the 25th of August, "
+            "from the time you woke until the time you retired for the night, "
+            "and counting each serving separately irrespective of its size, "
+            "its preparation or where it was obtained, how many servings of "
+            "coffee or tea did you consume in total over the course of that "
+            "day?\n\n"
+            "[INTERVIEWER: Record the exact figure. If the respondent is "
+            "unable to recall precisely, probe for a best estimate.]\n\n"
             "_Reply with an exact number (e.g. 0, 1, 3)._"
         ),
         # The multi-answer question. ARM 1 can ask it - ARM 2 cannot - and the
         # price is a column of strings somebody has to clean by hand. Expect
         # "Stata,R", "stata and R", "all of them", "python (a bit)". That is the
         # demo: the construct survives and the variable does not.
+        #
+        # "Read the list aloud" is the sharpest line in the arm. There is no
+        # list - ARM 1 is open text - so the instruction refers to a showcard
+        # that does not exist, in a message read by the respondent rather than
+        # by an interviewer. It is exactly the artefact a CAPI instrument leaves
+        # behind when it is pasted into a self-administered channel.
         "P4": (
-            "Across the range of tools you have occasion to use in the course "
-            "of your work, including those you use only intermittently, please "
-            "indicate every piece of software with which you would describe "
-            "yourself as comfortable.\n\n"
+            "Across the full range of software tools that you have occasion to "
+            "employ in the course of your professional duties, whether on a "
+            "routine basis or only intermittently, and including those used "
+            "for data collection, data management, analysis or reporting, "
+            "please indicate every one with which you would describe yourself "
+            "as comfortable working without assistance.\n\n"
+            "[INTERVIEWER: Read the list aloud. Record all that apply. Do not "
+            "prompt for tools the respondent does not mention.]\n\n"
             "_Reply with all that apply, separated by commas (for example: "
             "Stata, R)._"
         ),
+        # The one genuinely bad question, and the only one in either arm that
+        # is short. Double-barrelled (satisfaction AND recommendation, which
+        # cannot both be answered by one reply), jargon nobody outside the
+        # trade uses - "instrument", "modality", "data collection exercises" -
+        # and no reference frame or scale at all.
+        #
+        # It therefore does NOT measure what ARM 2's P5 measures, and that is
+        # the second deliberate divergence after P4. The cost of double-
+        # barrelling is not only a column that is hard to code; it is a column
+        # that cannot be lined up against anything, so the arm comparison this
+        # whole demo exists to make is unavailable on exactly this question.
+        # Say that out loud in the session - it is the reason the question is
+        # here.
         "P5": (
-            "Reflecting on your overall experience of responding to this "
-            "questionnaire, how would you characterise your general disposition "
-            "toward receiving surveys of this kind in future?\n\n"
+            "How satisfied are you with the usability and relevance of this "
+            "instrument, and would you recommend its modality for future data "
+            "collection exercises?\n\n"
             "_Reply in your own words._"
         ),
     },
-    # ARM 2 - the recommended pattern. Same four constructs, as tappable lists,
-    # one idea per message, with a progress cue so the respondent always knows
-    # how much is left. Emoji are used sparingly and only in bodies.
+    # ARM 2 - the recommended pattern. The same five constructs, as tappable
+    # lists, one idea per message, with a progress cue so the respondent always
+    # knows how much is left. Emoji are used sparingly and only in bodies.
+    #
+    # THE RULE THESE BODIES FOLLOW: ARM 2 keeps every methodological commitment
+    # ARM 1 makes and spends fewer words on it. Short is not the goal - short
+    # *with the reference frame intact* is the goal, and the difference between
+    # the arms is register and response format, never rigour.
+    #
+    # This matters because of how the comparison can fail. If ARM 2 quietly
+    # drops the frame - "how many coffees did you have?" against ARM 1's dated,
+    # bounded, whole-day version - then its cleaner answers are explained by
+    # having asked an easier question, and the session's finding evaporates
+    # under the first methodologist to raise a hand. ARM 2 has to win on format
+    # while asking the same question. So P1 carries the whole-week frame and
+    # the not-yet-happened hedge, P3 says which day and that it is the whole of
+    # it, and P4 keeps ARM 1's "without assistance" criterion as "on your own".
+    # Each is longer than the shortest phrasing available, on purpose.
     "arm2": {
         "button": "Choose an answer",
         "P1": {
             "kind": "list",
             "body": (
                 "📅 Question 1 of 5\n\n"
-                "Which day of the training week has been your favourite?"
+                "Which day of the training week has been - or you think will "
+                "be - your favourite?"
             ),
             "options": [
                 ("p1_sun", "Sunday", "Day 1"),
@@ -338,14 +462,14 @@ EN: dict[str, Any] = {
         },
         "P2": {
             "kind": "button",
-            "body": ("🍰 Question 2 of 5\n\nDid you have dessert with lunch today?"),
+            "body": ("🍰 Question 2 of 5\n\nDid you have dessert at lunch today?"),
             # Quick-reply actions carry a title and an id; the third element is
             # unused on screen and shows up only in the text fallback. Kept as a
             # triple so the pattern and the code mapping treat every question
             # kind identically.
             "options": [
                 ("p2_yes", "Yes", "I had dessert"),
-                ("p2_no", "No", "I did not"),
+                ("p2_no", "No", "No dessert today"),
             ],
         },
         # No options: an integer question is a plain body and a regex.
@@ -360,7 +484,8 @@ EN: dict[str, Any] = {
             "refuses": ["11", "100", "-1", "two", "about 3", "3.5", ""],
             "body": (
                 "☕ Question 3 of 5\n\n"
-                "How many cups of coffee or tea did you have this morning?\n\n"
+                "How many cups of coffee or tea did you have during the whole "
+                "day yesterday?\n\n"
                 "_Reply with a number from 0 to 10._"
             ),
         },
@@ -372,7 +497,7 @@ EN: dict[str, Any] = {
             "kind": "list",
             "body": (
                 "💻 Question 4 of 5\n\n"
-                "Which one of these are you *most* comfortable using?"
+                "Which of these are you *most* comfortable using on your own?"
             ),
             "options": [
                 ("p4_python", "Python", "pandas, scripts, notebooks"),
@@ -407,7 +532,7 @@ EN: dict[str, Any] = {
     "error_numeric": (
         "Please reply with a number from 0 to 10.\n\n"
         "_Just the digits, for example 0, 2 or 10._\n\n"
-        "I am a bot and cannot understand everything that is written to me."
+        "I am a bot, so a plain number is all I can read here."
     ),
     # A quick-reply question has buttons and no list, so the list nudge would
     # name a control that is not on screen.
@@ -1507,6 +1632,14 @@ def build(
             + "\n".join(f"  {p}" for p in problems)
         )
 
+    # Where the row is written, as it appears on the canvas. Defaulted rather
+    # than required so a caller that only cares about the graph - every test
+    # that builds a flow offline, and `resolve_functions` output from before
+    # this key existed - keeps working unchanged.
+    publish_widget = functions.get(
+        "publish_widget", PUBLISH_TARGETS[DEFAULT_PUBLISH_TARGET]["widget"]
+    )
+
     table = LANGS[lang]
     needed = [
         table["intro_template"],
@@ -1862,7 +1995,7 @@ def build(
                 # sample file, and nothing anywhere records that the identifiers
                 # were lost.
                 "transitions": [
-                    {"event": "success", "next": "publish_motherduck"},
+                    {"event": "success", "next": publish_widget},
                     {"event": "fail", "next": "mark_encrypt_failed"},
                 ],
             },
@@ -1878,7 +2011,7 @@ def build(
                     ("enc_status", "encrypt_failed"),
                     ("final_status", ENCRYPTION_FAILED_STATUS),
                 ],
-                "publish_motherduck",
+                publish_widget,
                 x=-500,
                 y=1500,
             ),
@@ -1944,7 +2077,7 @@ def build(
 
     states.append(
         {
-            "name": "publish_motherduck",
+            "name": publish_widget,
             "type": "run-function",
             "properties": {
                 "offset": {"x": 0, "y": 1560},
@@ -2201,16 +2334,19 @@ def write_template_definitions(lang: str) -> list[Path]:
     return written
 
 
-def resolve_functions(client) -> dict[str, str]:
+def resolve_functions(client, target: str = DEFAULT_PUBLISH_TARGET) -> dict[str, str]:
     """Look up the deployed Functions service, environment, and both functions.
 
     Args:
         client: An authenticated Twilio client.
+        target: Which publish destination to wire up, a key of
+            :data:`PUBLISH_TARGETS`.
 
     Returns:
         The keys a ``run-function`` widget needs: ``service_sid``,
         ``environment_sid``, ``encrypt_sid``, ``publish_sid``, ``encrypt_url``
-        and ``publish_url``.
+        and ``publish_url``, plus ``publish_widget`` - the name the publish step
+        carries on the canvas.
 
     Raises:
         BuildError: If the service, its environment, or either function is
@@ -2223,6 +2359,13 @@ def resolve_functions(client) -> dict[str, str]:
     constructed.
 
     """
+    if target not in PUBLISH_TARGETS:
+        raise BuildError(
+            f"Unknown publish target {target!r}. Choose one of "
+            f"{', '.join(sorted(PUBLISH_TARGETS))}."
+        )
+    publish = PUBLISH_TARGETS[target]
+
     # No `limit=`: the SDK turns it into a page_size, Serverless caps that at
     # 100, and asking for more is a 400 rather than a truncation. Bare .list()
     # walks the pages, so an account with many services still resolves.
@@ -2238,7 +2381,7 @@ def resolve_functions(client) -> dict[str, str]:
         raise BuildError(
             f"No Functions service named {FUNCTIONS_SERVICE_NAME!r} on this "
             f"account. Run `just deploy-functions` first - it creates the "
-            f"service and deploys encrypt_fields and publish_motherduck."
+            f"service and deploys encrypt_fields and every publish target."
         )
 
     environments = client.serverless.v1.services(service.sid).environments.list()
@@ -2255,13 +2398,19 @@ def resolve_functions(client) -> dict[str, str]:
     }
     missing = [
         name
-        for name in (ENCRYPT_FUNCTION_NAME, PUBLISH_FUNCTION_NAME)
+        for name in (ENCRYPT_FUNCTION_NAME, publish["function"])
         if name not in functions
     ]
     if missing:
+        # Naming the target matters here. A service deployed before this repo
+        # grew a second destination has encrypt_fields and publish_motherduck
+        # and nothing else, so `--publish-target gsheets` fails on an account
+        # that is otherwise perfectly set up - and "re-run deploy-functions"
+        # alone does not explain why.
         raise BuildError(
             f"Deployed but incomplete: {FUNCTIONS_SERVICE_NAME!r} is missing "
-            f"{', '.join(missing)}. Re-run `just deploy-functions`."
+            f"{', '.join(missing)}, which the {target!r} publish target needs. "
+            f"Re-run `just deploy-functions`."
         )
 
     host = environment.domain_name
@@ -2269,9 +2418,10 @@ def resolve_functions(client) -> dict[str, str]:
         "service_sid": service.sid,
         "environment_sid": environment.sid,
         "encrypt_sid": functions[ENCRYPT_FUNCTION_NAME],
-        "publish_sid": functions[PUBLISH_FUNCTION_NAME],
+        "publish_sid": functions[publish["function"]],
         "encrypt_url": f"https://{host}{ENCRYPT_PATH}",
-        "publish_url": f"https://{host}{PUBLISH_PATH}",
+        "publish_url": f"https://{host}{publish['path']}",
+        "publish_widget": publish["widget"],
     }
 
 
@@ -2309,7 +2459,7 @@ def resolve_sids(lang: str) -> tuple[dict[str, str], list[str]]:
     return found, missing
 
 
-def build_one(lang: str) -> bool:
+def build_one(lang: str, target: str = DEFAULT_PUBLISH_TARGET) -> bool:
     """Emit one language's templates and flow. Returns True on success."""
     print(f"\n=== {LANGS[lang]['name']} ({lang}) ===")
 
@@ -2329,7 +2479,9 @@ def build_one(lang: str) -> bool:
     try:
         cfg.load_env()
         conf = cfg.TwilioConfig.from_env()
-        functions = resolve_functions(Client(conf.account_sid, conf.auth_token))
+        functions = resolve_functions(
+            Client(conf.account_sid, conf.auth_token), target
+        )
     except BuildError as exc:
         print(f"\n  {exc}")
         return False
@@ -2337,6 +2489,10 @@ def build_one(lang: str) -> bool:
         f"  functions {functions['service_sid']} "
         f"({functions['encrypt_url'].split('//')[1].split('/')[0]})"
     )
+    # Printed on every build, not only when it is unusual. Which destination a
+    # flow writes to is invisible in the deploy output and expensive to discover
+    # afterwards - it is one widget name buried in an 80-widget definition.
+    print(f"  publish   {target} -> {functions['publish_widget']}")
 
     found, missing = resolve_sids(lang)
     if missing:
@@ -2385,10 +2541,21 @@ def main() -> None:
         default="both",
         help="Language to build. Defaults to both, which is the point.",
     )
+    parser.add_argument(
+        "--publish-target",
+        choices=sorted(PUBLISH_TARGETS),
+        default=DEFAULT_PUBLISH_TARGET,
+        help=(
+            "Where a submission is written. 'motherduck' inserts over the "
+            "Postgres wire protocol; 'gsheets' appends a row to a spreadsheet, "
+            "which needs only a sheet and a service account. Defaults to "
+            f"{DEFAULT_PUBLISH_TARGET}."
+        ),
+    )
     args = parser.parse_args()
 
     languages = sorted(LANGS) if args.lang == "both" else [args.lang]
-    ok = [build_one(lang) for lang in languages]
+    ok = [build_one(lang, args.publish_target) for lang in languages]
 
     if not all(ok):
         print("\nNot every language built cleanly - see above.")

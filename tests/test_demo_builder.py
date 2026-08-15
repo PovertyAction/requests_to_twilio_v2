@@ -25,6 +25,14 @@ from requests_to_twilio.flows import (  # noqa: E402
 
 LANGS = sorted(demo.LANGS)
 
+#: The publish widget's name for whichever destination is the default.
+#:
+#: Derived rather than written out, because these tests are about the payload
+#: and the routing into it - which are identical for both destinations - and not
+#: about which one a build happens to target. Hard-coding a name here made
+#: changing the default look like fourteen broken tests.
+PUBLISH_WIDGET = demo.PUBLISH_TARGETS[demo.DEFAULT_PUBLISH_TARGET]["widget"]
+
 
 def fake_sids(lang: str) -> dict[str, str]:
     """Every content SID the flow needs, without touching Twilio."""
@@ -45,13 +53,17 @@ def fake_functions() -> dict[str, str]:
     unguessable and is why they are looked up rather than written down.
     """
     host = "rtt-survey-0000-prod.twil.io"
+    target = demo.PUBLISH_TARGETS[demo.DEFAULT_PUBLISH_TARGET]
     return {
         "service_sid": f"ZS{0:032d}",
         "environment_sid": f"ZE{0:032d}",
         "encrypt_sid": f"ZH{1:032d}",
         "publish_sid": f"ZH{2:032d}",
         "encrypt_url": f"https://{host}/encrypt-fields",
-        "publish_url": f"https://{host}/publish-motherduck",
+        # Derived with the widget name, so the URL and the widget cannot
+        # disagree about which destination this fixture describes.
+        "publish_url": f"https://{host}{target['path']}",
+        "publish_widget": target["widget"],
     }
 
 
@@ -403,9 +415,7 @@ class TestBuild:
 
     def test_every_arm2_answer_publishes_a_raw_value_and_a_code(self, lang):
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        publish = next(
-            s for s in definition["states"] if s["name"] == "publish_motherduck"
-        )
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
         keys = [p["key"] for p in publish["properties"]["parameters"]]
         for key in demo.QUESTION_KEYS:
             assert f"ARM2_{key}" in keys
@@ -423,9 +433,7 @@ class TestBuild:
     def test_arm1_publishes_no_code(self, lang):
         """There is nothing to normalise in an open answer."""
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        publish = next(
-            s for s in definition["states"] if s["name"] == "publish_motherduck"
-        )
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
         keys = [p["key"] for p in publish["properties"]["parameters"]]
         assert not any(k.startswith("ARM1_") and k.endswith("_code") for k in keys)
 
@@ -559,9 +567,7 @@ class TestBuild:
     def test_a_number_question_publishes_a_value_and_never_a_code(self, lang):
         """A free number is not an option code, so it must not be named like one."""
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        publish = next(
-            s for s in definition["states"] if s["name"] == "publish_motherduck"
-        )
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
         keys = {p["key"] for p in publish["properties"]["parameters"]}
         for key in demo.QUESTION_KEYS:
             if demo.question_kind(lang, key) != "integer":
@@ -656,7 +662,7 @@ class TestBuild:
             event = "next"
 
         assert outcome == "unreachable", path
-        assert "publish_motherduck" in path, path
+        assert PUBLISH_WIDGET in path, path
         assert path[-1] == "close_never_started", path
 
     def test_the_close_to_a_non_responder_is_a_template_not_a_body(self, lang):
@@ -782,16 +788,14 @@ class TestBuild:
         assert route_split(states["split_arm"], "2") == "ARM2_P1"
 
         published = {
-            p["key"] for p in states["publish_motherduck"]["properties"]["parameters"]
+            p["key"] for p in states[PUBLISH_WIDGET]["properties"]["parameters"]
         }
         assert "set_arm_missing" in published
 
     def test_the_flow_records_which_language_it_was(self, lang):
         """Two flows write to one table; the rows have to be separable."""
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        publish = next(
-            s for s in definition["states"] if s["name"] == "publish_motherduck"
-        )
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
         params = {p["key"]: p["value"] for p in publish["properties"]["parameters"]}
         assert params["lang"] == lang
 
@@ -826,6 +830,14 @@ class TestTheBuilderStillEmitsTheCommittedFlow:
                 which = "encrypt" if "encrypt" in state["name"] else "publish"
                 functions[f"{which}_sid"] = properties["function_sid"]
                 functions[f"{which}_url"] = properties["url"]
+                if which == "publish":
+                    # Which destination the committed flow was built against.
+                    # Recovered rather than assumed: the same graph is built for
+                    # MotherDuck and for Google Sheets, and they differ only in
+                    # this widget's name and URL. Defaulting here instead would
+                    # make the test pass only while the committed flow happened
+                    # to use the default target.
+                    functions["publish_widget"] = state["name"]
         return sids, functions
 
     def test_rebuilding_english_reproduces_the_committed_definition(self):
