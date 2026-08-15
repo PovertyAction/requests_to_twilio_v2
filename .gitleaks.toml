@@ -26,6 +26,23 @@ regexes = [
   # variable names in a committed flow, readable in the Twilio Console.
   '''^tries_[A-Za-z0-9_]+$''',
 
+  # tests/test_publish_target.py: a synthetic PEM used to test that a Google
+  # private key survives being split across numbered Twilio variables and
+  # rejoined in JavaScript. It is not a key - it is one base64-shaped line
+  # repeated 25 times, padded with a run of thirteen literal `x`, which no real
+  # key contains and which is what this regex matches.
+  #
+  # The working tree no longer contains the PEM banner at all: the fixture
+  # assembles it from fragments, so neither `detect-private-key` nor a
+  # working-tree scan sees it. This entry exists for the *history* scan, which
+  # reads the diffs of commits already pushed - and rewriting published history
+  # to delete a string that was never a secret is the more destructive of the
+  # two available fixes, not the safer one.
+  #
+  # This does not soften the rule above. A real key is still rotated, never
+  # allowlisted.
+  '''MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCx{13}''',
+
   # tests/test_crypto.py: a ciphertext fixture for the pre-2.0 AES-128-CBC
   # format, kept so the legacy reader stays tested. It was produced by the
   # original CryptoJS helper with the dummy secret "shortkey" and decrypts to
