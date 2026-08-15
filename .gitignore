@@ -180,7 +180,21 @@ cython_debug/
 !.env.example
 *.pem
 *.key
+
+# Google Cloud service-account keys, for the Sheets publish target. Google names
+# the download after the project and a key fingerprint - `my-project-4f3a91.json`
+# - so nothing about the default filename says "credential", and the patterns
+# below cannot catch it. Point GOOGLE_SERVICE_ACCOUNT_FILE at a path OUTSIDE the
+# repository, or rename the file to match one of these before moving it in.
+#
+# This is not hypothetical: this project published a live service-account key to
+# a public GitHub repository, where it remained valid for roughly 19 months.
 service-account*.json
+service_account*.json
+gcp-*.json
+gcp_*.json
+*-service-account.json
+*_service_account.json
 
 # Encryption private keys. `rtt keygen` writes rtt_private_key.txt by default,
 # but --out can put it anywhere, so match the shape broadly. Losing control of

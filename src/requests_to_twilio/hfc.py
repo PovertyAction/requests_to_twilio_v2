@@ -28,6 +28,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .flows import Finding
+from .outcomes import OUTCOMES
 
 #: The column that identifies a respondent. Named after the house convention -
 #: `caseid` is the join key back to the sampling frame, and a row without one is
@@ -38,17 +39,10 @@ DEFAULT_KEY = "caseid"
 #: means the outcome column is missing, misnamed, or carries some other
 #: vocabulary - and without one, completion cannot be told from break-off.
 #:
-#: `unreachable`, `undeliverable` and `optout` were emitted by the flows long
-#: before they were listed here, which meant a round consisting entirely of
-#: non-responders was reported as having no recognisable outcome at all.
-RECOGNISED_OUTCOMES = (
-    "complete",
-    "declined",
-    "incomplete",
-    "unreachable",
-    "undeliverable",
-    "optout",
-)
+#: Re-exported from :mod:`requests_to_twilio.outcomes` rather than restated. The
+#: list here once lagged behind what the flows actually emitted, so a round of
+#: pure non-response was reported as having no recognisable outcome at all.
+RECOGNISED_OUTCOMES = OUTCOMES
 
 
 def duplicate_observations(

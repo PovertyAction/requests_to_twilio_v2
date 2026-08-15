@@ -1,21 +1,26 @@
 lang,arm,question,variable,code,option_id,label,description
-es,2,ARM2_P1,ARM2_P1_code,1,p1_0,0 veces,No usé datos en las últimas 4 semanas
-es,2,ARM2_P1,ARM2_P1_code,2,p1_1_2,1-2 veces,Una o dos veces
-es,2,ARM2_P1,ARM2_P1_code,3,p1_3_5,3-5 veces,Unas pocas veces
-es,2,ARM2_P1,ARM2_P1_code,4,p1_6_10,6-10 veces,Casi todas las semanas
-es,2,ARM2_P1,ARM2_P1_code,5,p1_gt10,Más de 10 veces,Casi a diario
-es,2,ARM2_P2,ARM2_P2_code,1,p2_0,0 proyectos,Ningún proyecto usó datos
-es,2,ARM2_P2,ARM2_P2_code,2,p2_1,1 proyecto,Un proyecto usó datos
-es,2,ARM2_P2,ARM2_P2_code,3,p2_2_3,2-3 proyectos,Algunos proyectos usaron datos
-es,2,ARM2_P2,ARM2_P2_code,4,p2_4_5,4-5 proyectos,Varios proyectos usaron datos
-es,2,ARM2_P2,ARM2_P2_code,5,p2_gt5,Más de 5 proyectos,La mayoría o todos
-es,2,ARM2_P3,ARM2_P3_code,1,p3_never,Nunca recolectamos,Solo usamos datos que recolectan otros
-es,2,ARM2_P3,ARM2_P3_code,2,p3_lt25,Pocos proyectos,Menos del 25% de los proyectos
-es,2,ARM2_P3,ARM2_P3_code,3,p3_25_50,Cerca de la mitad,Entre el 25% y el 50%
-es,2,ARM2_P3,ARM2_P3_code,4,p3_51_75,La mayoría,Entre el 51% y el 75%
-es,2,ARM2_P3,ARM2_P3_code,5,p3_gt75,Casi todos,Más del 75% de los proyectos
-es,2,ARM2_P4,ARM2_P4_code,1,p4_capi,Presencial (CAPI),Entrevistas cara a cara
-es,2,ARM2_P4,ARM2_P4_code,2,p4_cati,Telefónica (CATI),Entrevistas por llamada
-es,2,ARM2_P4,ARM2_P4_code,3,p4_web,Web o en línea,Formularios en línea
-es,2,ARM2_P4,ARM2_P4_code,4,p4_whatsapp,Por WhatsApp,Encuestas por WhatsApp como esta
-es,2,ARM2_P4,ARM2_P4_code,5,p4_other,Otra modalidad,Registros administrativos u otra
+es,,final_status,final_status,complete,,complete,Reached the end of the questionnaire
+es,,final_status,final_status,declined,,declined,"Refused at consent - a valid answer, not attrition"
+es,,final_status,final_status,incomplete,,incomplete,"Reached, did not finish: broke off, opted out, or never replied"
+es,,final_status,final_status,failed,,failed,"System-side failure - undeliverable, or encryption failed"
+es,2,ARM2_P1,ARM2_P1_code,1,p1_sun,Domingo,Día 1
+es,2,ARM2_P1,ARM2_P1_code,2,p1_mon,Lunes,Día 2
+es,2,ARM2_P1,ARM2_P1_code,3,p1_tue,Martes,Día 3
+es,2,ARM2_P1,ARM2_P1_code,4,p1_wed,Miércoles,Día 4
+es,2,ARM2_P1,ARM2_P1_code,5,p1_thu,Jueves,Día 5
+es,2,ARM2_P1,ARM2_P1_code,6,p1_fri,Viernes,Día 6
+es,2,ARM2_P2,ARM2_P2_code,1,p2_yes,Sí,Sí tomé postre
+es,2,ARM2_P2,ARM2_P2_code,2,p2_no,No,Hoy no tomé postre
+es,2,ARM2_P3,ARM2_P3_value,,,Number in 0-10,"Validated number, 0-10. Blank means refused or unanswered - read the status column"
+es,2,ARM2_P4,ARM2_P4_code,1,p4_python,Python,"pandas, scripts, cuadernos"
+es,2,ARM2_P4,ARM2_P4_code,2,p4_stata,Stata,archivos do y datos .dta
+es,2,ARM2_P4,ARM2_P4_code,3,p4_r,R,tidyverse y RStudio
+es,2,ARM2_P4,ARM2_P4_code,4,p4_surveycto,SurveyCTO,Diseño de formularios y recolección
+es,2,ARM2_P4,ARM2_P4_code,5,p4_twilio,Twilio,Flujos de Studio y WhatsApp
+es,2,ARM2_P4,ARM2_P4_code,6,p4_exotel,Exotel,Encuestas de voz e IVR
+es,2,ARM2_P4,ARM2_P4_code,7,p4_office,Microsoft Office,"Excel, Word y PowerPoint"
+es,2,ARM2_P5,ARM2_P5_code,1,p5_loved,Me encantó,🤩 Lo mejor de la semana
+es,2,ARM2_P5,ARM2_P5_code,2,p5_liked,Me gustó,"🙂 Bien, la repetiría"
+es,2,ARM2_P5,ARM2_P5_code,3,p5_fine,Estuvo bien,😐 Sin opinión fuerte
+es,2,ARM2_P5,ARM2_P5_code,4,p5_meh,No mucho,🙁 Algo tediosa
+es,2,ARM2_P5,ARM2_P5_code,5,p5_disliked,No me gustó,😞 Preferiría no hacerla

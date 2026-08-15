@@ -5,7 +5,7 @@
     "the same strings drive this template, the flow's split conditions and the",
     "code stored for each answer, so editing here alone would desynchronise them.",
     "",
-    "ARM 2 P2, as a tappable list of 5 options. list-picker cannot be submitted for approval and cannot open a session; it only works inside the 24-hour window, which is why every ARM 2 question sits after the opener and consent.",
+    "ARM 2 P2, as 2 quick-reply buttons. Sent inside the 24-hour window the opener's reply opens, so it needs no Meta approval. The buttons carry payload ids, but the flow splits on the message body so a typed reply works too.",
     "",
     "Create it with `just template-create` and never submit it to Meta.",
     "Referenced by the flow as data_use_demo_arm2_p2_en."
@@ -14,36 +14,18 @@
   "language": "en",
   "types": {
     "twilio/text": {
-      "body": "Question 2 of 4\n\nIn the last 4 weeks, in how many projects was data used to make decisions?\n\n1 - 0 projects\n2 - 1 project\n3 - 2-3 projects\n4 - 4-5 projects\n5 - More than 5 projects"
+      "body": "🍰 Question 2 of 5\n\nDid you have dessert at lunch today?\n\n1 - Yes\n2 - No"
     },
-    "twilio/list-picker": {
-      "body": "Question 2 of 4\n\nIn the last 4 weeks, in how many projects was data used to make decisions?",
-      "button": "Choose an answer",
-      "items": [
+    "twilio/quick-reply": {
+      "body": "🍰 Question 2 of 5\n\nDid you have dessert at lunch today?",
+      "actions": [
         {
-          "id": "p2_0",
-          "item": "0 projects",
-          "description": "No project used data"
+          "title": "Yes",
+          "id": "p2_yes"
         },
         {
-          "id": "p2_1",
-          "item": "1 project",
-          "description": "One project used data"
-        },
-        {
-          "id": "p2_2_3",
-          "item": "2-3 projects",
-          "description": "A few projects used data"
-        },
-        {
-          "id": "p2_4_5",
-          "item": "4-5 projects",
-          "description": "Several projects used data"
-        },
-        {
-          "id": "p2_gt5",
-          "item": "More than 5 projects",
-          "description": "Most or all projects used data"
+          "title": "No",
+          "id": "p2_no"
         }
       ]
     }

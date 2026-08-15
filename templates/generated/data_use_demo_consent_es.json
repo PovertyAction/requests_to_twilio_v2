@@ -14,10 +14,10 @@
   "language": "es",
   "types": {
     "twilio/text": {
-      "body": "👋 Antes de empezar - ¿quieres participar?\n\nToma unos 3 minutos. La participación es voluntaria, puedes dejar de responder en cualquier momento y tus respuestas son confidenciales.\n\n1 - Sí, participo\n2 - No, gracias"
+      "body": "👋 Antes de empezar - ¿quieres participar?\n\nToma unos 3 minutos. La participación es voluntaria: puedes dejar de responder en cualquier momento y tus respuestas son confidenciales.\n\n1 - Sí, participo\n2 - No, gracias"
     },
     "twilio/quick-reply": {
-      "body": "👋 Antes de empezar - ¿quieres participar?\n\nToma unos 3 minutos. La participación es voluntaria, puedes dejar de responder en cualquier momento y tus respuestas son confidenciales.",
+      "body": "👋 Antes de empezar - ¿quieres participar?\n\nToma unos 3 minutos. La participación es voluntaria: puedes dejar de responder en cualquier momento y tus respuestas son confidenciales.",
       "actions": [
         {
           "title": "Sí, participo",

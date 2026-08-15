@@ -810,6 +810,41 @@ def warehouse_schema(definition: dict, table: str) -> str:
     return f"CREATE TABLE IF NOT EXISTS {table} (\n{body}\n);"
 
 
+def sheet_header_row(definition: dict) -> str:
+    """Return the spreadsheet header row matching the flow's publish payload.
+
+    Args:
+        definition: The flow's JSON definition.
+
+    Returns:
+        One comma-separated line, ready to paste into row 1 of the target sheet.
+
+    Raises:
+        FlowError: If the flow publishes nothing.
+
+    The Sheets counterpart of :func:`warehouse_schema`, and it exists for the
+    same reason. ``publish_gsheets`` maps a parameter to a column by matching
+    its name against the header row, so a question whose name is not in row 1 is
+    dropped - behind a 200, into a row that looks complete. Typing thirty column
+    names by hand is how one of them ends up as ``ARM2_P3_ code``.
+
+    ``submitted_at`` is appended for the same reason it is in the DDL: the
+    Function stamps it server-side, and every downstream tool - `rtt fetch`,
+    `rtt data-check`, the `final_status` rollup - reads that column by name.
+
+    No quoting or escaping. These are widget parameter names, which Studio
+    already constrains to identifiers, so none of them can contain a comma.
+
+    """
+    columns = [key for key, _ in published_columns(definition)]
+    if not columns:
+        raise FlowError("Flow publishes nothing, so there is no header to build.")
+
+    if "submitted_at" not in columns:
+        columns.append("submitted_at")
+    return ",".join(columns)
+
+
 def missing_warehouse_columns(definition: dict, existing: list[str]) -> list[str]:
     """Return published columns the destination table cannot store.
 
@@ -1540,7 +1575,27 @@ def validate_remote(client: Client, name: str, definition: dict) -> list[str]:
 
 #: Matches the flow SID out of a Studio webhook URL, which is the shape Twilio
 #: writes into a phone number's sms_url when you wire it to a flow in the console.
-_FLOW_WEBHOOK_PATTERN = re.compile(r"/Flows/(FW[0-9a-fA-F]{32})")
+#:
+#: **The whole URL is matched, not a substring of it.** A Studio webhook URL is
+#: exactly one shape and stops at the flow SID, so anything else in the field
+#: means it is not one - and the obvious way to get that is to paste over a
+#: selection that missed a character, splicing the old URL's tail into the new:
+#:
+#:   .../Flows/FWdf95...ec903 80552df25b561ef273bdbbae/Flows/FWdf95...ec903
+#:
+#: Searching for `/Flows/(FW…)` found the right SID in that string twice over -
+#: once as a prefix of the invalid segment, and once in the trailing fragment -
+#: and reported the flow as correctly wired. Twilio saw one invalid SID,
+#: returned 404, and every inbound message failed with error 11200 while
+#: `rtt launch` printed "inbound routing OK". Measured live: four executions sat
+#: at the opener, replies arriving and going nowhere, until this was found.
+#:
+#: Anchoring the tail is not enough, because the mangled URL ends in a valid
+#: segment. Only matching the whole thing rejects it.
+_FLOW_WEBHOOK_PATTERN = re.compile(
+    r"https://[^/\s]+/v\d+/Accounts/AC[0-9a-fA-F]{32}"
+    r"/Flows/(FW[0-9a-fA-F]{32})/?"
+)
 
 
 #: Where WhatsApp senders live. They are NOT the same resource as the phone
@@ -1564,7 +1619,10 @@ def _whatsapp_sender_flow(client: Client, address: str) -> str | None:
         if (sender.get("sender_id") or "") != address:
             continue
         webhook = sender.get("webhook") or {}
-        match = _FLOW_WEBHOOK_PATTERN.search(webhook.get("callback_url") or "")
+        # fullmatch, not search: a Studio webhook URL is the entire field.
+        match = _FLOW_WEBHOOK_PATTERN.fullmatch(
+            (webhook.get("callback_url") or "").strip()
+        )
         return match.group(1) if match else None
     return None
 
@@ -1618,7 +1676,7 @@ def inbound_flow_sid(client: Client, from_number: str) -> str | None:
     for number in numbers:
         if number.phone_number != address:
             continue
-        match = _FLOW_WEBHOOK_PATTERN.search(number.sms_url or "")
+        match = _FLOW_WEBHOOK_PATTERN.fullmatch((number.sms_url or "").strip())
         return match.group(1) if match else None
     return None
 

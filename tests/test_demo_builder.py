@@ -25,6 +25,14 @@ from requests_to_twilio.flows import (  # noqa: E402
 
 LANGS = sorted(demo.LANGS)
 
+#: The publish widget's name for whichever destination is the default.
+#:
+#: Derived rather than written out, because these tests are about the payload
+#: and the routing into it - which are identical for both destinations - and not
+#: about which one a build happens to target. Hard-coding a name here made
+#: changing the default look like fourteen broken tests.
+PUBLISH_WIDGET = demo.PUBLISH_TARGETS[demo.DEFAULT_PUBLISH_TARGET]["widget"]
+
 
 def fake_sids(lang: str) -> dict[str, str]:
     """Every content SID the flow needs, without touching Twilio."""
@@ -33,7 +41,7 @@ def fake_sids(lang: str) -> dict[str, str]:
         demo.LANGS[lang]["close_template"],
         demo.consent_template_name(lang),
     ]
-    names += [demo.question_template_name(lang, k) for k in demo.QUESTION_KEYS]
+    names += [demo.question_template_name(lang, k) for k in demo.templated_keys(lang)]
     return {name: f"HX{index:032d}" for index, name in enumerate(names)}
 
 
@@ -45,13 +53,17 @@ def fake_functions() -> dict[str, str]:
     unguessable and is why they are looked up rather than written down.
     """
     host = "rtt-survey-0000-prod.twil.io"
+    target = demo.PUBLISH_TARGETS[demo.DEFAULT_PUBLISH_TARGET]
     return {
         "service_sid": f"ZS{0:032d}",
         "environment_sid": f"ZE{0:032d}",
         "encrypt_sid": f"ZH{1:032d}",
         "publish_sid": f"ZH{2:032d}",
         "encrypt_url": f"https://{host}/encrypt-fields",
-        "publish_url": f"https://{host}/publish-motherduck",
+        # Derived with the widget name, so the URL and the widget cannot
+        # disagree about which destination this fixture describes.
+        "publish_url": f"https://{host}{target['path']}",
+        "publish_widget": target["widget"],
     }
 
 
@@ -70,14 +82,15 @@ class TestLanguageTables:
         for language in LANGS:
             table = demo.LANGS[language]
             shapes[language] = {
-                key: len(table["arm2"][key]["options"]) for key in demo.QUESTION_KEYS
+                key: len(table["arm2"][key]["options"])
+                for key in demo.option_keys(language)
             }
             assert sorted(table["arm1"]) == sorted(demo.QUESTION_KEYS)
         assert len(set(map(str, shapes.values()))) == 1, shapes
 
     def test_option_ids_match_across_languages(self):
         """The id is the analysis key, so it must not be translated."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(LANGS[0]):
             ids = {
                 language: [o[0] for o in demo.LANGS[language]["arm2"][key]["options"]]
                 for language in LANGS
@@ -148,14 +161,14 @@ class TestAnswerPattern:
         assert not evaluate_condition("regex", pattern, "No thank you")
 
     def test_every_label_is_accepted(self, lang):
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             for _, item, _ in options:
                 assert evaluate_condition("regex", pattern, item), (key, item)
 
     def test_a_typed_position_is_accepted_where_it_is_unambiguous(self, lang):
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             if demo.positions_are_ambiguous(options):
                 continue
@@ -170,24 +183,41 @@ class TestAnswerPattern:
         the status recording a clean answer. Refusing sends them back to the
         list, which is the right outcome for a reply with two readings.
         """
-        ambiguous = [
-            key
-            for key in demo.QUESTION_KEYS
-            if demo.positions_are_ambiguous(demo.LANGS[lang]["arm2"][key]["options"])
+        # Built here rather than found in the tables. The instrument currently
+        # has no numeric labels, so looking for one would make this test pass by
+        # having nothing to check - and it guards the mechanism, which has to
+        # keep working for the next scale somebody writes.
+        options = [
+            ("f_0", "0 times", "Not once"),
+            ("f_1_2", "1-2 times", "Once or twice"),
+            ("f_3_5", "3-5 times", "A handful"),
         ]
-        assert ambiguous, "expected the frequency scales to have numeric labels"
+        assert demo.positions_are_ambiguous(options)
 
-        for key in ambiguous:
+        pattern = demo.answer_pattern(options)
+        for index in range(1, len(options) + 1):
+            assert not evaluate_condition("regex", pattern, str(index)), index
+        # The labels themselves must still route, or the question is unanswerable.
+        for _, item, _ in options:
+            assert evaluate_condition("regex", pattern, item)
+
+    def test_no_current_question_has_ambiguous_positions(self, lang):
+        """If one appears, the nudge has to change with it.
+
+        `error_body_for` picks the label-only wording for these, so a question
+        that became ambiguous without that switch would tell the respondent to
+        reply with a number the split is required to refuse.
+        """
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
-            pattern = demo.answer_pattern(options)
-            for index in range(1, len(options) + 1):
-                assert not evaluate_condition("regex", pattern, str(index)), (
-                    key,
-                    index,
-                )
+            if demo.positions_are_ambiguous(options):
+                table = demo.LANGS[lang]
+                assert demo.error_body_for(
+                    table, options, demo.question_kind(lang, key)
+                ) == table["error_option_labels"].format(button=table["arm2"]["button"])
 
     def test_typed_punctuation_and_casing_are_tolerated(self, lang):
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             if not demo.positions_are_ambiguous(options):
@@ -199,7 +229,7 @@ class TestAnswerPattern:
 
     def test_junk_is_rejected(self, lang):
         """A pattern that accepts anything is worse than one that accepts too little."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             for junk in ("banana", "", "0", "99", "yes please", "times"):
@@ -209,7 +239,7 @@ class TestAnswerPattern:
 class TestCodeMapping:
     def test_tapping_and_typing_produce_the_same_code(self, lang):
         """The stored value must not depend on how the respondent answered."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             positional = not demo.positions_are_ambiguous(options)
             for index, (_, item, _) in enumerate(options, start=1):
@@ -224,7 +254,7 @@ class TestCodeMapping:
         a reply the split had already sent back to the retry - two records of
         the same respondent disagreeing about whether they answered.
         """
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             if not demo.positions_are_ambiguous(options):
                 continue
@@ -233,7 +263,7 @@ class TestCodeMapping:
 
     def test_the_split_and_the_mapping_agree(self, lang):
         """Anything accepted as an answer must code as one, or the row lies."""
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             options = demo.LANGS[lang]["arm2"][key]["options"]
             pattern = demo.answer_pattern(options)
             for index, (_, item, _) in enumerate(options, start=1):
@@ -293,7 +323,7 @@ class TestTemplateDefinitions:
     def test_every_template_the_flow_needs_is_emitted(self, lang):
         emitted = set(demo.template_definitions(lang))
         expected = {demo.consent_template_name(lang)} | {
-            demo.question_template_name(lang, k) for k in demo.QUESTION_KEYS
+            demo.question_template_name(lang, k) for k in demo.templated_keys(lang)
         }
         assert emitted == expected
 
@@ -318,6 +348,30 @@ class TestTemplateDefinitions:
 
     def test_language_is_declared(self, lang):
         assert demo.consent_definition(lang)["language"] == demo.LANGS[lang]["language"]
+
+    def test_a_button_question_is_quick_reply_not_a_list(self, lang):
+        keys = [
+            k for k in demo.QUESTION_KEYS if demo.question_kind(lang, k) == "button"
+        ]
+        assert keys, "expected at least one quick-reply question"
+        for key in keys:
+            types = demo.question_definition(lang, key)["types"]
+            assert set(types) == {"twilio/text", "twilio/quick-reply"}
+            actions = types["twilio/quick-reply"]["actions"]
+            options = demo.LANGS[lang]["arm2"][key]["options"]
+            # The id is what a tap sends, so it has to be the option's own id and
+            # not a positional one - that was the first live test's failure.
+            assert [a["id"] for a in actions] == [o[0] for o in options]
+            assert [a["title"] for a in actions] == [o[1] for o in options]
+
+    def test_an_integer_question_has_no_template_at_all(self, lang):
+        """Not an empty one - none. There is nothing for Twilio to render."""
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            assert key not in demo.templated_keys(lang)
+            name = demo.question_template_name(lang, key)
+            assert name not in demo.template_definitions(lang)
 
 
 class TestBuild:
@@ -361,37 +415,165 @@ class TestBuild:
 
     def test_every_arm2_answer_publishes_a_raw_value_and_a_code(self, lang):
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        publish = next(
-            s for s in definition["states"] if s["name"] == "publish_motherduck"
-        )
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
         keys = [p["key"] for p in publish["properties"]["parameters"]]
         for key in demo.QUESTION_KEYS:
             assert f"ARM2_{key}" in keys
             assert f"ARM2_{key}_status" in keys
             # The raw reply is a label when tapped and a digit when typed; the
-            # code is what an analyst should use. Both are kept: the code is
-            # derived, so if the Liquid ever fails the answer is still there.
-            assert f"ARM2_{key}_code" in keys
+            # derived column is what an analyst should use. Both are kept: the
+            # derived one can fail, and then the answer is still there.
+            #
+            # An integer question has no options to code against, so it derives
+            # a validated number instead - a different name on purpose, so a
+            # free number is never read as an option code.
+            derived = "value" if demo.question_kind(lang, key) == "integer" else "code"
+            assert f"ARM2_{key}_{derived}" in keys
 
     def test_arm1_publishes_no_code(self, lang):
         """There is nothing to normalise in an open answer."""
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        publish = next(
-            s for s in definition["states"] if s["name"] == "publish_motherduck"
-        )
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
         keys = [p["key"] for p in publish["properties"]["parameters"]]
         assert not any(k.startswith("ARM1_") and k.endswith("_code") for k in keys)
 
-    def test_the_retry_nudge_names_the_button_that_is_on_screen(self, lang):
+    def test_arm1_asks_every_question_and_validates_none_of_them(self, lang):
+        """The arm's defining property, and the easiest one to erode.
+
+        ARM 1 exists to be the uncontrolled comparison: whatever the respondent
+        types is stored verbatim, and nothing is re-asked. Adding a split here
+        would quietly turn it into ARM 2 and destroy the contrast the whole demo
+        is built to show - and it would look like an improvement in review.
+
+        Measured on the first live round: ARM 1 returned "Thursfay", "NO",
+        "R and surveycto" and "G00d" where ARM 2 returned 4, 1, 1 and 3.
+        """
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        button = demo.LANGS[lang]["arm2"]["button"]
-        errors = [
-            s for s in definition["states"] if s["name"].startswith("error_ARM2_")
-        ]
+        states = {s["name"]: s for s in definition["states"]}
+
+        for key in demo.QUESTION_KEYS:
+            ask = states[f"ARM1_{key}"]
+            assert ask["type"] == "send-and-wait-for-reply"
+            # A body, never a content template: no options to render.
+            assert ask["properties"].get("body")
+            assert "content_sid" not in ask["properties"]
+            # Three widgets - ask, stop check, store - and no validation split,
+            # no retry counter and no give-up branch anywhere in the arm.
+            assert f"split_ARM1_{key}" not in states
+            assert f"retry_ARM1_{key}" not in states
+            assert f"giveup_ARM1_{key}" not in states
+            assert f"error_ARM1_{key}" not in states
+            assert states[f"store_ARM1_{key}"]["type"] == "set-variables"
+
+    def test_arm1_chains_in_order_and_ends_at_the_finish(self, lang):
+        """A question that transitions to the wrong place is a skipped question.
+
+        Both arms run the same five keys, so an off-by-one in either chain shows
+        up as a systematically missing variable in one arm only - which reads as
+        a respondent behaviour difference rather than as a wiring bug.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for index, key in enumerate(demo.QUESTION_KEYS):
+            store = states[f"store_ARM1_{key}"]
+            following = [t.get("next") for t in store["transitions"]]
+            expected = (
+                f"ARM1_{demo.QUESTION_KEYS[index + 1]}"
+                if index + 1 < len(demo.QUESTION_KEYS)
+                else "mark_complete"
+            )
+            assert expected in following, (key, following)
+
+    def test_arm1_stop_words_are_honoured_at_every_question(self, lang):
+        """Stopping must work in the arm with no other machinery around it."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for key in demo.QUESTION_KEYS:
+            check = states[f"stopcheck_ARM1_{key}"]
+            for word in demo.LANGS[lang]["stop_words"]:
+                assert route_split(check, word) == "mark_optout", (key, word)
+            # And an ordinary answer must not be mistaken for one.
+            assert route_split(check, "Thursday") == f"store_ARM1_{key}"
+
+    def test_both_arms_ask_the_same_questions(self, lang):
+        """The comparison is only a comparison if the keys line up."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        names = {s["name"] for s in definition["states"]}
+        for key in demo.QUESTION_KEYS:
+            assert f"ARM1_{key}" in names
+            assert f"ARM2_{key}" in names
+
+    def test_the_retry_nudge_names_the_button_that_is_on_screen(self, lang):
+        """And only names it where there is one.
+
+        The list button belongs to a list picker. Naming it on a quick-reply
+        question sends the respondent looking for a control that is not on their
+        screen, and on a typed number there is no control at all.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        table = demo.LANGS[lang]
+        button = table["arm2"]["button"]
+        states = {s["name"]: s for s in definition["states"]}
+
+        errors = [n for n in states if n.startswith("error_ARM2_")]
         assert errors
-        for state in errors:
-            assert button in state["properties"]["body"]
-            assert "{button}" not in state["properties"]["body"]
+        for name in errors:
+            key = name.removeprefix("error_ARM2_")
+            body = states[name]["properties"]["body"]
+            assert "{button}" not in body
+            if demo.question_kind(lang, key) == "list":
+                assert button in body
+            else:
+                assert button not in body, (key, body)
+
+    def test_the_numeric_nudge_states_the_range_it_enforces(self, lang):
+        """A nudge that says "a number" after refusing 42 is not a nudge.
+
+        The respondent replied with a number, as asked, and was refused. Telling
+        them the bound is the difference between a retry they can act on and one
+        that reads as the survey being broken.
+        """
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            question = demo.LANGS[lang]["arm2"][key]
+            highest = max(question["accepts"], key=int)
+            # Both ends named, in the body that asks and the nudge that re-asks.
+            assert highest in question["body"]
+            assert highest in demo.LANGS[lang]["error_numeric"]
+
+    def test_a_number_outside_the_range_is_refused_in_the_real_flow(self, lang):
+        """ARM 2 bounds every answer, and a number is not exempt.
+
+        Built end to end rather than against the constraint in isolation: the
+        pattern being right is not the same as the split using it, and a
+        question that validated nothing would still look correct in the table.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            split = states[f"split_ARM2_{key}"]
+            question = demo.LANGS[lang]["arm2"][key]
+            for reply in question["accepts"]:
+                assert route_split(split, reply) == f"store_ARM2_{key}", (key, reply)
+            for reply in question["refuses"]:
+                assert route_split(split, reply) == f"retry_ARM2_{key}", (key, reply)
+
+    def test_a_number_question_publishes_a_value_and_never_a_code(self, lang):
+        """A free number is not an option code, so it must not be named like one."""
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
+        keys = {p["key"] for p in publish["properties"]["parameters"]}
+        for key in demo.QUESTION_KEYS:
+            if demo.question_kind(lang, key) != "integer":
+                continue
+            assert f"ARM2_{key}_value" in keys
+            assert f"ARM2_{key}_code" not in keys
 
     def test_every_option_routes_to_store_in_the_real_flow(self, lang):
         """End to end on the built definition, not on the pattern in isolation.
@@ -403,7 +585,7 @@ class TestBuild:
         definition = demo.build(lang, fake_sids(lang), fake_functions())
         states = {s["name"]: s for s in definition["states"]}
 
-        for key in demo.QUESTION_KEYS:
+        for key in demo.option_keys(lang):
             split = states[f"split_ARM2_{key}"]
             options = demo.LANGS[lang]["arm2"][key]["options"]
             ambiguous = demo.positions_are_ambiguous(options)
@@ -480,7 +662,7 @@ class TestBuild:
             event = "next"
 
         assert outcome == "unreachable", path
-        assert "publish_motherduck" in path, path
+        assert PUBLISH_WIDGET in path, path
         assert path[-1] == "close_never_started", path
 
     def test_the_close_to_a_non_responder_is_a_template_not_a_body(self, lang):
@@ -606,16 +788,14 @@ class TestBuild:
         assert route_split(states["split_arm"], "2") == "ARM2_P1"
 
         published = {
-            p["key"] for p in states["publish_motherduck"]["properties"]["parameters"]
+            p["key"] for p in states[PUBLISH_WIDGET]["properties"]["parameters"]
         }
         assert "set_arm_missing" in published
 
     def test_the_flow_records_which_language_it_was(self, lang):
         """Two flows write to one table; the rows have to be separable."""
         definition = demo.build(lang, fake_sids(lang), fake_functions())
-        publish = next(
-            s for s in definition["states"] if s["name"] == "publish_motherduck"
-        )
+        publish = next(s for s in definition["states"] if s["name"] == PUBLISH_WIDGET)
         params = {p["key"]: p["value"] for p in publish["properties"]["parameters"]}
         assert params["lang"] == lang
 
@@ -650,19 +830,38 @@ class TestTheBuilderStillEmitsTheCommittedFlow:
                 which = "encrypt" if "encrypt" in state["name"] else "publish"
                 functions[f"{which}_sid"] = properties["function_sid"]
                 functions[f"{which}_url"] = properties["url"]
+                if which == "publish":
+                    # Which destination the committed flow was built against.
+                    # Recovered rather than assumed: the same graph is built for
+                    # MotherDuck and for Google Sheets, and they differ only in
+                    # this widget's name and URL. Defaulting here instead would
+                    # make the test pass only while the committed flow happened
+                    # to use the default target.
+                    functions["publish_widget"] = state["name"]
         return sids, functions
 
-    def test_rebuilding_english_reproduces_the_committed_definition(self):
-        path = Path(__file__).resolve().parents[1] / "flows" / "data_use_demo_en.json"
+    @pytest.mark.parametrize("language", LANGS)
+    def test_rebuilding_reproduces_the_committed_definition(self, language):
+        # Both languages, because only English was pinned and Spanish drifted
+        # for it. Editing the ES table left flows/data_use_demo_es.json carrying
+        # the previous questions, with a full green suite: the committed flow
+        # said one thing, the table it is generated from said another, and
+        # nothing compared them.
+        table = demo.LANGS[language]
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "flows"
+            / f"data_use_demo_{table['flow_suffix']}.json"
+        )
         committed = json.loads(path.read_text(encoding="utf-8"))
         sids, functions = self._coordinates(committed)
 
         by_name = {
-            demo.EN["intro_template"]: sids["intro"],
-            demo.EN["close_template"]: sids["close_never_started"],
-            demo.consent_template_name("en"): sids["consent"],
+            table["intro_template"]: sids["intro"],
+            table["close_template"]: sids["close_never_started"],
+            demo.consent_template_name(language): sids["consent"],
         }
-        for key in demo.QUESTION_KEYS:
-            by_name[demo.question_template_name("en", key)] = sids[f"ARM2_{key}"]
+        for key in demo.templated_keys(language):
+            by_name[demo.question_template_name(language, key)] = sids[f"ARM2_{key}"]
 
-        assert demo.build("en", by_name, functions) == committed
+        assert demo.build(language, by_name, functions) == committed

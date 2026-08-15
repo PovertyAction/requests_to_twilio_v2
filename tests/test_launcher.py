@@ -8,6 +8,7 @@ import pytest
 from twilio.base.exceptions import TwilioRestException
 
 from requests_to_twilio.launcher import (
+    TRACKER_COLUMNS,
     DeliveryRecord,
     LaunchError,
     already_sent,
@@ -23,6 +24,9 @@ def sample(tmp_path) -> Path:
     pd.DataFrame(
         {
             "Number": ["whatsapp:+15555550100", "whatsapp:+15555550101"],
+            # Required: the tracker, the delivery log and the published row are
+            # all keyed on it, so that none of them has to hold a phone number.
+            "caseid": ["A1", "A2"],
             "name": ["Ana", "Beto"],
             "city": ["Cali", "Bogota"],
         }
@@ -87,12 +91,16 @@ class TestReadInput:
 
     def test_blank_numbers_dropped(self, tmp_path):
         path = tmp_path / "blanks.csv"
-        pd.DataFrame({"Number": ["+15555550100", None]}).to_csv(path, index=False)
+        pd.DataFrame({"Number": ["+15555550100", None], "caseid": ["A1", "A2"]}).to_csv(
+            path, index=False
+        )
         assert len(read_input(path, [])) == 1
 
     def test_all_blank_numbers_rejected(self, tmp_path):
         path = tmp_path / "empty.csv"
-        pd.DataFrame({"Number": [None, None]}).to_csv(path, index=False)
+        pd.DataFrame({"Number": [None, None], "caseid": ["A1", "A2"]}).to_csv(
+            path, index=False
+        )
         with pytest.raises(LaunchError, match="No usable rows"):
             read_input(path, [])
 
@@ -205,7 +213,10 @@ class TestLaunch:
         )
 
         # By the time the second send starts, the first row is already durable.
-        assert "whatsapp:+15555550100" in seen[1]
+        assert "A1" in seen[1]
+        # ...and it is durable without the phone number. An unencrypted number
+        # belongs in the master list and the decrypted dataset, nowhere else.
+        assert "15555550100" not in seen[1]
 
     def test_resume_skips_already_sent(self, sample):
         client = fake_client()
@@ -330,29 +341,40 @@ class TestAlreadySent:
         path = tmp_path / "tracker.csv"
         pd.DataFrame(
             {
-                "number": ["+1", "+2", "+3"],
+                "caseid": ["A1", "A2", "A3"],
                 "status": ["active", "failed", "ended"],
                 "execution_sid": ["", "", ""],
-                "contact": ["", "", ""],
                 "url": ["", "", ""],
                 "error": ["", "", ""],
                 "sent_at": ["", "", ""],
             }
         ).to_csv(path, index=False)
-        assert already_sent(path) == {"+1", "+3"}
+        assert already_sent(path) == {"A1", "A3"}
 
 
 def test_delivery_record_column_order():
-    row = DeliveryRecord(number="+1").as_row()
+    row = DeliveryRecord(caseid="A1").as_row()
     assert list(row) == [
-        "number",
+        "caseid",
         "status",
         "execution_sid",
-        "contact",
         "url",
         "error",
         "sent_at",
     ]
+
+
+def test_the_tracker_carries_no_phone_number():
+    """The invariant, asserted on the schema rather than on one written file.
+
+    An unencrypted number lives in exactly two places: the master list a round
+    is drawn from, and the dataset after `rtt decrypt`. The tracker used to hold
+    it twice - as `number`, and again as `contact`, which is the channel address
+    Twilio returns on the execution - in a file that gets copied around, mailed
+    and pasted into tickets.
+    """
+    forbidden = {"number", "phone", "to", "contact", "channel_address"}
+    assert not forbidden & set(TRACKER_COLUMNS)
 
 
 class TestSentAtParameter:

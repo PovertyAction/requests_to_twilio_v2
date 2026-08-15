@@ -11,7 +11,8 @@ import contextlib
 import json
 import stat
 import sys
-from datetime import datetime
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -34,6 +35,7 @@ from .flows import (
     published_revision,
     referenced_content_types,
     resolve_flow,
+    sheet_header_row,
     summarize,
     unpaired_answers,
     unpublished_paths,
@@ -46,6 +48,18 @@ from .flows import pull as pull_flow
 from .hfc import check_dataset, outcome_counts
 from .launcher import SENT_AT_PARAM, LaunchError, launch
 from .log import configure, configure_output_encoding
+from .monitor import (
+    MonitorError,
+    by_number,
+    launch_failures,
+    launch_window,
+    pending,
+    poll_delivery,
+    read_master_list,
+    read_tracker,
+    update_log,
+)
+from .sheets import SheetsError, access_token, credentials_from_env, replace_tab
 from .spec import (
     SCOPE_NOTE,
     SpecError,
@@ -637,6 +651,203 @@ def fetch(
             _fail(str(exc))
 
 
+@app.command("monitor")
+def monitor(
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="The running log to create or update."),
+    ] = Path("delivery_log.csv"),
+    tracker: Annotated[
+        Path | None,
+        typer.Option(
+            "--tracker",
+            help="A delivery tracker from `rtt launch`. Scopes the poll to that round.",
+        ),
+    ] = None,
+    since: Annotated[
+        datetime | None,
+        typer.Option(
+            "--since", formats=["%Y-%m-%d"], help="Only from this date. Overrides."
+        ),
+    ] = None,
+    until: Annotated[
+        datetime | None,
+        typer.Option("--until", formats=["%Y-%m-%d"], help="Only up to this date."),
+    ] = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", help="Stop after this many messages.")
+    ] = None,
+    sample: Annotated[
+        Path | None,
+        typer.Option(
+            "--sample",
+            help=(
+                "The master list the round was launched from. Turns phone "
+                "numbers into caseids; inferred from --tracker when omitted."
+            ),
+        ),
+    ] = None,
+    hours: Annotated[
+        float | None,
+        typer.Option("--hours", help="Keep polling for this long. Omit to poll once."),
+    ] = None,
+    every: Annotated[int, typer.Option("--every", help="Minutes between polls.")] = 30,
+    sheet: Annotated[
+        bool,
+        typer.Option(
+            "--sheet", help="Also rewrite a Google Sheet tab after every poll."
+        ),
+    ] = False,
+    sheet_tab: Annotated[
+        str,
+        typer.Option("--sheet-tab", help="Which tab to rewrite."),
+    ] = "tracking",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Watch a round land: one row per number, polled until it settles.
+
+    We launched - did it arrive, and did they answer? Each number holds one
+    state, in order of progress:
+
+        failed          the opener did not go out, or came back undelivered
+        sent            accepted by Twilio, not yet confirmed on the handset
+        delivered       it arrived
+        answered_back   they replied, so the flow has taken over
+
+    `failed` and `answered_back` are final and stop being polled: a failure does
+    not un-fail, and once someone is answering, their progress is a question for
+    `rtt fetch`, not for delivery status. When every number has settled the loop
+    stops on its own rather than spending rate limit on a finished round.
+
+    Reads the layer `rtt fetch` and `rtt data-check` cannot see. A send that Meta
+    rejects never becomes an execution and never publishes a row, so that person
+    is absent from the data rather than incomplete in it.
+
+    Pass `--tracker` to scope to one round. A date is the wrong unit: on the
+    first live round of this instrument `--since` at day resolution returned 91
+    messages for a round of 4.
+    """
+    configure(verbose=verbose)
+    cfg.load_env()
+    conf = cfg.TwilioConfig.from_env()
+
+    launched: pd.DataFrame | None = None
+    try:
+        if tracker is not None:
+            launched = read_tracker(tracker)
+            # An explicit --since wins: someone narrowing a window by hand has a
+            # reason, and silently overriding it would be worse than ignoring it.
+            if since is None:
+                since = launch_window(launched)
+                if since is None:
+                    _fail(
+                        f"{tracker} has no usable sent_at, so the round has no start."
+                    )
+                typer.echo(f"Round launched {since.isoformat()} (from {tracker.name})")
+
+        # Before anything else: these never became messages, so they cannot
+        # appear in any delivery status below.
+        never_sent = launch_failures(launched) if launched is not None else None
+        if never_sent is not None and not never_sent.empty:
+            typer.secho(
+                f"{len(never_sent)} send(s) never left - no execution, no row:",
+                fg=typer.colors.RED,
+            )
+            for _, row in never_sent.iterrows():
+                typer.echo(f"  {row.get('caseid', '?')}  {row.get('error', '')}")
+            typer.echo("")
+
+        # The master list is the only file this command reads a phone number
+        # from, and the mapping never leaves memory. Without it every row would
+        # be filed under `unknown-<digest>`, which is technically safe and
+        # useless to watch, so say so rather than degrade quietly.
+        if sample is None and tracker is not None:
+            guess = tracker.with_name(tracker.name.replace("_output.csv", ".xlsx"))
+            if guess != tracker and guess.is_file():
+                sample = guess
+                typer.echo(f"Master list {sample.name} (inferred from --tracker)")
+        caseids = read_master_list(sample) if sample is not None else {}
+        if not caseids:
+            typer.secho(
+                "No master list given, so every respondent will be filed under "
+                "an `unknown-` key. Pass --sample to see caseids.",
+                fg=typer.colors.YELLOW,
+            )
+
+        token = None
+        if sheet:
+            email, key, sheet_id = credentials_from_env()
+            token = access_token(email, key)
+            typer.echo(f"Publishing each poll to tab {sheet_tab!r}")
+
+        client = Client(conf.account_sid, conf.auth_token)
+        deadline = None if hours is None else time.monotonic() + hours * 3600
+
+        while True:
+            frame = poll_delivery(client=client, since=since, until=until, limit=limit)
+            added, changed = update_log(by_number(frame, caseids), output)
+
+            # Read back rather than trust this poll: the log carries numbers a
+            # narrower window did not cover, and settled rows it refused to move.
+            log = (
+                pd.read_csv(output, dtype=str).fillna("")
+                if output.is_file()
+                else by_number(frame, caseids)
+            )
+            waiting = pending(log)
+
+            counts = log["delivery_status"].value_counts().to_dict()
+            stamp = datetime.now(UTC).strftime("%H:%M:%S")
+            summary = "  ".join(f"{v} {k}" for k, v in sorted(counts.items()))
+            typer.echo(f"[{stamp}Z] {summary}   ({added} new, {changed} changed)")
+
+            for _, row in log[log["error_codes"] != ""].iterrows():
+                typer.secho(
+                    f"    {row['caseid']}  error {row['error_codes']}"
+                    "  reply reached Twilio and was dropped - check the webhook",
+                    fg=typer.colors.YELLOW,
+                )
+
+            if token is not None:
+                try:
+                    rows, _ = replace_tab(
+                        log, sheet_id=sheet_id, tab=sheet_tab, token=token
+                    )
+                    typer.echo(f"    sheet updated: {rows} row(s) in {sheet_tab!r}")
+                except SheetsError as exc:
+                    # A sheet that will not update must not end the round's
+                    # monitoring. The CSV is already written and is the record;
+                    # the sheet is a view of it.
+                    typer.secho(f"    sheet not updated: {exc}", fg=typer.colors.YELLOW)
+
+            if waiting.empty:
+                typer.secho(
+                    "\nEvery number has settled - nothing left to watch.",
+                    fg=typer.colors.GREEN,
+                )
+                break
+            if deadline is None:
+                typer.echo(
+                    f"{len(waiting)} still pending. Pass --hours to keep watching."
+                )
+                break
+            if time.monotonic() >= deadline:
+                typer.secho(
+                    f"\nWindow closed with {len(waiting)} still pending: "
+                    + ", ".join(str(c) for c in waiting["caseid"]),
+                    fg=typer.colors.YELLOW,
+                )
+                break
+
+            typer.echo(f"    {len(waiting)} pending, next poll in {every} min")
+            time.sleep(every * 60)
+    except MonitorError as exc:
+        _fail(str(exc))
+    except KeyboardInterrupt:
+        # The log is written after every poll, so stopping loses nothing.
+        typer.secho(f"\nStopped. {output} holds the last poll.", fg=typer.colors.YELLOW)
+
+
 @app.command("data-check")
 def data_check(
     input_file: Annotated[
@@ -963,16 +1174,30 @@ def flow_schema(
         str,
         typer.Option("--table", help="Fully qualified destination table."),
     ] = "rst_2026.main.data_use",
+    output_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help=(
+                "'ddl' for MotherDuck CREATE TABLE, 'header' for the "
+                "spreadsheet header row publish_gsheets reads."
+            ),
+        ),
+    ] = "ddl",
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Print CREATE TABLE DDL matching what the flow publishes.
+    """Print the destination's shape, matching what the flow publishes.
 
-    The publish Function inserts only into columns that already exist, so a
-    question added to the flow lands in a table with nowhere to put it and is
-    dropped - silently, with a 200 and a row that looks complete. Deriving the
-    schema from the instrument is what keeps the two from drifting.
+    Both publish Functions write only into columns that already exist - a table
+    column for MotherDuck, a header cell for Sheets - so a question added to the
+    flow lands somewhere with nowhere to put it and is dropped, silently, with a
+    200 and a row that looks complete. Deriving the destination's shape from the
+    instrument is what keeps the two from drifting.
     """
     configure(verbose)
+
+    if output_format not in ("ddl", "header"):
+        _fail(f"Unknown --format {output_format!r}. Use 'ddl' or 'header'.")
 
     try:
         # Shared with `flow check` and `flow deploy`, so all three accept both a
@@ -980,7 +1205,10 @@ def flow_schema(
         # disagree, and `flow schema` on a pulled file reported "Flow publishes
         # nothing" rather than "wrong shape".
         definition = load_definition_file(definition_file)
-        typer.echo(warehouse_schema(definition, table))
+        if output_format == "header":
+            typer.echo(sheet_header_row(definition))
+        else:
+            typer.echo(warehouse_schema(definition, table))
     except FlowError as exc:
         _fail(str(exc))
 

@@ -5,8 +5,21 @@ turns those rows into a Studio flow.
 
 ```text
 sample_template.xlsx   →   my_survey.xlsx   ⇄   my_survey.json   →   Studio flow
-   (the reference)          (you edit this)      (git carries this)
+   (the reference)          (you edit this)      (git carries this)      (not yet)
 ```
+
+> **The last arrow is not built yet.** `rtt survey` writes, reads, converts and
+> checks an instrument, and everything on this page about authoring one is real
+> and works today. What it cannot do is emit a flow definition: the only thing
+> that does is `scripts/build_data_use_demo.py`, which reads its own Python
+> tables rather than a spec. So changing the demo's questions today means editing
+> that script, and `just export-demo-spec` exists to lift its tables into spec
+> form until the compiler is written.
+>
+> This matters most if you are about to write an instrument for a real round.
+> Author it here — the format is stable and `just survey-check` is worth running
+> — but budget for the flow itself being built by hand or by extending the
+> builder.
 
 One row is one question **including the whole subgraph it becomes**. A closed
 question with retries is eight Studio widgets — ask, check for a request to stop,
@@ -14,9 +27,9 @@ validate, store, count the retry, decide, nudge, give up. A plain text question
 is three. The `widgets` column in the workbook says which, next to each row, so
 the cost of a design choice is visible while you are making it.
 
-That is the whole point. The demo instrument is 73 widgets for 8 questions, and
-nobody reviews a canvas that size — which is the real reason instruments go to
-field with defects in them.
+That is the whole point. The demo instrument is 84 widgets for five questions
+asked two ways, and nobody reviews a canvas that size — which is the real reason
+instruments go to field with defects in them.
 
 ## This is for surveys
 
@@ -143,10 +156,10 @@ measure.
 ```text
 type            name  label:en                                    retries  widgets
 begin group     ARM1  (relevance: ${arm}='1')                              1
-text            P1    In the last four (4) weeks, on how many…     0        3
+text            P1    Considering the training week currently…     0        3
 end group       ARM1                                                       0
 begin group     ARM2  (relevance: ${arm}='2')                              1
-select_list p1  P1    Question 1 of 4⏎⏎In the last 4 weeks, how…   2        8
+select_list p1  P1    📅 Question 1 of 5⏎⏎Which day of the trai…   2        8
 end group       ARM2                                                       0
 ```
 
