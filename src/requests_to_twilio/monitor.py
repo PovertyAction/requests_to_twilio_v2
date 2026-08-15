@@ -320,7 +320,9 @@ def _unknown_caseid(number: str) -> str:
     return f"{UNKNOWN_PREFIX}{digest}"
 
 
-def by_number(frame: pd.DataFrame, caseids: dict[str, str] | None = None) -> pd.DataFrame:
+def by_number(
+    frame: pd.DataFrame, caseids: dict[str, str] | None = None
+) -> pd.DataFrame:
     """Collapse a poll to one row per respondent, as a state.
 
     Args:

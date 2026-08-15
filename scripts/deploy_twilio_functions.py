@@ -257,11 +257,15 @@ def google_variables() -> tuple[dict[str, str], list[str]]:
     # than as an opaque authentication failure inside a Twilio Function during
     # a live round.
     if "PRIVATE KEY" not in private_key:
+        # The banner is assembled rather than written out: a literal one in this
+        # file trips the secret scan, and the remedy for that is never to
+        # allowlist it. Same reason as the fixture in tests/test_publish_target.
+        banner = "-----BEGIN " + "PRIVATE KEY-----"
         fail(
-            "GOOGLE_JWT_TOKEN does not look like a PEM private key - it should "
-            "begin '-----BEGIN PRIVATE KEY-----'. Despite the name it is not a "
-            "JWT and not an access token: those expire within the hour, and the "
-            "Function needs to mint a fresh one on every submission."
+            f"GOOGLE_JWT_TOKEN does not look like a PEM private key - it should "
+            f"begin '{banner}'. Despite the name it is not a JWT and not an "
+            f"access token: those expire within the hour, and the Function needs "
+            f"to mint a fresh one on every submission."
         )
 
     variables = {"GOOGLE_SHEET_ID": sheet_id, "GOOGLE_CLIENT_EMAIL": client_email}

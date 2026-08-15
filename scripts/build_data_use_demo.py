@@ -2479,9 +2479,7 @@ def build_one(lang: str, target: str = DEFAULT_PUBLISH_TARGET) -> bool:
     try:
         cfg.load_env()
         conf = cfg.TwilioConfig.from_env()
-        functions = resolve_functions(
-            Client(conf.account_sid, conf.auth_token), target
-        )
+        functions = resolve_functions(Client(conf.account_sid, conf.auth_token), target)
     except BuildError as exc:
         print(f"\n  {exc}")
         return False

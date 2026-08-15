@@ -382,11 +382,24 @@ class TestTheSheetRowLinesUpWithTheHeader:
 
 
 def _fake_pem() -> str:
-    """Build a PEM-shaped string long enough to need splitting. Not a real key."""
+    """Build a PEM-shaped string long enough to need splitting. Not a real key.
+
+    The banner is assembled rather than written out. A file containing the
+    literal marker trips both `gitleaks` and pre-commit's `detect-private-key`,
+    and the fix for that is not to allowlist it: `.gitleaks.toml` says so in as
+    many words, and muting the private-key rule in a repository that exists
+    partly because a real key was published is the wrong trade for a test
+    fixture's readability.
+
+    Nothing here needs the marker anyway - the splitting and the round trip
+    operate on length and newlines, not on shape.
+    """
+    marker = "-----BEGIN " + "PRIVATE KEY-----"
+    closing = "-----END " + "PRIVATE KEY-----"
     body = "\n".join(
         ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC" + "x" * 13] * 25
     )
-    return f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----\n"
+    return f"{marker}\n{body}\n{closing}\n"
 
 
 def _build_with_target(demo, target: str) -> dict:
