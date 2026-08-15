@@ -19,10 +19,10 @@ description = "Known false positives from the generic-api-key heuristic"
 
 # One commit, exempted from the *history* scan only.
 #
-# f0f524b added a test fixture that built a fake PEM by writing the banner
-# literally: `-----BEGIN PRIVATE KEY-----` followed by one base64-shaped line
-# repeated 25 times and padded with a run of literal `x`. It was never a key,
-# and the working tree no longer contains the banner at all - the fixture now
+# f0f524b added a test fixture that built a fake PEM by writing the opening
+# banner literally, followed by one base64-shaped line repeated 25 times and
+# padded with a run of literal `x`. It was never a key, and the working tree no
+# longer contains that banner anywhere - the fixture now
 # assembles it from fragments, so the tree scan and `detect-private-key` both
 # pass on their own.
 #
