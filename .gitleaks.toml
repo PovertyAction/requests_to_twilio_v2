@@ -16,6 +16,28 @@ useDefault = true
 
 [allowlist]
 description = "Known false positives from the generic-api-key heuristic"
+
+# One commit, exempted from the *history* scan only.
+#
+# f0f524b added a test fixture that built a fake PEM by writing the banner
+# literally: `-----BEGIN PRIVATE KEY-----` followed by one base64-shaped line
+# repeated 25 times and padded with a run of literal `x`. It was never a key,
+# and the working tree no longer contains the banner at all - the fixture now
+# assembles it from fragments, so the tree scan and `detect-private-key` both
+# pass on their own.
+#
+# This entry exists because the secret-scan job also reads the diffs of commits
+# already pushed, and nothing about the current tree changes those. The
+# alternatives were both worse: allowlisting the captured value means a regex
+# for the banner itself, which disables the private-key rule for every file;
+# rewriting published history deletes a string that was never a secret and
+# forces everyone to re-fetch the branch.
+#
+# Scoped to this one SHA deliberately. It does not exempt a path, a rule, or any
+# future commit. The rule the header states is unchanged: a real key is rotated,
+# never allowlisted.
+commits = ["f0f524b8bb84090ea8aef83443a82dbe0711d176"]
+
 regexes = [
   # `private_key: X25519PrivateKey | None = None` in crypto.py and decryptor.py.
   # The "secret" is the name of a type imported from the cryptography package.
@@ -25,23 +47,6 @@ regexes = [
   # the generated JSON is full of `"key": "tries_ARM2_P1"` pairs. These are
   # variable names in a committed flow, readable in the Twilio Console.
   '''^tries_[A-Za-z0-9_]+$''',
-
-  # tests/test_publish_target.py: a synthetic PEM used to test that a Google
-  # private key survives being split across numbered Twilio variables and
-  # rejoined in JavaScript. It is not a key - it is one base64-shaped line
-  # repeated 25 times, padded with a run of thirteen literal `x`, which no real
-  # key contains and which is what this regex matches.
-  #
-  # The working tree no longer contains the PEM banner at all: the fixture
-  # assembles it from fragments, so neither `detect-private-key` nor a
-  # working-tree scan sees it. This entry exists for the *history* scan, which
-  # reads the diffs of commits already pushed - and rewriting published history
-  # to delete a string that was never a secret is the more destructive of the
-  # two available fixes, not the safer one.
-  #
-  # This does not soften the rule above. A real key is still rotated, never
-  # allowlisted.
-  '''MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCx{13}''',
 
   # tests/test_crypto.py: a ciphertext fixture for the pre-2.0 AES-128-CBC
   # format, kept so the legacy reader stays tested. It was produced by the
