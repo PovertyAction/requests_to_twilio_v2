@@ -840,17 +840,28 @@ class TestTheBuilderStillEmitsTheCommittedFlow:
                     functions["publish_widget"] = state["name"]
         return sids, functions
 
-    def test_rebuilding_english_reproduces_the_committed_definition(self):
-        path = Path(__file__).resolve().parents[1] / "flows" / "data_use_demo_en.json"
+    @pytest.mark.parametrize("language", LANGS)
+    def test_rebuilding_reproduces_the_committed_definition(self, language):
+        # Both languages, because only English was pinned and Spanish drifted
+        # for it. Editing the ES table left flows/data_use_demo_es.json carrying
+        # the previous questions, with a full green suite: the committed flow
+        # said one thing, the table it is generated from said another, and
+        # nothing compared them.
+        table = demo.LANGS[language]
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "flows"
+            / f"data_use_demo_{table['flow_suffix']}.json"
+        )
         committed = json.loads(path.read_text(encoding="utf-8"))
         sids, functions = self._coordinates(committed)
 
         by_name = {
-            demo.EN["intro_template"]: sids["intro"],
-            demo.EN["close_template"]: sids["close_never_started"],
-            demo.consent_template_name("en"): sids["consent"],
+            table["intro_template"]: sids["intro"],
+            table["close_template"]: sids["close_never_started"],
+            demo.consent_template_name(language): sids["consent"],
         }
-        for key in demo.templated_keys("en"):
-            by_name[demo.question_template_name("en", key)] = sids[f"ARM2_{key}"]
+        for key in demo.templated_keys(language):
+            by_name[demo.question_template_name(language, key)] = sids[f"ARM2_{key}"]
 
-        assert demo.build("en", by_name, functions) == committed
+        assert demo.build(language, by_name, functions) == committed

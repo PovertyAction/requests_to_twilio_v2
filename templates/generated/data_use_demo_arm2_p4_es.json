@@ -14,10 +14,10 @@
   "language": "es",
   "types": {
     "twilio/text": {
-      "body": "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad?\n\n1 - Python\n2 - Stata\n3 - R\n4 - SurveyCTO\n5 - Twilio\n6 - Exotel\n7 - Microsoft Office"
+      "body": "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad por tu cuenta?\n\n1 - Python\n2 - Stata\n3 - R\n4 - SurveyCTO\n5 - Twilio\n6 - Exotel\n7 - Microsoft Office"
     },
     "twilio/list-picker": {
-      "body": "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad?",
+      "body": "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad por tu cuenta?",
       "button": "Elige tu respuesta",
       "items": [
         {

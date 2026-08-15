@@ -34,12 +34,20 @@ repos:
     rev: v2.4.3
     hooks:
       - id: codespell
-        # `IAM` is Google Cloud's Identity and Access Management, which the
-        # Sheets setup instructions have to name. codespell reads it as "I AM".
-        # URIs are checked against a separate list, and a service account's
-        # address ends `.iam.gserviceaccount.com`, so both are needed.
+        # codespell only knows English, and this repository is bilingual by
+        # design - `scripts/build_data_use_demo.py` carries a full Spanish
+        # instrument beside the English one. Spanish words that happen to look
+        # like English typos are listed here, so expect this list to grow
+        # whenever the Spanish table does. Skipping the file instead would give
+        # up spell-checking the English half, which is the half that gets read
+        # by people who cannot check it themselves.
+        #
+        # `iam` is Google Cloud's Identity and Access Management, which the
+        # Sheets setup instructions have to name. URIs are checked against a
+        # separate list, and a service account's address ends
+        # `.iam.gserviceaccount.com`, so both entries are needed.
         args:
-          - --ignore-words-list=iam
+          - --ignore-words-list=iam,componentes,registre,doble
           - --uri-ignore-words-list=iam
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2

@@ -602,7 +602,7 @@ ES: dict[str, Any] = {
     "consent": {
         "body": (
             "👋 Antes de empezar - ¿quieres participar?\n\n"
-            "Toma unos 3 minutos. La participación es voluntaria, puedes "
+            "Toma unos 3 minutos. La participación es voluntaria: puedes "
             "dejar de responder en cualquier momento y tus respuestas son "
             "confidenciales."
         ),
@@ -625,54 +625,106 @@ ES: dict[str, Any] = {
     "stop_ack": (
         "Entendido - me detengo aquí y no te enviaré nada más sobre esta "
         "encuesta.\n\n"
-        "Las respuestas que ya diste se conservan; no se pregunta nada más. "
-        "Gracias por tu tiempo."
+        "Las respuestas que ya diste se conservan, y no te preguntaré nada "
+        "más. Gracias por tu tiempo."
     ),
+    # ARM 1 - un cuestionario presencial competente, en la plataforma
+    # equivocada. Mismas marcas de género que la tabla inglesa y por las mismas
+    # razones: marco de referencia fechado, enumeración exhaustiva, instrucción
+    # explícita de respuesta única o múltiple, y una nota al encuestador que
+    # aquí no tiene a quién dirigirse. Ver la nota extensa sobre EN["arm1"].
+    #
+    # ADVERTENCIA - ESTAS FECHAS SON LA SESIÓN DE AGOSTO DE 2026.
+    # La semana va del domingo 23 al viernes 28 de agosto de 2026 y se presenta
+    # el miércoles 26 a las 14:00. Cambiar la formación invalida las cinco
+    # preguntas en silencio: un marco que nombra el día equivocado sigue
+    # leyéndose como una pregunta bien formada.
     "arm1": {
         "P1": (
-            "Considerando en su conjunto la semana de formación actualmente en "
-            "curso, y teniendo en cuenta las sesiones plenarias, los ejercicios "
-            "prácticos y los períodos de intercambio informal entre ellos, "
-            "¿qué día señalarías como el que, en balance, te resultó más "
-            "valioso?\n\n"
+            "Pensando en la semana de formación en su conjunto, es decir el "
+            "período comprendido entre el domingo 23 de agosto y el viernes 28 "
+            "de agosto inclusive, y tomando en consideración todos sus "
+            "componentes - las sesiones plenarias, los ejercicios prácticos, "
+            "el trabajo en grupo y los intercambios informales entre ellos - "
+            "¿qué día de esa semana señalarías como el que es, o esperas que "
+            "sea, el más provechoso para ti personalmente?\n\n"
+            "[ENCUESTADOR: Lea los días uno por uno. Registre un solo día. Si "
+            "la persona menciona más de uno, indague por el más provechoso.]\n\n"
             "_Responde con el día._"
         ),
         "P2": (
-            "Durante el intervalo del almuerzo de hoy, ¿la comida que "
-            "consumiste incluyó un postre, o algún elemento dulce tomado "
-            "durante o inmediatamente después de esa comida?\n\n"
+            "Durante la pausa del almuerzo de hoy, miércoles 26 de agosto, "
+            "inmediatamente anterior a la presente sesión, ¿la comida que "
+            "consumiste incluyó un postre - entendido como cualquier plato "
+            "dulce, confitería, repostería, preparación de fruta u otro "
+            "elemento dulce - ya sea como parte de esa comida o "
+            "inmediatamente después de ella?\n\n"
+            "[ENCUESTADOR: No lea las opciones de respuesta. Codifique 'sí' si "
+            "la persona reporta cualquier elemento dulce, por pequeño que "
+            "sea.]\n\n"
             "_Responde sí o no._"
         ),
         "P3": (
-            "Desde que despertaste esta mañana, y contando únicamente las "
-            "bebidas consumidas antes del comienzo de la primera sesión del "
-            "día, ¿cuántas porciones de café o té tomaste?\n\n"
+            "Considerando la totalidad del día de ayer, martes 25 de agosto, "
+            "desde que despertaste hasta que te retiraste a dormir, y contando "
+            "cada porción por separado sin importar su tamaño, su preparación "
+            "o dónde fue obtenida, ¿cuántas porciones de café o té consumiste "
+            "en total a lo largo de ese día?\n\n"
+            "[ENCUESTADOR: Registre la cifra exacta. Si la persona no logra "
+            "recordarla con precisión, indague por su mejor estimación.]\n\n"
             "_Responde con un número exacto (ej.: 0, 1, 3)._"
         ),
         # La pregunta de respuesta múltiple. El ARM 1 puede hacerla; el ARM 2
         # no. El precio es una columna de texto que alguien debe limpiar a mano.
+        #
+        # "Lea la lista en voz alta" es la línea más aguda del brazo: no hay
+        # lista - el ARM 1 es texto abierto - así que la instrucción remite a
+        # una tarjeta que no existe, en un mensaje que lee la persona
+        # encuestada y no un encuestador.
         "P4": (
-            "Entre las herramientas que tienes ocasión de utilizar en el curso "
-            "de tu trabajo, incluidas aquellas que empleas solo de forma "
-            "intermitente, indica todos los programas con los que te "
-            "describirías como cómoda o cómodo.\n\n"
+            "Entre el conjunto de herramientas informáticas que tienes ocasión "
+            "de emplear en el ejercicio de tus funciones profesionales, ya sea "
+            "de forma habitual o solo intermitente, e incluyendo las utilizadas "
+            "para recolección de datos, gestión de datos, análisis o "
+            "elaboración de informes, indica todas aquellas con las que te "
+            "describirías como capaz de trabajar sin asistencia.\n\n"
+            "[ENCUESTADOR: Lea la lista en voz alta. Registre todas las que "
+            "apliquen. No sugiera herramientas que la persona no mencione.]\n\n"
             "_Responde con todos los que apliquen, separados por comas (por "
             "ejemplo: Stata, R)._"
         ),
+        # La única pregunta genuinamente mala, y la única corta de cualquiera de
+        # los dos brazos. Doble cañón (satisfacción Y recomendación, que una
+        # sola respuesta no puede contestar), jerga que nadie fuera del gremio
+        # usa - "instrumento", "modalidad", "ejercicios de recolección" - y sin
+        # marco de referencia ni escala.
+        #
+        # Por tanto NO mide lo que mide el P5 del ARM 2, y esa es la segunda
+        # divergencia deliberada después del P4. El costo del doble cañón no es
+        # solo una columna difícil de codificar: es una columna que no puede
+        # compararse contra nada, así que justo en esta pregunta la comparación
+        # entre brazos no está disponible.
         "P5": (
-            "Reflexionando sobre tu experiencia general al responder este "
-            "cuestionario, ¿cómo caracterizarías tu disposición general a "
-            "recibir encuestas de este tipo en el futuro?\n\n"
+            "¿Qué tan satisfecha o satisfecho estás con la usabilidad y la "
+            "pertinencia de este instrumento, y recomendarías su modalidad "
+            "para futuros ejercicios de recolección de datos?\n\n"
             "_Responde con tus propias palabras._"
         ),
     },
+    # ARM 2 - misma regla que en inglés: conserva todos los compromisos
+    # metodológicos del ARM 1 y gasta menos palabras en ellos. Corto NO es el
+    # objetivo; corto *con el marco de referencia intacto* sí lo es. Si el ARM 2
+    # deja caer el marco, sus respuestas más limpias se explican por haber hecho
+    # una pregunta más fácil, y el hallazgo de la sesión se desarma ante la
+    # primera persona que levante la mano.
     "arm2": {
         "button": "Elige tu respuesta",
         "P1": {
             "kind": "list",
             "body": (
                 "📅 Pregunta 1 de 5\n\n"
-                "¿Cuál ha sido tu día favorito de la semana de formación?"
+                "¿Cuál es - o crees que será - tu día favorito de la semana "
+                "de formación?"
             ),
             "options": [
                 ("p1_sun", "Domingo", "Día 1"),
@@ -685,10 +737,10 @@ ES: dict[str, Any] = {
         },
         "P2": {
             "kind": "button",
-            "body": ("🍰 Pregunta 2 de 5\n\n¿Tomaste postre con el almuerzo de hoy?"),
+            "body": ("🍰 Pregunta 2 de 5\n\n¿Tomaste postre en el almuerzo de hoy?"),
             "options": [
                 ("p2_yes", "Sí", "Sí tomé postre"),
-                ("p2_no", "No", "No tomé postre"),
+                ("p2_no", "No", "Hoy no tomé postre"),
             ],
         },
         "P3": {
@@ -698,14 +750,16 @@ ES: dict[str, Any] = {
             "refuses": ["11", "100", "-1", "dos", "como 3", "3,5", ""],
             "body": (
                 "☕ Pregunta 3 de 5\n\n"
-                "¿Cuántas tazas de café o té tomaste esta mañana?\n\n"
+                "¿Cuántas tazas de café o té tomaste durante todo el día de "
+                "ayer?\n\n"
                 "_Responde con un número del 0 al 10._"
             ),
         },
         "P4": {
             "kind": "list",
             "body": (
-                "💻 Pregunta 4 de 5\n\n¿Cuál de estos manejas con *más* comodidad?"
+                "💻 Pregunta 4 de 5\n\n"
+                "¿Cuál de estos manejas con *más* comodidad por tu cuenta?"
             ),
             "options": [
                 ("p4_python", "Python", "pandas, scripts, cuadernos"),
@@ -734,7 +788,7 @@ ES: dict[str, Any] = {
     "error_numeric": (
         "Por favor responde con un número del 0 al 10.\n\n"
         "_Solo los dígitos, por ejemplo 0, 2 o 10._\n\n"
-        "Soy un robot y no entiendo todo lo que me escribes."
+        "Soy un robot, así que aquí solo puedo leer un número."
     ),
     "error_button": (
         "Sin problema - no pude leer esa respuesta.\n\n"

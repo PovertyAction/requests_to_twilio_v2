@@ -10,7 +10,7 @@ es,2,ARM2_P1,ARM2_P1_code,4,p1_wed,Miércoles,Día 4
 es,2,ARM2_P1,ARM2_P1_code,5,p1_thu,Jueves,Día 5
 es,2,ARM2_P1,ARM2_P1_code,6,p1_fri,Viernes,Día 6
 es,2,ARM2_P2,ARM2_P2_code,1,p2_yes,Sí,Sí tomé postre
-es,2,ARM2_P2,ARM2_P2_code,2,p2_no,No,No tomé postre
+es,2,ARM2_P2,ARM2_P2_code,2,p2_no,No,Hoy no tomé postre
 es,2,ARM2_P3,ARM2_P3_value,,,Number in 0-10,"Validated number, 0-10. Blank means refused or unanswered - read the status column"
 es,2,ARM2_P4,ARM2_P4_code,1,p4_python,Python,"pandas, scripts, cuadernos"
 es,2,ARM2_P4,ARM2_P4_code,2,p4_stata,Stata,archivos do y datos .dta

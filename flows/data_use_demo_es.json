@@ -94,7 +94,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HXf8b21bdda01e74ed699d01b698904f62",
+        "content_sid": "HXc88e2522695b45ba9f68582976aadaa2",
         "timeout": "3600"
       },
       "transitions": [
@@ -189,7 +189,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HXf8b21bdda01e74ed699d01b698904f62",
+        "content_sid": "HXc88e2522695b45ba9f68582976aadaa2",
         "timeout": "3600"
       },
       "transitions": [
@@ -376,7 +376,7 @@
           "y": -300
         },
         "from": "{{flow.channel.address}}",
-        "body": "Considerando en su conjunto la semana de formación actualmente en curso, y teniendo en cuenta las sesiones plenarias, los ejercicios prácticos y los períodos de intercambio informal entre ellos, ¿qué día señalarías como el que, en balance, te resultó más valioso?\n\n_Responde con el día._",
+        "body": "Pensando en la semana de formación en su conjunto, es decir el período comprendido entre el domingo 23 de agosto y el viernes 28 de agosto inclusive, y tomando en consideración todos sus componentes - las sesiones plenarias, los ejercicios prácticos, el trabajo en grupo y los intercambios informales entre ellos - ¿qué día de esa semana señalarías como el que es, o esperas que sea, el más provechoso para ti personalmente?\n\n[ENCUESTADOR: Lea los días uno por uno. Registre un solo día. Si la persona menciona más de uno, indague por el más provechoso.]\n\n_Responde con el día._",
         "timeout": "3600"
       },
       "transitions": [
@@ -456,7 +456,7 @@
           "y": 40
         },
         "from": "{{flow.channel.address}}",
-        "body": "Durante el intervalo del almuerzo de hoy, ¿la comida que consumiste incluyó un postre, o algún elemento dulce tomado durante o inmediatamente después de esa comida?\n\n_Responde sí o no._",
+        "body": "Durante la pausa del almuerzo de hoy, miércoles 26 de agosto, inmediatamente anterior a la presente sesión, ¿la comida que consumiste incluyó un postre - entendido como cualquier plato dulce, confitería, repostería, preparación de fruta u otro elemento dulce - ya sea como parte de esa comida o inmediatamente después de ella?\n\n[ENCUESTADOR: No lea las opciones de respuesta. Codifique 'sí' si la persona reporta cualquier elemento dulce, por pequeño que sea.]\n\n_Responde sí o no._",
         "timeout": "3600"
       },
       "transitions": [
@@ -536,7 +536,7 @@
           "y": 380
         },
         "from": "{{flow.channel.address}}",
-        "body": "Desde que despertaste esta mañana, y contando únicamente las bebidas consumidas antes del comienzo de la primera sesión del día, ¿cuántas porciones de café o té tomaste?\n\n_Responde con un número exacto (ej.: 0, 1, 3)._",
+        "body": "Considerando la totalidad del día de ayer, martes 25 de agosto, desde que despertaste hasta que te retiraste a dormir, y contando cada porción por separado sin importar su tamaño, su preparación o dónde fue obtenida, ¿cuántas porciones de café o té consumiste en total a lo largo de ese día?\n\n[ENCUESTADOR: Registre la cifra exacta. Si la persona no logra recordarla con precisión, indague por su mejor estimación.]\n\n_Responde con un número exacto (ej.: 0, 1, 3)._",
         "timeout": "3600"
       },
       "transitions": [
@@ -616,7 +616,7 @@
           "y": 720
         },
         "from": "{{flow.channel.address}}",
-        "body": "Entre las herramientas que tienes ocasión de utilizar en el curso de tu trabajo, incluidas aquellas que empleas solo de forma intermitente, indica todos los programas con los que te describirías como cómoda o cómodo.\n\n_Responde con todos los que apliquen, separados por comas (por ejemplo: Stata, R)._",
+        "body": "Entre el conjunto de herramientas informáticas que tienes ocasión de emplear en el ejercicio de tus funciones profesionales, ya sea de forma habitual o solo intermitente, e incluyendo las utilizadas para recolección de datos, gestión de datos, análisis o elaboración de informes, indica todas aquellas con las que te describirías como capaz de trabajar sin asistencia.\n\n[ENCUESTADOR: Lea la lista en voz alta. Registre todas las que apliquen. No sugiera herramientas que la persona no mencione.]\n\n_Responde con todos los que apliquen, separados por comas (por ejemplo: Stata, R)._",
         "timeout": "3600"
       },
       "transitions": [
@@ -696,7 +696,7 @@
           "y": 1060
         },
         "from": "{{flow.channel.address}}",
-        "body": "Reflexionando sobre tu experiencia general al responder este cuestionario, ¿cómo caracterizarías tu disposición general a recibir encuestas de este tipo en el futuro?\n\n_Responde con tus propias palabras._",
+        "body": "¿Qué tan satisfecha o satisfecho estás con la usabilidad y la pertinencia de este instrumento, y recomendarías su modalidad para futuros ejercicios de recolección de datos?\n\n_Responde con tus propias palabras._",
         "timeout": "3600"
       },
       "transitions": [
@@ -777,7 +777,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX120d675d3063c094c5928fe9bb558076",
+        "content_sid": "HXc0322f3f1c24e71b075a2c4740592519",
         "timeout": "3600"
       },
       "transitions": [
@@ -1008,7 +1008,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX397689682a2975c90da8e4d1077f014d",
+        "content_sid": "HX7642b1e5ab82c0938c50f9c4281f64a9",
         "timeout": "3600"
       },
       "transitions": [
@@ -1238,7 +1238,7 @@
           "y": 380
         },
         "from": "{{flow.channel.address}}",
-        "body": "☕ Pregunta 3 de 5\n\n¿Cuántas tazas de café o té tomaste esta mañana?\n\n_Responde con un número del 0 al 10._",
+        "body": "☕ Pregunta 3 de 5\n\n¿Cuántas tazas de café o té tomaste durante todo el día de ayer?\n\n_Responde con un número del 0 al 10._",
         "timeout": "3600"
       },
       "transitions": [
@@ -1420,7 +1420,7 @@
           "y": 540
         },
         "from": "{{flow.channel.address}}",
-        "body": "Por favor responde con un número del 0 al 10.\n\n_Solo los dígitos, por ejemplo 0, 2 o 10._\n\nSoy un robot y no entiendo todo lo que me escribes."
+        "body": "Por favor responde con un número del 0 al 10.\n\n_Solo los dígitos, por ejemplo 0, 2 o 10._\n\nSoy un robot, así que aquí solo puedo leer un número."
       },
       "transitions": [
         {
@@ -1469,7 +1469,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HXafe7deeca264633f97251dc0a146a2dc",
+        "content_sid": "HXc416a2225396c63fd718b07a7500eaab",
         "timeout": "3600"
       },
       "transitions": [
@@ -2107,7 +2107,7 @@
       "transitions": [
         {
           "event": "success",
-          "next": "publish_motherduck"
+          "next": "publish_gsheets"
         },
         {
           "event": "fail",
@@ -2137,12 +2137,12 @@
       "transitions": [
         {
           "event": "next",
-          "next": "publish_motherduck"
+          "next": "publish_gsheets"
         }
       ]
     },
     {
-      "name": "publish_motherduck",
+      "name": "publish_gsheets",
       "type": "run-function",
       "properties": {
         "offset": {
@@ -2151,8 +2151,8 @@
         },
         "service_sid": "ZS04f75bf125e71003387d709e77f1f6ad",
         "environment_sid": "ZE73bad56bc5cba5c3c4b5fe6bcba2dc92",
-        "function_sid": "ZH08a4b1579e90c2e3a6ea7829a153e842",
-        "url": "https://rtt-survey-2647-prod.twil.io/publish-motherduck",
+        "function_sid": "ZH1f46b2a8a27175c3db8dda84fc8efe24",
+        "url": "https://rtt-survey-2647-prod.twil.io/publish-gsheets",
         "parameters": [
           {
             "key": "caseid",
@@ -2566,7 +2566,7 @@
           "y": 1800
         },
         "from": "{{flow.channel.address}}",
-        "body": "Entendido - me detengo aquí y no te enviaré nada más sobre esta encuesta.\n\nLas respuestas que ya diste se conservan; no se pregunta nada más. Gracias por tu tiempo."
+        "body": "Entendido - me detengo aquí y no te enviaré nada más sobre esta encuesta.\n\nLas respuestas que ya diste se conservan, y no te preguntaré nada más. Gracias por tu tiempo."
       },
       "transitions": [
         {
