@@ -273,10 +273,11 @@ monitor *ARGS:
 # The JSON is canonical - it is what git carries and what a reviewer diffs. The
 # workbook is a generated view, gitignored, and it is what you edit.
 #
-#   just survey-xlsx surveys/data_use_demo.json    # make the workbook
+#   just survey-template                  # start from the documented example
+#   just survey-xlsx my_survey.json       # make the workbook
 #   ...edit it in Excel...
-#   just survey-json surveys/data_use_demo.xlsx    # bring the edits back
-#   just survey-check surveys/data_use_demo.json   # then commit the JSON
+#   just survey-json my_survey.xlsx       # bring the edits back
+#   just survey-check my_survey.json      # then commit the JSON
 
 # Read the whole instrument in the terminal, without Excel
 survey-rows FILE *ARGS:
@@ -301,12 +302,13 @@ survey-xlsx FILE:
 survey-json FILE:
     uv run rtt survey convert {{ FILE }} {{ without_extension(FILE) }}.json
 
-# One-off, and it will be retired: lifts the demo flow's Python language tables
-# into the spec format. The builder still reads its own tables until the compiler
-# is switched over.
-[doc("Export the demo flow's language tables as a survey spec")]
-export-demo-spec:
-    uv run python scripts/export_demo_spec.py
+# `export-demo-spec` was retired here. It lifted the demo flow's Python tables
+# into spec form, and its output was committed as surveys/data_use_demo.json - a
+# published-looking description of the instrument that went stale three hours
+# after it was written and then could not be regenerated, because the exporter
+# was never updated when the instrument gained a fifth question and an integer
+# type. Two descriptions of one instrument, and the wrong one was the readable
+# one. scripts/build_data_use_demo.py is now the only description of the demo.
 
 # A documented starter workbook to fill in - a small working instrument showing
 # one row of every type, not an empty sheet. Writes survey.xlsx by default and

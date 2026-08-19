@@ -13,8 +13,10 @@ sample_template.xlsx   →   my_survey.xlsx   ⇄   my_survey.json   →   Studi
 > and works today. What it cannot do is emit a flow definition: the only thing
 > that does is `scripts/build_data_use_demo.py`, which reads its own Python
 > tables rather than a spec. So changing the demo's questions today means editing
-> that script, and `just export-demo-spec` exists to lift its tables into spec
-> form until the compiler is written.
+> that script — it is the only description of that instrument, deliberately.
+> A `just export-demo-spec` recipe used to keep a second copy in spec form; it
+> was removed after the copy drifted out of step and became the more readable of
+> two disagreeing descriptions.
 >
 > This matters most if you are about to write an instrument for a real round.
 > Author it here — the format is stable and `just survey-check` is worth running

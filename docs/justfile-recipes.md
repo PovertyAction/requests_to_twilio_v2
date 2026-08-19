@@ -11,9 +11,14 @@ A note on what is missing, because it surprises people: **there is no recipe tha
 turns a survey spec into a Studio flow.** `rtt survey` reads, checks and converts
 an instrument between JSON and Excel, but the only thing that emits a flow
 definition is `just build-demo-flow`, which reads its own Python tables in
-`scripts/build_data_use_demo.py`. `just export-demo-spec` exists to lift those
-tables into spec form and will be retired once the compiler is written. Until
-then, changing the demo's questions means editing that script.
+`scripts/build_data_use_demo.py`. Changing the demo's questions means editing
+that script — it is the only description of that instrument.
+
+There used to be a second one. `just export-demo-spec` lifted those tables into
+spec form and its output was committed as `surveys/data_use_demo.json`. Both have
+been removed: the exported copy went stale three hours after it was generated,
+could not be regenerated once the instrument gained a fifth question, and read
+like the authoritative description of a survey it no longer described.
 
 ## Setting up
 
@@ -47,15 +52,15 @@ workbook is a generated view, gitignored, and it is what you edit.
 | `just survey-rows FILE` | Prints the whole instrument in the terminal, without opening Excel. |
 | `just survey-check FILE` | The instrument-side equivalent of XLSForm validation. It does not read the option patterns and constraints, it *runs* them, and reports where each possible reply lands. Exits non-zero, so it can gate a build. |
 | `just survey-sample` | Regenerates the committed `sample_template.xlsx`. Only needed when the schema or starter content changes — a test fails when it has drifted. |
-| `just export-demo-spec` | One-off: lifts the demo flow's Python tables into spec form. Will be retired. |
 
 The editing loop:
 
 ```sh
-just survey-xlsx surveys/data_use_demo.json    # make the workbook
+just survey-template                  # start from the documented example
+just survey-xlsx my_survey.json       # make the workbook
 # ...edit it in Excel...
-just survey-json surveys/data_use_demo.xlsx    # bring the edits back
-just survey-check surveys/data_use_demo.json   # then commit the JSON
+just survey-json my_survey.xlsx       # bring the edits back
+just survey-check my_survey.json      # then commit the JSON
 ```
 
 ## WhatsApp templates

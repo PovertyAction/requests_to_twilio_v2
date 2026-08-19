@@ -37,7 +37,20 @@ from requests_to_twilio.spec import (
 )
 from requests_to_twilio.spec_xlsx import read_xlsx, write_xlsx
 
-DEMO = Path(__file__).resolve().parents[1] / "surveys" / "data_use_demo.json"
+#: A realistic instrument in spec form, frozen as a test fixture.
+#:
+#: It is a snapshot of an early version of the RST demo and is deliberately NOT
+#: kept in step with the live one - `scripts/build_data_use_demo.py` is the only
+#: description of that. What these tests need from it is shape, not currency:
+#: two languages, emoji, commas inside labels, numeric option labels, groups,
+#: and every row type the format supports. That is the combination that has
+#: historically broken the Excel round-trip, and it stays useful whatever the
+#: real instrument does next.
+#:
+#: It used to live at `surveys/data_use_demo.json`, where it read as a
+#: description of the running survey and drifted three hours after it was
+#: generated.
+REALISTIC = Path(__file__).resolve().parent / "fixtures" / "realistic_spec.json"
 
 
 def minimal_spec(**overrides) -> Spec:
@@ -173,9 +186,17 @@ class TestOneRowIsOneSubgraph:
         spec = Spec()
         assert spec.retries_for(SurveyRow(type="text", name="q", retries=3)) == 0
 
-    def test_the_demo_matches_the_flow_it_came_from(self):
-        """Counted against the real definition: intro 1, consent 7, arms 3 and 8."""
-        spec = load_spec(DEMO)
+    def test_widget_counts_hold_across_every_row_type(self):
+        """A template is 1 widget, a validated select 7-8, an open question 3.
+
+        The counts are pinned against this fixture, not against the live flow.
+        The test used to be named for matching "the flow it came from", which
+        stopped being true the moment the instrument changed and the fixture did
+        not - and it kept passing, because both sides of that comparison were
+        frozen. What it actually exercises is `widget_count` over one row of
+        every kind, which is worth keeping and is honest about its scope.
+        """
+        spec = load_spec(REALISTIC)
         counts = {
             (row.name, row.type): spec.widget_count(row)
             for row in spec.survey
@@ -474,12 +495,12 @@ class TestTheWorkbookRoundTrip:
 
     def test_the_demo_survives_the_trip_through_excel(self, tmp_path):
         """Two languages, emoji, commas in labels, numeric option labels."""
-        spec = load_spec(DEMO)
+        spec = load_spec(REALISTIC)
         write_xlsx(spec, tmp_path / "demo.xlsx")
         assert spec_to_dict(read_xlsx(tmp_path / "demo.xlsx")) == spec_to_dict(spec)
 
     def test_the_round_tripped_demo_still_passes_its_checks(self, tmp_path):
-        spec = load_spec(DEMO)
+        spec = load_spec(REALISTIC)
         write_xlsx(spec, tmp_path / "demo.xlsx")
         assert check_spec(read_xlsx(tmp_path / "demo.xlsx")) == []
 
@@ -612,7 +633,7 @@ class TestExcelSpecificHazards:
         """A `stop_check: yes` on a group row is noise, not information."""
         import openpyxl
 
-        spec = load_spec(DEMO)
+        spec = load_spec(REALISTIC)
         write_xlsx(spec, tmp_path / "demo.xlsx")
         sheet = openpyxl.load_workbook(tmp_path / "demo.xlsx")["survey"]
         head = [c.value for c in sheet[1]]
@@ -642,7 +663,7 @@ class TestExcelSpecificHazards:
 
     def test_blanking_those_flags_does_not_break_the_round_trip(self, tmp_path):
         """Blank reads back as the default, which is what was blanked."""
-        spec = load_spec(DEMO)
+        spec = load_spec(REALISTIC)
         write_xlsx(spec, tmp_path / "demo.xlsx")
         assert spec_to_dict(read_xlsx(tmp_path / "demo.xlsx")) == spec_to_dict(spec)
 
