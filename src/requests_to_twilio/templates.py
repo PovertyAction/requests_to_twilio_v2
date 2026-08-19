@@ -172,6 +172,57 @@ def find_by_name(client: Client, name: str) -> Any | None:
     return None
 
 
+def _comparable(types: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a template's types to the text a respondent actually sees.
+
+    Compares bodies, button and item labels - not SIDs, timestamps or whatever
+    else the API decorates a stored template with. Anything a reader would
+    notice is in here; anything they would not is deliberately left out, so this
+    does not cry drift over a field Twilio added.
+    """
+    out: dict[str, Any] = {}
+    for type_name, spec in sorted((types or {}).items()):
+        spec = spec or {}
+        out[type_name] = {
+            "body": (spec.get("body") or "").strip(),
+            "title": (spec.get("title") or "").strip(),
+            "button": (spec.get("button") or "").strip(),
+            "actions": [
+                (a.get("title") or "").strip() for a in (spec.get("actions") or [])
+            ],
+            "items": [
+                (
+                    (i.get("id") or "").strip(),
+                    (i.get("item") or "").strip(),
+                    (i.get("description") or "").strip(),
+                )
+                for i in (spec.get("items") or [])
+            ],
+        }
+    return out
+
+
+def drifted_types(existing: Any, definition: dict[str, Any]) -> list[str]:
+    """Return the type names where the live template no longer matches the file.
+
+    The failure this exists to catch: a question is reworded in the source, the
+    definition file is regenerated, and the template on Twilio keeps its old
+    text because `create` refuses to overwrite one that already exists. The flow
+    is correct, the checks pass, the tests pass - and respondents are read the
+    previous wording, because the flow references the template by SID and the
+    drift lives on the account rather than in the repo.
+
+    It happened: six questions went out numbered "of 5" after a sixth was added,
+    and nothing in the build, the linter or 548 tests could see it. Only reading
+    a real respondent's transcript did.
+    """
+    live = _comparable(getattr(existing, "types", None) or {})
+    local = _comparable(definition.get("types") or {})
+    return sorted(
+        name for name in set(live) | set(local) if live.get(name) != local.get(name)
+    )
+
+
 def unsubmittable_types(client: Client, sid: str) -> list[tuple[str, str]]:
     """Return the template's content types that Meta will not review.
 

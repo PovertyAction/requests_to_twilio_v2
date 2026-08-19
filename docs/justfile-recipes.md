@@ -79,14 +79,26 @@ answered — ever go to Meta.
 | `just template-delete NAME` | Deletes an unsubmitted template so its wording can be redone. Twilio has no update operation for content, so this is how a draft gets revised. Refuses anything already submitted. |
 | `just template-status NAME` | Shows one template's approval status. |
 | `just demo-templates-create` | Creates the demo flow's in-session content templates from `templates/generated/`. None is ever submitted to Meta. |
+| `just demo-templates-sync` | Makes Twilio match the repo: deletes and recreates any template whose wording has drifted. Refuses on anything submitted to Meta. **Run this after changing a question.** |
 
 > **Content templates are immutable.** `demo-templates-create` uses
 > `--skip-existing`, which leaves an existing template alone rather than making a
 > duplicate. That is what you want when re-running a build — and exactly what you
 > do **not** want after changing a question's wording or options, because the
-> flow resolves templates *by friendly name*. The old content would be found,
-> the flow would send the old question, and the new split would refuse every
-> answer. After changing a question: `just template-delete` it, then recreate.
+> flow resolves templates *by friendly name* and then references them *by SID*.
+>
+> How that fails depends on what you changed, and the quieter case is the
+> dangerous one. Change an **option** and the new split refuses every answer, so
+> you find out immediately. Change only the **wording** and nothing objects at
+> all: the flow is correct, `flow-check` passes, the linter is clean, the tests
+> are green, and respondents are read the old text. That happened — six questions
+> went out numbered "of 5" after a sixth was added, and only a respondent's
+> transcript revealed it.
+>
+> `just build-demo-flow` now blocks on this, comparing each stored template
+> against the definition it just wrote and naming what drifted. The fix is
+> `just demo-templates-sync`, which replaces only what actually differs. Do not
+> rely on remembering to `template-delete` by hand.
 
 ## Building and shipping a flow
 

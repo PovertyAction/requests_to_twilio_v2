@@ -215,6 +215,26 @@ build-demo-flow *ARGS:
 demo-templates-create:
     uv run rtt template create templates/generated --skip-existing --yes
 
+# Make Twilio match the repo after any wording change.
+#
+# `demo-templates-create` is the wrong tool for that and quietly so: Twilio has
+# no update operation for content, and --skip-existing leaves the old wording in
+# place. The flow references a template by SID, so the stale text is invisible
+# to `flow-check`, to the linter and to the tests, and reaches the respondent.
+#
+# That is not hypothetical. Adding a sixth question renumbered every body to
+# "of 6"; four templates already existed, kept saying "of 5", and a live
+# respondent was asked six questions numbered out of five. Nothing caught it
+# except reading her transcript.
+#
+# --replace deletes and recreates only what has actually drifted, and refuses
+# outright on anything submitted to Meta - approval attaches to the SID, so
+# replacing an approved template throws the approval away and the next round
+# fails at send time.
+[doc("Replace any content template whose wording has drifted from the repo")]
+demo-templates-sync:
+    uv run rtt template create templates/generated --replace --yes
+
 # Deploys encrypt_fields.js and BOTH publish functions. A Twilio deployment is
 # the complete set of functions in its build, so deploying a subset removes the
 # others rather than leaving them alone - and every flow pointing at one starts

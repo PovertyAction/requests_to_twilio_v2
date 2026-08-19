@@ -27,6 +27,39 @@ an unknown `{{flow.data.x}}` to an empty string rather than erroring.
 `rtt launch` reports this before sending, including a case-mismatch hint —
 `Name` and `name` are different.
 
+### Respondents are being read wording you already changed
+
+You reworded a question, rebuilt, redeployed, and the old text still goes out.
+
+Twilio has **no update operation for content**. `rtt template create` refuses to
+overwrite a template that already exists, and `just demo-templates-create` passes
+`--skip-existing`, so a rebuild regenerates the definition file on disk and
+leaves the template on the account exactly as it was.
+
+Nothing downstream can see it. The flow references the template **by SID**, and
+the SID is still valid — so the flow JSON is correct, `just flow-check` passes,
+the linter is clean and the tests are green, while the respondent reads the
+previous wording.
+
+This is not hypothetical. Adding a sixth question to the demo renumbered every
+body to "of 6". Four templates already existed and kept saying "of 5". A live
+respondent was asked six questions numbered out of five, and the only thing that
+caught it was reading her transcript afterwards.
+
+`just build-demo-flow` now **blocks** on this: it compares each stored template
+against the definition it just wrote and refuses to build, naming what drifted.
+To fix:
+
+```
+just demo-templates-sync
+```
+
+That deletes and recreates only what actually differs. It **refuses on anything
+submitted to Meta** — approval attaches to the SID, so replacing an approved
+template throws the approval away and the next round fails at send time with
+`63016`. New wording on an approved template means a new template under a new
+name, and pointing the flow at that.
+
 ### The survey completed but there is no row
 
 Two causes, both now caught by `just flow-check`:

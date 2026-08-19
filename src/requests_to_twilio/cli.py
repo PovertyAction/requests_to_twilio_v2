@@ -75,6 +75,7 @@ from .templates import (
     TemplateError,
     approval_status,
     check_variables,
+    drifted_types,
     find_by_name,
     list_templates,
     load_definition,
@@ -1344,6 +1345,7 @@ def _create_one(
     category: str,
     yes: bool,
     skip_existing: bool,
+    replace: bool = False,
 ) -> None:
     """Create one template from its definition file."""
     try:
@@ -1355,13 +1357,36 @@ def _create_one(
 
     existing = find_by_name(client, name)
     if existing is not None:
-        if skip_existing:
+        if replace:
+            drift = drifted_types(existing, definition)
+            if not drift:
+                typer.echo(f"current {name}  ({existing.sid})")
+                return
+            # Never delete something Meta has reviewed. Approval attaches to the
+            # SID, so replacing an approved template silently discards it and
+            # the round starts failing with 63016 at send time.
+            status = approval_status(client, existing.sid).get("status", "unknown")
+            if status not in {"unsubmitted", "unknown"}:
+                _fail(
+                    f"{name!r} differs from the file but is {status} with Meta "
+                    f"({existing.sid}).\n"
+                    "Approval attaches to the SID, so replacing it would throw "
+                    "the approval away.\n"
+                    "Give the new wording a new name instead, and point the "
+                    "flow at that."
+                )
+            typer.echo(f"replacing {name}  ({existing.sid})  {', '.join(drift)}")
+            delete_template(client, existing.sid)
+            existing = None
+        elif skip_existing:
             typer.echo(f"exists  {name}  ({existing.sid})")
             return
-        _fail(
-            f"A template named {name!r} already exists ({existing.sid}). "
-            "Template names should be unique; pick a new name in the definition."
-        )
+        else:
+            _fail(
+                f"A template named {name!r} already exists ({existing.sid}). "
+                "Template names should be unique; pick a new name in the "
+                "definition, or pass --replace to make Twilio match the file."
+            )
 
     for warning in check_variables(definition):
         typer.secho(f"  warning: {warning}", fg=typer.colors.YELLOW)
@@ -1442,6 +1467,14 @@ def template_create(
             "failing. For scripting over a directory of definitions.",
         ),
     ] = False,
+    replace: Annotated[
+        bool,
+        typer.Option(
+            "--replace",
+            help="Make Twilio match the file: delete and recreate any template "
+            "whose wording has drifted. Refuses on anything submitted to Meta.",
+        ),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Create one template, or every template in a directory.
@@ -1478,6 +1511,7 @@ def template_create(
             category=category,
             yes=yes,
             skip_existing=skip_existing,
+            replace=replace,
         )
 
 

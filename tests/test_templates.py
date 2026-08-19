@@ -16,6 +16,7 @@ from twilio.base.exceptions import TwilioRestException
 from requests_to_twilio.templates import (
     TemplateError,
     delete,
+    drifted_types,
     submit,
     unsubmittable_types,
 )
@@ -36,6 +37,88 @@ def fake_client(types=None, *, fails=False):
             v1=SimpleNamespace(contents=lambda sid: SimpleNamespace(fetch=fetch))
         )
     )
+
+
+class TestDriftedTypes:
+    """Drift between a stored template and the file that describes it.
+
+    This is the one failure in the pipeline that no other check can see. The
+    flow references a template by SID, so wording that changed in the repo but
+    not on the account leaves the flow correct, `flow-check` passing, the linter
+    clean and the tests green - while the respondent is read the old text.
+
+    It has happened. A sixth question renumbered every body to "of 6"; four
+    templates already existed, `create` refused to overwrite them, and a live
+    respondent was asked six questions numbered out of five.
+    """
+
+    def live(self, types):
+        return SimpleNamespace(types=types)
+
+    def test_identical_content_has_not_drifted(self):
+        types = {"twilio/text": {"body": "Question 1 of 6"}}
+        assert drifted_types(self.live(types), {"types": types}) == []
+
+    def test_a_reworded_body_is_reported(self):
+        assert drifted_types(
+            self.live({"twilio/text": {"body": "Question 1 of 5"}}),
+            {"types": {"twilio/text": {"body": "Question 1 of 6"}}},
+        ) == ["twilio/text"]
+
+    def test_whitespace_alone_is_not_drift(self):
+        """Twilio round-trips a trailing newline; that is not a wording change."""
+        assert (
+            drifted_types(
+                self.live({"twilio/text": {"body": "Question 1 of 6\n"}}),
+                {"types": {"twilio/text": {"body": "Question 1 of 6"}}},
+            )
+            == []
+        )
+
+    def test_a_changed_list_item_is_reported(self):
+        """The slot labels are the answer values, so a relabelled row is drift."""
+        live = {
+            "twilio/list-picker": {
+                "body": "When do you leave?",
+                "items": [{"id": "p6_a", "item": "Sat 09:45", "description": "Sat"}],
+            }
+        }
+        local = {
+            "types": {
+                "twilio/list-picker": {
+                    "body": "When do you leave?",
+                    "items": [
+                        {"id": "p6_a", "item": "Sat 10:45", "description": "Sat"}
+                    ],
+                }
+            }
+        }
+        assert drifted_types(self.live(live), local) == ["twilio/list-picker"]
+
+    def test_a_type_present_only_on_one_side_is_reported(self):
+        """A missing fallback means some handsets render nothing at all."""
+        assert drifted_types(
+            self.live({"twilio/text": {"body": "hi"}}),
+            {
+                "types": {
+                    "twilio/text": {"body": "hi"},
+                    "twilio/list-picker": {"body": "hi"},
+                }
+            },
+        ) == ["twilio/list-picker"]
+
+    def test_every_drifted_type_is_named_not_just_the_first(self):
+        assert drifted_types(
+            self.live(
+                {"twilio/text": {"body": "a"}, "twilio/list-picker": {"body": "b"}}
+            ),
+            {
+                "types": {
+                    "twilio/text": {"body": "A"},
+                    "twilio/list-picker": {"body": "B"},
+                }
+            },
+        ) == ["twilio/list-picker", "twilio/text"]
 
 
 class TestUnsubmittableTypes:
