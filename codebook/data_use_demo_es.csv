@@ -24,3 +24,13 @@ es,2,ARM2_P5,ARM2_P5_code,2,p5_liked,Me gustó,"🙂 Bien, la repetiría"
 es,2,ARM2_P5,ARM2_P5_code,3,p5_fine,Estuvo bien,😐 Sin opinión fuerte
 es,2,ARM2_P5,ARM2_P5_code,4,p5_meh,No mucho,🙁 Algo tediosa
 es,2,ARM2_P5,ARM2_P5_code,5,p5_disliked,No me gustó,😞 Preferiría no hacerla
+es,2,ARM2_P6,ARM2_P6_code,1,p6_fri_1800,Vie 18:00,Viernes 28 de agosto
+es,2,ARM2_P6,ARM2_P6_code,2,p6_fri_2115,Vie 21:15,Viernes 28 de agosto
+es,2,ARM2_P6,ARM2_P6_code,3,p6_sat_0620,Sáb 06:20,Sábado 29 de agosto
+es,2,ARM2_P6,ARM2_P6_code,4,p6_sat_0945,Sáb 09:45,Sábado 29 de agosto
+es,2,ARM2_P6,ARM2_P6_code,5,p6_sat_1430,Sáb 14:30,Sábado 29 de agosto
+es,2,ARM2_P6,ARM2_P6_code,6,p6_sat_2050,Sáb 20:50,Sábado 29 de agosto
+es,2,ARM2_P6,ARM2_P6_code,7,p6_sun_0705,Dom 07:05,Domingo 30 de agosto
+es,2,ARM2_P6,ARM2_P6_code,8,p6_sun_1120,Dom 11:20,Domingo 30 de agosto
+es,2,ARM2_P6,ARM2_P6_code,9,p6_sun_1915,Dom 19:15,Domingo 30 de agosto
+es,2,ARM2_P6,ARM2_P6_code,10,p6_staying,Me quedo,Salgo después del domingo

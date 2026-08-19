@@ -14,10 +14,10 @@
   "language": "es",
   "types": {
     "twilio/text": {
-      "body": "🍰 Pregunta 2 de 5\n\n¿Tomaste postre en el almuerzo de hoy?\n\n1 - Sí\n2 - No"
+      "body": "🍰 Pregunta 2 de 6\n\n¿Tomaste postre en el almuerzo de hoy?\n\n1 - Sí\n2 - No"
     },
     "twilio/quick-reply": {
-      "body": "🍰 Pregunta 2 de 5\n\n¿Tomaste postre en el almuerzo de hoy?",
+      "body": "🍰 Pregunta 2 de 6\n\n¿Tomaste postre en el almuerzo de hoy?",
       "actions": [
         {
           "title": "Sí",

@@ -14,10 +14,10 @@
   "language": "es",
   "types": {
     "twilio/text": {
-      "body": "📅 Pregunta 1 de 5\n\n¿Cuál es - o crees que será - tu día favorito de la semana de formación?\n\n1 - Domingo\n2 - Lunes\n3 - Martes\n4 - Miércoles\n5 - Jueves\n6 - Viernes"
+      "body": "📅 Pregunta 1 de 6\n\n¿Cuál es - o crees que será - tu día favorito de la semana de formación?\n\n1 - Domingo\n2 - Lunes\n3 - Martes\n4 - Miércoles\n5 - Jueves\n6 - Viernes"
     },
     "twilio/list-picker": {
-      "body": "📅 Pregunta 1 de 5\n\n¿Cuál es - o crees que será - tu día favorito de la semana de formación?",
+      "body": "📅 Pregunta 1 de 6\n\n¿Cuál es - o crees que será - tu día favorito de la semana de formación?",
       "button": "Elige tu respuesta",
       "items": [
         {

@@ -103,6 +103,7 @@ from requests_to_twilio import templates as tpl  # noqa: E402
 # importable. Re-exported under their original names so this module reads as it
 # always did - and so `demo.answer_pattern` in the tests keeps resolving.
 from requests_to_twilio.answers import (  # noqa: E402
+    _STRIPPED_PUNCTUATION,
     answer_pattern,
     code_mapping,
     escape_literal,
@@ -206,7 +207,7 @@ PUBLISH_TARGETS: dict[str, dict[str, str]] = {
 #: one you get by not deciding.
 DEFAULT_PUBLISH_TARGET = "gsheets"
 
-QUESTION_KEYS = ("P1", "P2", "P3", "P4", "P5")
+QUESTION_KEYS = ("P1", "P2", "P3", "P4", "P5", "P6")
 
 #: How an ARM 2 question is rendered, and therefore which widgets and which
 #: content template it becomes. ARM 1 ignores this entirely: every ARM 1 question
@@ -423,6 +424,26 @@ EN: dict[str, Any] = {
             "collection exercises?\n\n"
             "_Reply in your own words._"
         ),
+        # The scheduling question, and the one whose cost is visible within
+        # minutes rather than at analysis. ARM 1 asks for a date and a time as
+        # free text, so the column arrives as "28th around 3", "tomorrow
+        # evening", "not sure yet" - every one a fair answer, none of them a
+        # slot anybody can book against without reading it first.
+        #
+        # It also carries the leftover interviewer instruction, for the same
+        # reason P4 does: probing is something an interviewer does, and there is
+        # no interviewer.
+        "P6": (
+            "In relation to your onward travel arrangements following the "
+            "conclusion of the training at the end of this week, and taking "
+            "into consideration any connecting services, transfers or "
+            "other scheduling constraints that may apply to your itinerary, "
+            "please indicate the window during which you anticipate departing "
+            "from Jaipur.\n\n"
+            "[INTERVIEWER: Record the date and the approximate time. If the "
+            "respondent is uncertain, probe for the most likely window.]\n\n"
+            "_Reply with your expected departure date and time._"
+        ),
     },
     # ARM 2 - the recommended pattern. The same five constructs, as tappable
     # lists, one idea per message, with a progress cue so the respondent always
@@ -447,7 +468,7 @@ EN: dict[str, Any] = {
         "P1": {
             "kind": "list",
             "body": (
-                "📅 Question 1 of 5\n\n"
+                "📅 Question 1 of 6\n\n"
                 "Which day of the training week has been - or you think will "
                 "be - your favourite?"
             ),
@@ -462,7 +483,7 @@ EN: dict[str, Any] = {
         },
         "P2": {
             "kind": "button",
-            "body": ("🍰 Question 2 of 5\n\nDid you have dessert at lunch today?"),
+            "body": ("🍰 Question 2 of 6\n\nDid you have dessert at lunch today?"),
             # Quick-reply actions carry a title and an id; the third element is
             # unused on screen and shows up only in the text fallback. Kept as a
             # triple so the pattern and the code mapping treat every question
@@ -483,7 +504,7 @@ EN: dict[str, Any] = {
             "accepts": [str(n) for n in range(11)],
             "refuses": ["11", "100", "-1", "two", "about 3", "3.5", ""],
             "body": (
-                "☕ Question 3 of 5\n\n"
+                "☕ Question 3 of 6\n\n"
                 "How many cups of coffee or tea did you have during the whole "
                 "day yesterday?\n\n"
                 "_Reply with a number from 0 to 10._"
@@ -496,7 +517,7 @@ EN: dict[str, Any] = {
         "P4": {
             "kind": "list",
             "body": (
-                "💻 Question 4 of 5\n\n"
+                "💻 Question 4 of 6\n\n"
                 "Which of these are you *most* comfortable using on your own?"
             ),
             "options": [
@@ -515,7 +536,7 @@ EN: dict[str, Any] = {
         "P5": {
             "kind": "list",
             "body": (
-                "🙌 Last one - question 5 of 5\n\nDid you enjoy answering this survey?"
+                "🙌 Question 5 of 6\n\nDid you enjoy answering this survey?"
             ),
             "options": [
                 ("p5_loved", "Loved it", "🤩 Best thing all week"),
@@ -523,6 +544,42 @@ EN: dict[str, Any] = {
                 ("p5_fine", "It was fine", "😐 No strong feelings"),
                 ("p5_meh", "Not really", "🙁 A bit tedious"),
                 ("p5_disliked", "Did not like it", "😞 I would rather not"),
+            ],
+        },
+        # Ten rows, exactly the cap. Discrete departure times rather than
+        # halves of a day, because the question is mimicking a scheduler and a
+        # scheduler offers slots. The gaps between them are the point: a
+        # schedule shows what is available, not every minute that exists.
+        #
+        # The last row is the escape hatch, and it is not optional. A list
+        # picker refuses anything that is not an option, so a respondent with no
+        # applicable slot would loop through the retry twice and land on giveup
+        # - the failure this question exists to demonstrate against rather than
+        # to commit.
+        #
+        # Times are invented. This mimics scheduling; it books nothing.
+        #
+        # Titles carry the slot and descriptions the clock, because a title is
+        # compared literally against the reply body. Titles stay under 24
+        # characters and carry no emoji, both of which are rejected at
+        # template-create time.
+        "P6": {
+            "kind": "list",
+            "body": (
+                "✈️ Last one - question 6 of 6\n\n"
+                "When do you expect to leave Jaipur after the training?"
+            ),
+            "options": [
+                ("p6_fri_1800", "Fri 18:00", "Friday 28 August"),
+                ("p6_fri_2115", "Fri 21:15", "Friday 28 August"),
+                ("p6_sat_0620", "Sat 06:20", "Saturday 29 August"),
+                ("p6_sat_0945", "Sat 09:45", "Saturday 29 August"),
+                ("p6_sat_1430", "Sat 14:30", "Saturday 29 August"),
+                ("p6_sat_2050", "Sat 20:50", "Saturday 29 August"),
+                ("p6_sun_0705", "Sun 07:05", "Sunday 30 August"),
+                ("p6_sun_1120", "Sun 11:20", "Sunday 30 August"),
+                ("p6_sun_1915", "Sun 19:15", "Sunday 30 August"),
+                ("p6_staying", "Staying on", "Leaving after Sunday"),
             ],
         },
     },
@@ -559,6 +616,13 @@ EN: dict[str, Any] = {
         "Tap *{button}* on the message above and pick from the list, or type "
         "the option exactly as it appears.\n\n"
         "I am a bot, so I only understand the options."
+    ),
+    # Sent straight after P6, echoing the slot back. ARM 2 can name it because
+    # the reply maps to a known option; ARM 1 can only repeat what was typed.
+    # {slot} is filled in by the flow builder, differently per arm.
+    "confirm_p6": (
+        "🧳 Noted: *{slot}*.\n\n"
+        "Remember to pack your things and be ready in good time for your flight."
     ),
     "close_complete": (
         "🙏 Thank you for completing the survey.\n\n"
@@ -710,6 +774,21 @@ ES: dict[str, Any] = {
             "para futuros ejercicios de recolección de datos?\n\n"
             "_Responde con tus propias palabras._"
         ),
+        # La pregunta de agenda, y la única cuyo costo se ve en minutos y no en
+        # el análisis. El ARM 1 pide fecha y hora como texto libre, así que la
+        # columna llega como "el 28 como a las 3", "mañana en la noche", "aún no
+        # sé": todas respuestas razonables, ninguna un horario reservable sin
+        # que alguien lo lea primero.
+        "P6": (
+            "En relación con tus arreglos de viaje posteriores a la "
+            "finalización de la formación al término de esta semana, y "
+            "considerando cualquier conexión, traslado u otra restricción de "
+            "horario que pudiera aplicar a tu itinerario, por favor indica la "
+            "ventana durante la cual prevés partir de Jaipur.\n\n"
+            "[ENCUESTADOR: Registre la fecha y la hora aproximada. Si la "
+            "persona no está segura, indague por la ventana más probable.]\n\n"
+            "_Responde con la fecha y hora estimadas de tu salida._"
+        ),
     },
     # ARM 2 - misma regla que en inglés: conserva todos los compromisos
     # metodológicos del ARM 1 y gasta menos palabras en ellos. Corto NO es el
@@ -722,7 +801,7 @@ ES: dict[str, Any] = {
         "P1": {
             "kind": "list",
             "body": (
-                "📅 Pregunta 1 de 5\n\n"
+                "📅 Pregunta 1 de 6\n\n"
                 "¿Cuál es - o crees que será - tu día favorito de la semana "
                 "de formación?"
             ),
@@ -737,7 +816,7 @@ ES: dict[str, Any] = {
         },
         "P2": {
             "kind": "button",
-            "body": ("🍰 Pregunta 2 de 5\n\n¿Tomaste postre en el almuerzo de hoy?"),
+            "body": ("🍰 Pregunta 2 de 6\n\n¿Tomaste postre en el almuerzo de hoy?"),
             "options": [
                 ("p2_yes", "Sí", "Sí tomé postre"),
                 ("p2_no", "No", "Hoy no tomé postre"),
@@ -749,7 +828,7 @@ ES: dict[str, Any] = {
             "accepts": [str(n) for n in range(11)],
             "refuses": ["11", "100", "-1", "dos", "como 3", "3,5", ""],
             "body": (
-                "☕ Pregunta 3 de 5\n\n"
+                "☕ Pregunta 3 de 6\n\n"
                 "¿Cuántas tazas de café o té tomaste durante todo el día de "
                 "ayer?\n\n"
                 "_Responde con un número del 0 al 10._"
@@ -758,7 +837,7 @@ ES: dict[str, Any] = {
         "P4": {
             "kind": "list",
             "body": (
-                "💻 Pregunta 4 de 5\n\n"
+                "💻 Pregunta 4 de 6\n\n"
                 "¿Cuál de estos manejas con *más* comodidad por tu cuenta?"
             ),
             "options": [
@@ -775,13 +854,39 @@ ES: dict[str, Any] = {
         # compara literalmente con el cuerpo de la respuesta.
         "P5": {
             "kind": "list",
-            "body": ("🙌 La última - pregunta 5 de 5\n\n¿Disfrutaste esta encuesta?"),
+            "body": ("🙌 Pregunta 5 de 6\n\n¿Disfrutaste esta encuesta?"),
             "options": [
                 ("p5_loved", "Me encantó", "🤩 Lo mejor de la semana"),
                 ("p5_liked", "Me gustó", "🙂 Bien, la repetiría"),
                 ("p5_fine", "Estuvo bien", "😐 Sin opinión fuerte"),
                 ("p5_meh", "No mucho", "🙁 Algo tediosa"),
                 ("p5_disliked", "No me gustó", "😞 Preferiría no hacerla"),
+            ],
+        },
+        # Diez filas, justo el tope. Horas concretas y no mitades del día,
+        # porque la pregunta imita un agendador y un agendador ofrece franjas.
+        # Los huecos entre ellas son el punto: una agenda muestra lo disponible.
+        #
+        # La última fila es la salida de emergencia y no es opcional: un selector
+        # de lista rechaza lo que no sea una opción, así que alguien sin franja
+        # aplicable daría vueltas en el reintento hasta caer en giveup.
+        "P6": {
+            "kind": "list",
+            "body": (
+                "✈️ La última - pregunta 6 de 6\n\n"
+                "¿Cuándo esperas salir de Jaipur después de la formación?"
+            ),
+            "options": [
+                ("p6_fri_1800", "Vie 18:00", "Viernes 28 de agosto"),
+                ("p6_fri_2115", "Vie 21:15", "Viernes 28 de agosto"),
+                ("p6_sat_0620", "Sáb 06:20", "Sábado 29 de agosto"),
+                ("p6_sat_0945", "Sáb 09:45", "Sábado 29 de agosto"),
+                ("p6_sat_1430", "Sáb 14:30", "Sábado 29 de agosto"),
+                ("p6_sat_2050", "Sáb 20:50", "Sábado 29 de agosto"),
+                ("p6_sun_0705", "Dom 07:05", "Domingo 30 de agosto"),
+                ("p6_sun_1120", "Dom 11:20", "Domingo 30 de agosto"),
+                ("p6_sun_1915", "Dom 19:15", "Domingo 30 de agosto"),
+                ("p6_staying", "Me quedo", "Salgo después del domingo"),
             ],
         },
     },
@@ -812,6 +917,10 @@ ES: dict[str, Any] = {
         "Toca *{button}* en el mensaje anterior y selecciona de la lista, o "
         "escribe la opción tal como aparece.\n\n"
         "Soy un robot, así que solo entiendo las opciones."
+    ),
+    "confirm_p6": (
+        "🧳 Anotado: *{slot}*.\n\n"
+        "Recuerda empacar tus cosas y estar listo a tiempo para tu vuelo."
     ),
     "close_complete": (
         "🙏 Gracias por completar la encuesta.\n\n"
@@ -1460,7 +1569,42 @@ def stop_split(name, lang, on_continue, *, x, y):
     )
 
 
-def open_question(arm, key, body, lang, *, y, next_state):
+def slot_mapping(widget: str, options) -> str:
+    """Build Liquid that resolves a reply to the option's own label.
+
+    The twin of `code_mapping`, generated from the same options tuple in the
+    same pass - which is the only reason it is safe to have a second mapping at
+    all. `answers.py` is emphatic that a closed question is several artefacts
+    that fail silently when they disagree; two generated from one source in one
+    call cannot drift apart.
+
+    It exists because the confirmation has to name the slot, and the raw reply
+    is not the slot: somebody who types `4` instead of tapping would otherwise
+    be told to be ready for their flight at 4.
+    """
+    removals = "".join(f' | replace: "{char}", ""' for char in _STRIPPED_PUNCTUATION)
+    accept_positions = not positions_are_ambiguous(options)
+    clauses = []
+    for index, option in enumerate(options, start=1):
+        alternatives = [
+            f'"{normalise_reply(option[0])}"',
+            f'"{normalise_reply(option[1])}"',
+        ]
+        if accept_positions:
+            alternatives.append(f'"{index}"')
+        clauses.append(f"{{% when {' or '.join(alternatives)} %}}{option[1]}")
+    # The else branch cannot be reached from `store`, which only runs when the
+    # split already matched. It is here because a Liquid case without one
+    # renders empty, and an empty slot in the confirmation would read as a bug.
+    return (
+        f"{{% assign reply = widgets.{widget}.inbound.Body "
+        f"| strip | downcase{removals} | strip %}}"
+        f"{{% case reply %}}{''.join(clauses)}"
+        "{% else %}the time you chose{% endcase %}"
+    )
+
+
+def open_question(arm, key, body, lang, *, y, next_state, confirm=None):
     """ARM 1: ask, accept whatever arrives, move on.
 
     No validation, deliberately. Validating an open answer would turn ARM 1
@@ -1469,20 +1613,37 @@ def open_question(arm, key, body, lang, *, y, next_state):
     """
     name = f"{arm}_{key}"
     x = arm_x(arm)
-    return [
+    after_store = f"confirm_{name}" if confirm else next_state
+    states = [
         ask(name, body, f"stopcheck_{name}", x=x, y=y),
         stop_split(name, lang, f"store_{name}", x=x, y=y + 60),
         set_vars(
             f"store_{name}",
             [(f"{name}_status", "answered")],
-            next_state,
+            after_store,
             x=x,
             y=y + 140,
         ),
     ]
+    if confirm:
+        # ARM 1 can only repeat what was typed. That is the whole comparison,
+        # arriving as a message the respondent reads rather than as a column
+        # somebody discovers later.
+        states.append(
+            send(
+                f"confirm_{name}",
+                confirm.format(slot=f"{{{{widgets.{name}.inbound.Body}}}}"),
+                next_state,
+                x=x,
+                y=y + 220,
+            )
+        )
+    return states
 
 
-def list_question(arm, key, content_sid, options, error_body, lang, *, y, next_state):
+def list_question(
+    arm, key, content_sid, options, error_body, lang, *, y, next_state, confirm=None
+):
     """ARM 2: send a list, accept a tap or a typed number, retry twice, move on.
 
     Eight widgets, mirroring the account's house pattern: ask, check for a
@@ -1497,8 +1658,15 @@ def list_question(arm, key, content_sid, options, error_body, lang, *, y, next_s
     give_up = f"giveup_{name}"
     error_widget = f"error_{name}"
     x = arm_x(arm)
+    after_store = f"confirm_{name}" if confirm else next_state
+    store_pairs = [
+        (f"{name}_status", "answered"),
+        (f"{name}_code", code_mapping(name, options)),
+    ]
+    if confirm:
+        store_pairs.append((f"{name}_slot", slot_mapping(name, options)))
 
-    return [
+    states = [
         ask_content(name, content_sid, f"stopcheck_{name}", x=x, y=y),
         # Ahead of validation: a "STOP" is not a badly-formatted answer, and
         # letting it fall through would nudge them twice and then ask the next
@@ -1521,11 +1689,8 @@ def list_question(arm, key, content_sid, options, error_body, lang, *, y, next_s
         ),
         set_vars(
             f"store_{name}",
-            [
-                (f"{name}_status", "answered"),
-                (f"{name}_code", code_mapping(name, options)),
-            ],
-            next_state,
+            store_pairs,
+            after_store,
             x=x,
             y=y + 160,
         ),
@@ -1559,6 +1724,20 @@ def list_question(arm, key, content_sid, options, error_body, lang, *, y, next_s
             y=y + 240,
         ),
     ]
+    if confirm:
+        # Only the answered path confirms. Somebody who gave up has nothing to
+        # be told about, and telling them anyway would name a slot they never
+        # picked.
+        states.append(
+            send(
+                f"confirm_{name}",
+                confirm.format(slot=f"{{{{flow.variables.{name}_slot}}}}"),
+                next_state,
+                x=x,
+                y=y + 240,
+            )
+        )
+    return states
 
 
 def number_question(arm, key, body, constraint, error_body, lang, *, y, next_state):
@@ -1901,6 +2080,7 @@ def build(
                 lang,
                 y=-300 + index * 340,
                 next_state=following,
+                confirm=table.get("confirm_p6") if key == "P6" else None,
             )
         )
 
@@ -1943,6 +2123,7 @@ def build(
                 lang,
                 y=-300 + index * 340,
                 next_state=following,
+                confirm=table.get("confirm_p6") if key == "P6" else None,
             )
         )
 
@@ -2504,13 +2685,25 @@ def resolve_sids(lang: str) -> tuple[dict[str, str], list[str]]:
 
     found: dict[str, str] = {}
     missing: list[str] = []
+    stale: list[str] = []
     for name in wanted:
         existing = tpl.find_by_name(client, name)
         if existing is None:
             missing.append(name)
-        else:
-            found[name] = existing.sid
-    return found, missing
+            continue
+        found[name] = existing.sid
+        # The template exists, but does it still say what this file says? The
+        # flow references it by SID, so drift here is invisible to the flow
+        # check, to the linter and to the tests - and reaches the respondent.
+        path = TEMPLATE_DIR / f"{name}.json"
+        if path.exists():
+            try:
+                if tpl.drifted_types(existing, tpl.load_definition(path)):
+                    stale.append(name)
+            except tpl.TemplateError:
+                # A definition this build did not write. Not ours to judge.
+                pass
+    return found, missing, stale
 
 
 def build_one(lang: str, target: str = DEFAULT_PUBLISH_TARGET) -> bool:
@@ -2546,7 +2739,18 @@ def build_one(lang: str, target: str = DEFAULT_PUBLISH_TARGET) -> bool:
     # afterwards - it is one widget name buried in an 80-widget definition.
     print(f"  publish   {target} -> {functions['publish_widget']}")
 
-    found, missing = resolve_sids(lang)
+    found, missing, stale = resolve_sids(lang)
+    if stale:
+        print("\n  Cannot build the flow - these templates exist on the account")
+        print("  but no longer say what this repo says. The flow references them")
+        print("  by SID, so nothing downstream would notice: the flow check, the")
+        print("  linter and the tests would all pass while respondents read the")
+        print("  old wording.")
+        for name in stale:
+            print(f"    {name}")
+        print("\n  Make Twilio match the repo, then re-run this build:")
+        print("    just demo-templates-sync")
+        return False
     if missing:
         print("\n  Cannot build the flow yet - these content templates do not")
         print("  exist on this account. Create them, then re-run this build:")

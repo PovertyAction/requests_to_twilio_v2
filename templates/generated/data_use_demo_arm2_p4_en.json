@@ -14,10 +14,10 @@
   "language": "en",
   "types": {
     "twilio/text": {
-      "body": "💻 Question 4 of 5\n\nWhich of these are you *most* comfortable using on your own?\n\n1 - Python\n2 - Stata\n3 - R\n4 - SurveyCTO\n5 - Twilio\n6 - Exotel\n7 - Microsoft Office"
+      "body": "💻 Question 4 of 6\n\nWhich of these are you *most* comfortable using on your own?\n\n1 - Python\n2 - Stata\n3 - R\n4 - SurveyCTO\n5 - Twilio\n6 - Exotel\n7 - Microsoft Office"
     },
     "twilio/list-picker": {
-      "body": "💻 Question 4 of 5\n\nWhich of these are you *most* comfortable using on your own?",
+      "body": "💻 Question 4 of 6\n\nWhich of these are you *most* comfortable using on your own?",
       "button": "Choose an answer",
       "items": [
         {

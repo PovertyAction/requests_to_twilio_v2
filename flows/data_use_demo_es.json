@@ -763,6 +763,108 @@
       "transitions": [
         {
           "event": "next",
+          "next": "ARM1_P6"
+        }
+      ]
+    },
+    {
+      "name": "ARM1_P6",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 1400
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "En relación con tus arreglos de viaje posteriores a la finalización de la formación al término de esta semana, y considerando cualquier conexión, traslado u otra restricción de horario que pudiera aplicar a tu itinerario, por favor indica la ventana durante la cual prevés partir de Jaipur.\n\n[ENCUESTADOR: Registre la fecha y la hora aproximada. Si la persona no está segura, indague por la ventana más probable.]\n\n_Responde con la fecha y hora estimadas de tu salida._",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM1_P6"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM1_P6",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 1460
+        },
+        "input": "{{widgets.ARM1_P6.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "store_ARM1_P6"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM1_P6.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM1_P6",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 1540
+        },
+        "variables": [
+          {
+            "key": "ARM1_P6_status",
+            "value": "answered"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "confirm_ARM1_P6"
+        }
+      ]
+    },
+    {
+      "name": "confirm_ARM1_P6",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": -700,
+          "y": 1620
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "🧳 Anotado: *{{widgets.ARM1_P6.inbound.Body}}*.\n\nRecuerda empacar tus cosas y estar listo a tiempo para tu vuelo."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "mark_complete"
+        },
+        {
+          "event": "failed",
           "next": "mark_complete"
         }
       ]
@@ -777,7 +879,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HXc0322f3f1c24e71b075a2c4740592519",
+        "content_sid": "HXafe4a8aa4c0b3656a6be6fa23dd57018",
         "timeout": "3600"
       },
       "transitions": [
@@ -1008,7 +1110,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HX7642b1e5ab82c0938c50f9c4281f64a9",
+        "content_sid": "HXf074bc727c820f4dafac3e593ce3757f",
         "timeout": "3600"
       },
       "transitions": [
@@ -1238,7 +1340,7 @@
           "y": 380
         },
         "from": "{{flow.channel.address}}",
-        "body": "☕ Pregunta 3 de 5\n\n¿Cuántas tazas de café o té tomaste durante todo el día de ayer?\n\n_Responde con un número del 0 al 10._",
+        "body": "☕ Pregunta 3 de 6\n\n¿Cuántas tazas de café o té tomaste durante todo el día de ayer?\n\n_Responde con un número del 0 al 10._",
         "timeout": "3600"
       },
       "transitions": [
@@ -1469,7 +1571,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HXc416a2225396c63fd718b07a7500eaab",
+        "content_sid": "HXe52620ef7d6b19b5a7f4d682a623b093",
         "timeout": "3600"
       },
       "transitions": [
@@ -1700,7 +1802,7 @@
         },
         "from": "{{flow.channel.address}}",
         "message_type": "content_template",
-        "content_sid": "HXccba05ff74ad38ed79d9391f39022922",
+        "content_sid": "HXff0047ba612f7cac5d1bc35f73e53763",
         "timeout": "3600"
       },
       "transitions": [
@@ -1802,7 +1904,7 @@
       "transitions": [
         {
           "event": "next",
-          "next": "mark_complete"
+          "next": "ARM2_P6"
         }
       ]
     },
@@ -1917,6 +2019,263 @@
       "transitions": [
         {
           "event": "next",
+          "next": "ARM2_P6"
+        }
+      ]
+    },
+    {
+      "name": "ARM2_P6",
+      "type": "send-and-wait-for-reply",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1400
+        },
+        "from": "{{flow.channel.address}}",
+        "message_type": "content_template",
+        "content_sid": "HX20d86444531fb4f9658901e0c15feb98",
+        "timeout": "3600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "stopcheck_ARM2_P6"
+        },
+        {
+          "event": "timeout",
+          "next": "mark_no_reply"
+        },
+        {
+          "event": "deliveryFailure",
+          "next": "mark_delivery_failed"
+        }
+      ]
+    },
+    {
+      "name": "stopcheck_ARM2_P6",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1440
+        },
+        "input": "{{widgets.ARM2_P6.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "split_ARM2_P6"
+        },
+        {
+          "event": "match",
+          "next": "mark_optout",
+          "conditions": [
+            {
+              "friendly_name": "asked to stop",
+              "arguments": [
+                "{{widgets.ARM2_P6.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:stop|parar|cancelar|salir|baja|no molestar|quit)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "split_ARM2_P6",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1480
+        },
+        "input": "{{widgets.ARM2_P6.inbound.Body}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "retry_ARM2_P6"
+        },
+        {
+          "event": "match",
+          "next": "store_ARM2_P6",
+          "conditions": [
+            {
+              "friendly_name": "tapped or typed one of 10 options",
+              "arguments": [
+                "{{widgets.ARM2_P6.inbound.Body}}"
+              ],
+              "type": "regex",
+              "value": "(?:\\s*(?:p6_fri_1800|Vie 18:00|\\(?1[.)]?|p6_fri_2115|Vie 21:15|\\(?2[.)]?|p6_sat_0620|Sáb 06:20|\\(?3[.)]?|p6_sat_0945|Sáb 09:45|\\(?4[.)]?|p6_sat_1430|Sáb 14:30|\\(?5[.)]?|p6_sat_2050|Sáb 20:50|\\(?6[.)]?|p6_sun_0705|Dom 07:05|\\(?7[.)]?|p6_sun_1120|Dom 11:20|\\(?8[.)]?|p6_sun_1915|Dom 19:15|\\(?9[.)]?|p6_staying|Me quedo|\\(?10[.)]?)\\s*)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "store_ARM2_P6",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1560
+        },
+        "variables": [
+          {
+            "key": "ARM2_P6_status",
+            "value": "answered"
+          },
+          {
+            "key": "ARM2_P6_code",
+            "value": "{% assign reply = widgets.ARM2_P6.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p6_fri_1800\" or \"vie 18:00\" or \"1\" %}1{% when \"p6_fri_2115\" or \"vie 21:15\" or \"2\" %}2{% when \"p6_sat_0620\" or \"sáb 06:20\" or \"3\" %}3{% when \"p6_sat_0945\" or \"sáb 09:45\" or \"4\" %}4{% when \"p6_sat_1430\" or \"sáb 14:30\" or \"5\" %}5{% when \"p6_sat_2050\" or \"sáb 20:50\" or \"6\" %}6{% when \"p6_sun_0705\" or \"dom 07:05\" or \"7\" %}7{% when \"p6_sun_1120\" or \"dom 11:20\" or \"8\" %}8{% when \"p6_sun_1915\" or \"dom 19:15\" or \"9\" %}9{% when \"p6_staying\" or \"me quedo\" or \"10\" %}10{% else %}other{% endcase %}"
+          },
+          {
+            "key": "ARM2_P6_slot",
+            "value": "{% assign reply = widgets.ARM2_P6.inbound.Body | strip | downcase | replace: \".\", \"\" | replace: \")\", \"\" | replace: \"(\", \"\" | strip %}{% case reply %}{% when \"p6_fri_1800\" or \"vie 18:00\" or \"1\" %}Vie 18:00{% when \"p6_fri_2115\" or \"vie 21:15\" or \"2\" %}Vie 21:15{% when \"p6_sat_0620\" or \"sáb 06:20\" or \"3\" %}Sáb 06:20{% when \"p6_sat_0945\" or \"sáb 09:45\" or \"4\" %}Sáb 09:45{% when \"p6_sat_1430\" or \"sáb 14:30\" or \"5\" %}Sáb 14:30{% when \"p6_sat_2050\" or \"sáb 20:50\" or \"6\" %}Sáb 20:50{% when \"p6_sun_0705\" or \"dom 07:05\" or \"7\" %}Dom 07:05{% when \"p6_sun_1120\" or \"dom 11:20\" or \"8\" %}Dom 11:20{% when \"p6_sun_1915\" or \"dom 19:15\" or \"9\" %}Dom 19:15{% when \"p6_staying\" or \"me quedo\" or \"10\" %}Me quedo{% else %}the time you chose{% endcase %}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "confirm_ARM2_P6"
+        }
+      ]
+    },
+    {
+      "name": "retry_ARM2_P6",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 1480
+        },
+        "variables": [
+          {
+            "key": "tries_ARM2_P6",
+            "value": "{% assign current = flow.variables.tries_ARM2_P6 | default: 0 %}{{ current | plus: 1 }}"
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "check_ARM2_P6"
+        }
+      ]
+    },
+    {
+      "name": "check_ARM2_P6",
+      "type": "split-based-on",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 1560
+        },
+        "input": "{{flow.variables.tries_ARM2_P6}}"
+      },
+      "transitions": [
+        {
+          "event": "noMatch",
+          "next": "giveup_ARM2_P6"
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P6",
+          "conditions": [
+            {
+              "friendly_name": "is 1",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P6}}"
+              ],
+              "type": "equal_to",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "error_ARM2_P6",
+          "conditions": [
+            {
+              "friendly_name": "is 2",
+              "arguments": [
+                "{{flow.variables.tries_ARM2_P6}}"
+              ],
+              "type": "equal_to",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "error_ARM2_P6",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 1020,
+          "y": 1560
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "Sin problema - no pude leer esa respuesta.\n\nToca *Elige tu respuesta* en el mensaje anterior y selecciona de la lista. También puedes responder con el número de tu respuesta.\n\nSoy un robot, así que solo entiendo las opciones."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "ARM2_P6"
+        },
+        {
+          "event": "failed",
+          "next": "ARM2_P6"
+        }
+      ]
+    },
+    {
+      "name": "giveup_ARM2_P6",
+      "type": "set-variables",
+      "properties": {
+        "offset": {
+          "x": 760,
+          "y": 1640
+        },
+        "variables": [
+          {
+            "key": "ARM2_P6_status",
+            "value": "multierror"
+          },
+          {
+            "key": "ARM2_P6_code",
+            "value": ""
+          }
+        ]
+      },
+      "transitions": [
+        {
+          "event": "next",
+          "next": "mark_complete"
+        }
+      ]
+    },
+    {
+      "name": "confirm_ARM2_P6",
+      "type": "send-message",
+      "properties": {
+        "offset": {
+          "x": 500,
+          "y": 1640
+        },
+        "from": "{{flow.channel.address}}",
+        "body": "🧳 Anotado: *{{flow.variables.ARM2_P6_slot}}*.\n\nRecuerda empacar tus cosas y estar listo a tiempo para tu vuelo."
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "mark_complete"
+        },
+        {
+          "event": "failed",
           "next": "mark_complete"
         }
       ]
@@ -2255,6 +2614,14 @@
             "value": "{{flow.variables.ARM1_P5_status}}"
           },
           {
+            "key": "ARM1_P6",
+            "value": "{{widgets.ARM1_P6.inbound.Body}}"
+          },
+          {
+            "key": "ARM1_P6_status",
+            "value": "{{flow.variables.ARM1_P6_status}}"
+          },
+          {
             "key": "ARM2_P1",
             "value": "{{widgets.ARM2_P1.inbound.Body}}"
           },
@@ -2313,6 +2680,18 @@
           {
             "key": "ARM2_P5_code",
             "value": "{{flow.variables.ARM2_P5_code}}"
+          },
+          {
+            "key": "ARM2_P6",
+            "value": "{{widgets.ARM2_P6.inbound.Body}}"
+          },
+          {
+            "key": "ARM2_P6_status",
+            "value": "{{flow.variables.ARM2_P6_status}}"
+          },
+          {
+            "key": "ARM2_P6_code",
+            "value": "{{flow.variables.ARM2_P6_code}}"
           }
         ]
       },

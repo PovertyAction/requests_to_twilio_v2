@@ -14,10 +14,10 @@
   "language": "en",
   "types": {
     "twilio/text": {
-      "body": "🍰 Question 2 of 5\n\nDid you have dessert at lunch today?\n\n1 - Yes\n2 - No"
+      "body": "🍰 Question 2 of 6\n\nDid you have dessert at lunch today?\n\n1 - Yes\n2 - No"
     },
     "twilio/quick-reply": {
-      "body": "🍰 Question 2 of 5\n\nDid you have dessert at lunch today?",
+      "body": "🍰 Question 2 of 6\n\nDid you have dessert at lunch today?",
       "actions": [
         {
           "title": "Yes",

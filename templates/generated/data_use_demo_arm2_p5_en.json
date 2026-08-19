@@ -14,10 +14,10 @@
   "language": "en",
   "types": {
     "twilio/text": {
-      "body": "🙌 Last one - question 5 of 5\n\nDid you enjoy answering this survey?\n\n1 - Loved it\n2 - Liked it\n3 - It was fine\n4 - Not really\n5 - Did not like it"
+      "body": "🙌 Question 5 of 6\n\nDid you enjoy answering this survey?\n\n1 - Loved it\n2 - Liked it\n3 - It was fine\n4 - Not really\n5 - Did not like it"
     },
     "twilio/list-picker": {
-      "body": "🙌 Last one - question 5 of 5\n\nDid you enjoy answering this survey?",
+      "body": "🙌 Question 5 of 6\n\nDid you enjoy answering this survey?",
       "button": "Choose an answer",
       "items": [
         {

@@ -14,10 +14,10 @@
   "language": "es",
   "types": {
     "twilio/text": {
-      "body": "🙌 La última - pregunta 5 de 5\n\n¿Disfrutaste esta encuesta?\n\n1 - Me encantó\n2 - Me gustó\n3 - Estuvo bien\n4 - No mucho\n5 - No me gustó"
+      "body": "🙌 Pregunta 5 de 6\n\n¿Disfrutaste esta encuesta?\n\n1 - Me encantó\n2 - Me gustó\n3 - Estuvo bien\n4 - No mucho\n5 - No me gustó"
     },
     "twilio/list-picker": {
-      "body": "🙌 La última - pregunta 5 de 5\n\n¿Disfrutaste esta encuesta?",
+      "body": "🙌 Pregunta 5 de 6\n\n¿Disfrutaste esta encuesta?",
       "button": "Elige tu respuesta",
       "items": [
         {

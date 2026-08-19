@@ -24,3 +24,13 @@ en,2,ARM2_P5,ARM2_P5_code,2,p5_liked,Liked it,"🙂 Good, I would do it again"
 en,2,ARM2_P5,ARM2_P5_code,3,p5_fine,It was fine,😐 No strong feelings
 en,2,ARM2_P5,ARM2_P5_code,4,p5_meh,Not really,🙁 A bit tedious
 en,2,ARM2_P5,ARM2_P5_code,5,p5_disliked,Did not like it,😞 I would rather not
+en,2,ARM2_P6,ARM2_P6_code,1,p6_fri_1800,Fri 18:00,Friday 28 August
+en,2,ARM2_P6,ARM2_P6_code,2,p6_fri_2115,Fri 21:15,Friday 28 August
+en,2,ARM2_P6,ARM2_P6_code,3,p6_sat_0620,Sat 06:20,Saturday 29 August
+en,2,ARM2_P6,ARM2_P6_code,4,p6_sat_0945,Sat 09:45,Saturday 29 August
+en,2,ARM2_P6,ARM2_P6_code,5,p6_sat_1430,Sat 14:30,Saturday 29 August
+en,2,ARM2_P6,ARM2_P6_code,6,p6_sat_2050,Sat 20:50,Saturday 29 August
+en,2,ARM2_P6,ARM2_P6_code,7,p6_sun_0705,Sun 07:05,Sunday 30 August
+en,2,ARM2_P6,ARM2_P6_code,8,p6_sun_1120,Sun 11:20,Sunday 30 August
+en,2,ARM2_P6,ARM2_P6_code,9,p6_sun_1915,Sun 19:15,Sunday 30 August
+en,2,ARM2_P6,ARM2_P6_code,10,p6_staying,Staying on,Leaving after Sunday

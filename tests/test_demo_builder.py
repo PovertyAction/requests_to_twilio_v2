@@ -8,6 +8,7 @@ that gets compared literally.
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -468,9 +469,14 @@ class TestBuild:
     def test_arm1_chains_in_order_and_ends_at_the_finish(self, lang):
         """A question that transitions to the wrong place is a skipped question.
 
-        Both arms run the same five keys, so an off-by-one in either chain shows
-        up as a systematically missing variable in one arm only - which reads as
-        a respondent behaviour difference rather than as a wiring bug.
+        Both arms run the same keys, so an off-by-one in either chain shows up
+        as a systematically missing variable in one arm only - which reads as a
+        respondent behaviour difference rather than as a wiring bug.
+
+        The walk resolves through a `confirm_` widget where there is one. A
+        confirmation sits between the store and the next question and is not a
+        step in the instrument, so a chain that runs through one is still in
+        order; a chain that ends at one is not.
         """
         definition = demo.build(lang, fake_sids(lang), fake_functions())
         states = {s["name"]: s for s in definition["states"]}
@@ -478,12 +484,65 @@ class TestBuild:
         for index, key in enumerate(demo.QUESTION_KEYS):
             store = states[f"store_ARM1_{key}"]
             following = [t.get("next") for t in store["transitions"]]
+            # One hop, not a general walk: anything longer than a confirmation
+            # between a store and the next question is a wiring bug this test
+            # exists to catch, not a shape it should accommodate.
+            resolved = []
+            for target in following:
+                if target and target.startswith("confirm_"):
+                    resolved += [t.get("next") for t in states[target]["transitions"]]
+                else:
+                    resolved.append(target)
             expected = (
                 f"ARM1_{demo.QUESTION_KEYS[index + 1]}"
                 if index + 1 < len(demo.QUESTION_KEYS)
                 else "mark_complete"
             )
-            assert expected in following, (key, following)
+            assert expected in resolved, (key, following, resolved)
+
+    def test_p6_slot_mapping_stays_parallel_to_the_code_mapping(self, lang):
+        """A second mapping over one question is the thing answers.py warns about.
+
+        The confirmation has to name the slot, and the raw reply is not the
+        slot: somebody who types `4` rather than tapping would otherwise be told
+        their flight is at 4. So P6 carries a label mapping beside its code
+        mapping - two artefacts over one set of options, which is exactly the
+        shape that fails silently when they disagree.
+
+        What makes it safe is that both are generated from one options tuple in
+        one pass. This pins that property down: identical `when` clauses,
+        differing only in what they emit. If someone adds a slot to one and not
+        the other, a respondent gets credited with option 7 and told to be ready
+        for option 6's flight, and nothing else in the suite would notice.
+        """
+        options = demo.LANGS[lang]["arm2"]["P6"]["options"]
+        pattern = r"\{% when (.+?) %\}([^{]*)"
+
+        code_clauses = re.findall(pattern, demo.code_mapping("ARM2_P6", options))
+        slot_clauses = re.findall(pattern, demo.slot_mapping("ARM2_P6", options))
+
+        assert [c for c, _ in code_clauses] == [c for c, _ in slot_clauses]
+        assert len(slot_clauses) == len(options)
+        # And each branch emits its own option's label, in order.
+        assert [v for _, v in slot_clauses] == [option[1] for option in options]
+
+    def test_p6_confirmation_reaches_the_finish_in_both_arms(self, lang):
+        """The confirmation is a message, not a step. It must not swallow the flow.
+
+        A send widget that failed to hand back to `mark_complete` would leave a
+        respondent who answered every question sitting at a dead end, having
+        been thanked for nothing - and `outcome` would never be set, so the row
+        would publish as incomplete.
+        """
+        definition = demo.build(lang, fake_sids(lang), fake_functions())
+        states = {s["name"]: s for s in definition["states"]}
+
+        for arm in ("ARM1", "ARM2"):
+            confirm = states[f"confirm_{arm}_P6"]
+            targets = {t.get("next") for t in confirm["transitions"]}
+            # Both the sent and failed events, so an undelivered confirmation
+            # still completes the survey.
+            assert targets == {"mark_complete"}, (arm, targets)
 
     def test_arm1_stop_words_are_honoured_at_every_question(self, lang):
         """Stopping must work in the arm with no other machinery around it."""
