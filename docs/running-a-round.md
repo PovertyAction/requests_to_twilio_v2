@@ -225,6 +225,40 @@ Nothing the report prints contains a phone number. Numbers are Confidential
 under IPA's data classification, and a report is the kind of thing that gets
 pasted into a chat window.
 
+### Your own IDs, and what Twilio actually needs
+
+**Twilio needs the number.** Nothing else about a respondent is required to
+reach them. Everything in `--columns` beyond that is a flow *parameter*, and a
+parameter is only worth sending if the flow reads it: `name` because the opener
+greets somebody, `arm` because the instrument branches on it, `caseid` because
+it is the key the submission carries back. An identifier the flow never reads is
+a value published to a third party for no reason at all.
+
+So if your sample already has a `student_id`, a `household_id`, or whatever the
+study calls its unit, **leave it out of `--columns`.** It stays in the sample and
+never leaves the machine.
+
+That works because the sample may carry more than the flow receives, and
+`--columns` is the boundary:
+
+```powershell
+# sample on disk:  Number, caseid, name, student_id, site
+just send wave3 caseid,name        # only caseid and name become flow parameters
+```
+
+`rtt launch` reads the whole file, checks that every *requested* column exists,
+and builds the parameter set from that list alone. Columns it was not asked for
+are carried nowhere. Join your own ID back on `caseid` after `rtt decrypt` — the
+sample is the master list, and it is already one of the two files allowed to
+hold numbers.
+
+Two reasons point the same way here, which is why this is the default rather
+than a preference. The first is that Twilio has no use for the ID. The second is
+that the tool has to assume you know not to put identifying information in your
+own ID column — it cannot inspect what a study calls its unit — and keeping the
+column local means that if that assumption is ever wrong, the mistake does not
+leave the machine.
+
 ### `rtt launch` — the general case
 
 ```powershell
