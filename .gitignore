@@ -280,3 +280,16 @@ flows/*
 # does, the built flow belongs beside the English one rather than ignored.
 !flows/data_use_demo_es.json
 !flows/foro_nacional_datos_source.json
+
+# Slides and other per-session working material. Large binaries, and specific to
+# one telling rather than something this repo ships - the instrument itself is
+# tracked (flows/data_use_demo_*.json, scripts/build_data_use_demo.py) and that
+# is the right split. Untracked was already the intent; writing it down is what
+# stops a single `git add -A` committing them. That matters more here than in
+# most repos: this history has already been rewritten once over a leaked key.
+presentation/
+
+# Copies of things as they were: a tracker from a round that has been sent, a
+# file before a rewrite. Some of it is respondent data and already matched by the
+# patterns above - but only some, so a single `git add -A` would commit the rest.
+.launch_archive/

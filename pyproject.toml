@@ -61,6 +61,12 @@ packages = ["src/requests_to_twilio"]
 [tool.ruff]
 line-length = 88
 fix = true
+# `.launch_archive/` holds copies of things as they were - an old tracker, a
+# deck, a snapshot of a skill - and none of it is source. That matters more
+# than the noise it makes in `just lint-py`: `fix = true` above means ruff
+# does not merely report on a file it reaches, it rewrites it, and rewriting
+# an archive defeats the point of having kept one.
+extend-exclude = [".launch_archive"]
 # Assume Python 3.12
 target-version = "py312"
 
