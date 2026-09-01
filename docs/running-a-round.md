@@ -123,6 +123,93 @@ refuses anything already submitted.
 
 ## Launching
 
+### `just signups` / `just send` — one path in
+
+`rtt launch` validates that `Number` and `caseid` are present and that `caseid`
+is neither blank nor duplicated. It does **not** validate the value in `Number` —
+no country check, no `whatsapp:` prefix check. Whatever is in that cell goes to
+Twilio, and a malformed one fails per-row at send time, which on the day is 13:55
+with a room waiting.
+
+So a sample that reached `rtt launch` by any other route was never checked at
+all, and these two recipes exist to be the only route:
+
+```powershell
+just signups scripts/build_rst2026_sample.py                          # export -> sample
+just signups scripts/build_rst2026_sample.py "--prefix RST2026-TEST"  # a rehearsal, kept apart
+just send rst2026_sample "--dry-run"      # every pre-flight check, sends nothing
+just send rst2026_sample                  # sends, then watches for an hour
+```
+
+Both take the round rather than assuming one. The builder is the script that
+knows a particular sign-up form's shape — which column holds the number, which
+is the consent tick — and that is per-round by nature, because a form belongs to
+whoever made it. `just send` takes the sample's name without its extension; the
+tracker is always `<sample>_output.csv`, because that is what `rtt launch` writes.
+
+`just send` does two things, because during a session they are one action: it
+launches, and then it polls for an hour and rewrites the `tracking` tab every
+two minutes, so the round is visible to people who are not at a terminal. Ctrl-C
+ends the watch without affecting anything already sent — the tracker file on disk
+is the record, and `just send` again picks up whoever signed up meanwhile.
+
+Two choices in there worth knowing. `--every 2` rather than every minute because
+polling repeatedly earns a 429 eventually, and a rate limit in front of a room is
+worse than a two-minute refresh. And `--full-window`, without which the watch
+would end almost immediately — see below, it is not obvious.
+
+`signups` reads the sign-up export and writes a launch sample. Four things it
+does that a hand-made spreadsheet does not:
+
+| | |
+| --- | --- |
+| **Country comes from the form, per row** | A bare 10-digit string is an Indian mobile, a US line and a Colombian mobile at once, and only the respondent can say which. The export's country column decides; a row that does not say, and whose number carries no `+`, is **reported for a human rather than resolved**. Resolving it on a default region is how a message reaches a stranger. |
+| **Consent is required** | An unticked box is not a yes. Those rows are excluded and counted. |
+| **A landline is refused** | It parses to valid E.164 and WhatsApp still cannot reach it, so sending is a message that never arrives. `FIXED_LINE_OR_MOBILE` **is** accepted — that is what the library answers when a numbering plan does not separate the two at all, which is every number in `+1`. |
+| **`caseid` and `arm` never move** | A rebuild carries every number's existing assignment forward and gives new ones only to new sign-ups. `--resume` keys on `caseid`, so an id that shifted when three more people signed up would re-send to somebody already contacted; an arm that shifted would move a respondent between treatments after they had answered. |
+| **An explicit `Number` column is trusted, but cross-checked** | The workbook kept on the day carries the form's columns *and* a `Number` column beside them. If both resolve to the same thing, fine. If they disagree, one is a typo and nothing here can tell which — so the row is reported rather than sent on a coin flip. A `Number` **is** allowed to rescue a row whose country cell could not be read, because it carries its own country. |
+
+Parsing is [libphonenumber](https://github.com/google/libphonenumber) via
+`phonenumbers`, not a table of per-country mobile lengths. That is what makes a
+trunk zero on an Indonesian `08…`, an eight-digit Singapore number and a country
+code typed without a plus all resolve correctly — and it handles the trap worth
+knowing: Indian mobiles start with 6-9, so an ordinary local number like
+`9123456789` **begins with the country code 91**, and any rule that reads the
+prefix to decide "it already has its country code" turns it into a ten-digit
+`+9123456789` that Twilio rejects at send time.
+
+### Which column is which
+
+Columns are found by hint, and two of the form's own headers are traps that hint
+matching walks straight into:
+
+- **`Organization Name` contains "name".** Read as the respondent name, every
+  opener goes out addressed to an employer.
+- **`I agree to receive one WhatsApp message from IPA...` contains "WhatsApp".**
+  Read as the phone column, every row fails to resolve at once.
+
+Today the hint *order* happens to save both, because `First Name` is matched
+before the bare `name` hint and the number column sits above the consent
+question. That is luck about column order, not a property — so each role also
+carries an explicit list of headers it must never match, and moving or renaming a
+question cannot silently repoint it. There is a test for each.
+
+The country question is free text rather than a dropdown, so the cell is read as
+widely as can be done safely: a dial code (`+233`, `233`, `0091`), an ISO code
+(`GH`), or a country name with accents and punctuation ignored, so `Cote d
+Ivoire` and the properly spelled version are one key. A **dial code works for
+every country on earth** — that path goes through the library's own code-to-region
+lookup. A **name** only works if it is in the table in the script, which is
+hand-kept and deliberately not exhaustive; a name that is not there is reported
+with the remedy in the message ("put the dial code in the country column"),
+never guessed at. Add to that table freely — it is a list, not a design.
+
+Nothing the report prints contains a phone number. Numbers are Confidential
+under IPA's data classification, and a report is the kind of thing that gets
+pasted into a chat window.
+
+### `rtt launch` — the general case
+
 ```powershell
 just launch "sample.xlsx --columns caseid,name,arm --dry-run"
 just launch "sample.xlsx --columns caseid,name,arm --batch-size 50 --sleep 5"
@@ -209,6 +296,13 @@ working through the questions; delivery simply has nothing further to say about
 them. Their data row appears only when the flow reaches its publish widget at
 the end. For where a respondent is mid-survey use `rtt fetch`, which reads
 execution state.
+
+**Pass `--full-window` when somebody is watching.** It keeps polling for the
+whole `--hours` window even once every number has settled, which is the only way
+the tracking tab keeps moving through a live session rather than freezing a
+minute after the send. The default is the right one for reconciling a round
+afterwards; this is the flag for doing it in front of a room, and `just send`
+passes it.
 
 **Pass `--tracker`.** It scopes the poll to one round using the launcher's own
 `sent_at`, and it is also the only place a send that never left is recorded —
@@ -339,6 +433,45 @@ names to maintain. A value that cannot be decrypted becomes
 partially-encrypted column is passed through untouched, not overwritten.
 
 Writing over the input is refused: the ciphertext is the only copy.
+
+### `just round-reset` — clearing a round, keeping a template
+
+```powershell
+just round-reset rst2026_sample.xlsx                             # report only, changes nothing
+just round-reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run of the real thing
+just round-reset rst2026_sample.xlsx "--snapshot --truncate --yes"
+just round-reset rst2026_sample.xlsx "--local --yes"             # the test files on disk
+```
+
+The sample is required rather than defaulted, and `--round` derives the other
+two files from it: `<sample>_output.csv` and the shared `delivery_log.csv`. A
+default would be a filename from somebody else's round, and the failure mode is
+deleting the wrong one silently or the right one not at all. Pass `--signups` to
+name the hand-maintained export so it is never deleted.
+
+Three operations, chosen independently, and **nothing happens without `--yes`**.
+
+`--snapshot` copies `data` to `data_template` and `tracking` to
+`tracking_template`. It exists because a dashboard needs rows to be built
+against, and the rows a rehearsal produced are the only honest sample of what a
+real round looks like — so they can be kept while the live tabs go back to
+empty, and the dashboard repointed once it works.
+
+`--truncate` deletes every row below the header with one `deleteDimension`,
+rather than clearing the tab and writing the header back. The difference is the
+failure in between: a clear that succeeds and a write that then fails leaves a
+tab with **no header row**, and `publish_gsheets` maps a parameter to a column by
+matching row 1 — so the next submission would have nowhere to go and would be
+dropped behind an HTTP 200.
+
+`--local` deletes the test trackers, exports and sample workbooks from the
+working directory, `round_decrypted.csv` among them — a decrypted export is
+plain-text PII, and it is the one worth not leaving lying around.
+`sample_input.xlsx` and `sample_template.xlsx` are never touched: both are
+committed reference material rather than data from a round.
+
+Only four tabs are ever read or written, so a sign-up form whose responses land
+in the same workbook cannot be caught by this.
 
 ### `rtt push`
 

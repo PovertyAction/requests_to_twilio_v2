@@ -136,6 +136,95 @@ keygen *ARGS:
 launch *ARGS:
     uv run rtt launch {{ ARGS }}
 
+# ---------------------------------------------------------------------------
+# Running a round. Three recipes, and between them they are the whole path from
+# a sign-up to a sent message. There is deliberately no second way in:
+# `rtt launch` does not check the value in `Number`, so a sample that reached
+# it by any other route was never checked at all, and a malformed number fails
+# per-row at send time - which on the day is 13:55 with a room waiting.
+#
+# Every one of them takes the round as an argument rather than defaulting to
+# one. These recipes were written during a live round and had that round's
+# filenames baked into their bodies, which worked for the person who wrote them
+# and left everybody else with a command surface that pointed at files they did
+# not have. A default here is somebody else's round.
+# ---------------------------------------------------------------------------
+
+# Resolves each number to E.164 against the country the form collected, drops
+# anybody who did not tick consent, refuses a landline (WhatsApp only reaches
+# mobiles), and carries every caseid and arm it has already assigned forward
+# unchanged - so re-running as more people sign up moves nobody.
+#
+# BUILDER is the script that knows one sign-up form's shape - which column is
+# the number, which is the consent tick, what the country field is called. That
+# is per-round by nature: a form is somebody's Google Form, not a repo's API.
+# Nothing it prints contains a phone number.
+#
+#   just signups scripts/build_rst2026_sample.py
+#   just signups scripts/build_rst2026_sample.py "--prefix RST2026-TEST"
+#   just signups scripts/build_rst2026_sample.py "export.csv --out today.xlsx"
+[doc("Build the launch sample from the sign-up export")]
+signups BUILDER *ARGS:
+    uv run python {{ BUILDER }} {{ ARGS }}
+
+# Sends, then watches for an hour. Two things worth knowing about each half.
+#
+# --resume is baked in on purpose. `rtt launch` refuses to run over an existing
+# tracker, and every send after the first is incremental because people keep
+# signing up while the session runs: --resume skips whoever has already been
+# sent to and retries only the failures. On a first run there is no tracker, so
+# it sends to everybody.
+#
+# The tracker then polls for an hour and rewrites the `tracking` tab every 2
+# minutes, so the round is visible to people who are not at a terminal. It needs
+# --full-window: `answered_back` counts as settled, so without it the loop exits
+# as soon as everybody has replied to the opener - a minute or two in, while the
+# survey has barely started - and the tab stops moving mid-session.
+#
+# --every 2 rather than 1 because polling earns a 429 eventually, and a rate
+# limit in front of a room is worse than a two-minute refresh. Raise it if the
+# round is large.
+#
+# A dry run starts no tracker: nothing was sent, so there is nothing to watch,
+# and the tracker file it would read does not exist.
+#
+# SAMPLE is the launch sample's name without its extension. The tracker is
+# always SAMPLE_output.csv because that is what `rtt launch` writes, so naming
+# the sample names both.
+#
+#   just send rst2026_sample "--dry-run"   # every pre-flight check, sends nothing
+#   just send rst2026_sample
+[doc("Send a round, then watch it land for an hour")]
+send SAMPLE *ARGS:
+    uv run rtt launch {{ SAMPLE }}.xlsx --columns caseid,name,arm --resume {{ ARGS }}
+    {{ if ARGS =~ "dry-run" { "echo 'dry run, so no tracker started'" } else { "uv run rtt monitor --tracker " + SAMPLE + "_output.csv --sample " + SAMPLE + ".xlsx --sheet --every 2 --hours 1 --full-window" } }}
+
+# Clear a round's collected rows, keeping a copy as a dashboard template. A dry
+# run unless you pass --yes, because each operation destroys something on a live
+# surface; with no flags at all it only reports what is there.
+#
+# --snapshot copies data -> data_template and tracking -> tracking_template, so
+# a dashboard has real rows to be built against after the live tabs are emptied.
+# --truncate deletes every row below the header, and never the header itself:
+# publish_gsheets matches a parameter to a column by reading row 1, so a tab
+# that lost it drops the next submission behind an HTTP 200.
+#
+#   just round-reset rst2026_sample.xlsx                            # report only
+#   just round-reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run
+#   just round-reset rst2026_sample.xlsx "--snapshot --truncate --yes"
+#   just round-reset rst2026_sample.xlsx "--local --yes"    # old test files on disk
+#   just round-reset rst2026_sample.xlsx "--round --yes"    # THIS round's three files
+#
+# --round is the one to remember between a rehearsal and the real send. All
+# three of those files carry state forward: the sample keeps a known number's
+# caseid, the tracker is where the monitor reads a round's start time, and the
+# delivery log is merged into rather than replaced. Leave them and the two
+# rounds mix - a rehearsal number gets skipped by --resume, and last round's
+# rows reappear in this round's tracking tab.
+[doc("Clear the data and tracking tabs, keeping a template copy")]
+round-reset SAMPLE *ARGS:
+    uv run python scripts/reset_round.py --sample {{ SAMPLE }} {{ ARGS }}
+
 # Decrypt collected responses.
 decrypt *ARGS:
     uv run rtt decrypt {{ ARGS }}
