@@ -50,7 +50,7 @@ caught it was reading her transcript afterwards.
 against the definition it just wrote and refuses to build, naming what drifted.
 To fix:
 
-```
+```powershell
 just demo-templates-sync
 ```
 

@@ -47,7 +47,7 @@ repos:
         # separate list, and a service account's address ends
         # `.iam.gserviceaccount.com`, so both entries are needed.
         args:
-          - --ignore-words-list=iam,componentes,registre,doble
+          - --ignore-words-list=iam,componentes,registre,doble,vie,aplicable
           - --uri-ignore-words-list=iam
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2
