@@ -535,9 +535,7 @@ EN: dict[str, Any] = {
         # a tap that matches nothing - see the note above the language tables.
         "P5": {
             "kind": "list",
-            "body": (
-                "🙌 Question 5 of 6\n\nDid you enjoy answering this survey?"
-            ),
+            "body": ("🙌 Question 5 of 6\n\nDid you enjoy answering this survey?"),
             "options": [
                 ("p5_loved", "Loved it", "🤩 Best thing all week"),
                 ("p5_liked", "Liked it", "🙂 Good, I would do it again"),
