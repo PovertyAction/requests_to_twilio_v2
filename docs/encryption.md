@@ -90,6 +90,18 @@ This is not a flaw in the design. A messaging platform has to receive plaintext
 in order to deliver it. Encryption moves the trust boundary off long-term storage
 and off the warehouse; it cannot move it off the carrier.
 
+**The `flow.data` row is the one you can do something about.** Those values are
+plaintext because `rtt launch` sends them that way, not because they have to be.
+A column encrypted on your own machine before it enters the sample is ciphertext
+in the API call, in the ExecutionContext and in the published row — Twilio never
+holds the plaintext of it at all, which is strictly more than
+`encrypt_fields.js` can offer for a value the respondent typed. It only works
+for a value the flow passes through rather than acts on, so it does not help the
+number (Twilio needs it to deliver) or a name the opener greets with. See
+[Your own IDs, and what Twilio actually needs](running-a-round.md#your-own-ids-and-what-twilio-actually-needs)
+in the round guide. The shortest version of this whole section: send as few
+columns as the flow can work with.
+
 **Two more limits worth stating:**
 
 - **Free-text answers are published in clear.** Only direct identifiers are

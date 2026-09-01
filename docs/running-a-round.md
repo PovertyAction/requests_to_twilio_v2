@@ -259,6 +259,43 @@ own ID column — it cannot inspect what a study calls its unit — and keeping 
 column local means that if that assumption is ever wrong, the mistake does not
 leave the machine.
 
+#### If you do send PII, encrypt it first
+
+Sometimes there is a real reason — a value that has to land in the published
+dataset next to the answers, and the flow is the only thing writing there. In
+that case encrypt the column **before** it goes into the sample, with the same
+public key the flow uses:
+
+```python
+from requests_to_twilio import crypto
+
+pub = crypto.load_public_key(public_key_b64)      # the key `just keygen` printed
+frame["guardian_name"] = [crypto.encrypt(v, pub) for v in frame["guardian_name"]]
+```
+
+The ciphertext is the same `v2:` sealed box that `encrypt_fields.js` produces
+inside the flow, so nothing downstream needs to be told about it. `rtt decrypt`
+detects any column carrying the `v2:` marker and needs no column list:
+
+```text
+ciphertext prefix          : v2:  (95 chars for a short name)
+auto-detected as encrypted : ['guardian_name']
+round trip intact          : True
+```
+
+Encrypting on this side is **stronger than encrypting in the flow**, and it is
+worth knowing why. `encrypt_fields.js` protects a value the respondent typed,
+which means the plaintext existed in a widget before the encrypt function ran. A
+value you seal on your own machine is ciphertext for its whole life in Twilio —
+the API call, the execution context, the published row. Twilio never holds the
+plaintext at all.
+
+The constraint is that **the flow cannot read what it cannot decrypt.** This works
+for a value the flow only passes through to the store. It does not work for
+anything the flow acts on: an encrypted name cannot greet somebody, and an
+encrypted `arm` cannot branch. Those have to stay plaintext, which is the real
+argument for sending as few of them as possible.
+
 ### `rtt launch` — the general case
 
 ```powershell
