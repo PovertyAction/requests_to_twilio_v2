@@ -693,6 +693,16 @@ def monitor(
         typer.Option("--hours", help="Keep polling for this long. Omit to poll once."),
     ] = None,
     every: Annotated[int, typer.Option("--every", help="Minutes between polls.")] = 30,
+    full_window: Annotated[
+        bool,
+        typer.Option(
+            "--full-window",
+            help=(
+                "Keep polling for the whole --hours window, even once every "
+                "number has settled. For a tab somebody is watching live."
+            ),
+        ),
+    ] = False,
     sheet: Annotated[
         bool,
         typer.Option(
@@ -719,6 +729,14 @@ def monitor(
     not un-fail, and once someone is answering, their progress is a question for
     `rtt fetch`, not for delivery status. When every number has settled the loop
     stops on its own rather than spending rate limit on a finished round.
+
+    **That is not the same as the survey finishing**, and it is why
+    `--full-window` exists. Somebody who has `answered_back` is still working
+    through the questions; delivery simply has nothing further to say about them.
+    So on a prompt round every number settles within a minute or two and the loop
+    exits - fine when reconciling afterwards, useless when the point is a
+    spreadsheet tab moving in front of a room. With `--full-window` the loop
+    keeps polling until `--hours` is up regardless.
 
     Reads the layer `rtt fetch` and `rtt data-check` cannot see. A send that Meta
     rejects never becomes an execution and never publishes a row, so that person
@@ -821,26 +839,40 @@ def monitor(
                     # the sheet is a view of it.
                     typer.secho(f"    sheet not updated: {exc}", fg=typer.colors.YELLOW)
 
-            if waiting.empty:
-                typer.secho(
-                    "\nEvery number has settled - nothing left to watch.",
-                    fg=typer.colors.GREEN,
-                )
+            settled_message = "\nEvery number has settled - nothing left to watch."
+
+            if waiting.empty and not full_window:
+                typer.secho(settled_message, fg=typer.colors.GREEN)
                 break
             if deadline is None:
-                typer.echo(
-                    f"{len(waiting)} still pending. Pass --hours to keep watching."
-                )
+                # No window asked for, so one poll was the whole job. Reached
+                # with --full-window too: keeping a window open needs a window.
+                if waiting.empty:
+                    typer.secho(settled_message, fg=typer.colors.GREEN)
+                else:
+                    typer.echo(
+                        f"{len(waiting)} still pending. Pass --hours to keep watching."
+                    )
                 break
             if time.monotonic() >= deadline:
-                typer.secho(
-                    f"\nWindow closed with {len(waiting)} still pending: "
-                    + ", ".join(str(c) for c in waiting["caseid"]),
-                    fg=typer.colors.YELLOW,
-                )
+                if waiting.empty:
+                    typer.secho(
+                        "\nWindow closed, every number settled.", fg=typer.colors.GREEN
+                    )
+                else:
+                    typer.secho(
+                        f"\nWindow closed with {len(waiting)} still pending: "
+                        + ", ".join(str(c) for c in waiting["caseid"]),
+                        fg=typer.colors.YELLOW,
+                    )
                 break
 
-            typer.echo(f"    {len(waiting)} pending, next poll in {every} min")
+            state = (
+                f"{len(waiting)} pending"
+                if not waiting.empty
+                else "all settled, still watching"
+            )
+            typer.echo(f"    {state}, next poll in {every} min")
             time.sleep(every * 60)
     except MonitorError as exc:
         _fail(str(exc))
