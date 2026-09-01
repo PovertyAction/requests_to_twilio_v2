@@ -18,6 +18,11 @@ dependencies = [
     "duckdb>=1.1.3",
     "openpyxl>=3.1.5",
     "pandas>=2.2.3",
+    # Google's libphonenumber, for turning what a sign-up form collects into
+    # E.164. The alternative is a hand-maintained table of per-country mobile
+    # lengths, which is wrong for the tail of countries an international
+    # training attracts and cannot be checked before the room is waiting.
+    "phonenumbers>=8.13.0",
     "python-dotenv>=1.0.1",
     # Used directly for the two Twilio endpoints the SDK does not cover: the
     # multipart function-source upload, and Flows/Validate. It arrives anyway as
