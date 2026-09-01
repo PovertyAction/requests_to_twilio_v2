@@ -41,7 +41,7 @@ pasted into a chat window.
 
 Run with:
 
-    just signups
+    just intake scripts/build_rst2026_sample.py
     uv run python scripts/build_rst2026_sample.py
     uv run python scripts/build_rst2026_sample.py signups.xlsx --prefix RST2026-TEST
 """
@@ -49,6 +49,7 @@ Run with:
 from __future__ import annotations
 
 import argparse
+import csv
 import random
 import re
 import sys
@@ -644,6 +645,35 @@ def read_any(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, dtype=str)
 
 
+def write_review(path: Path, problems: list[tuple[int, str]]) -> None:
+    """Write the rows a person has to look at, or clear a stale file.
+
+    The terminal report is the same information and it is where a person
+    actually reads it, so this is not a replacement for printing. It is for
+    afterwards: the rows that did not resolve are the list somebody takes back
+    to whoever owns the export, and a terminal that has been closed cannot be
+    taken anywhere. A round that ran without this leaves no evidence of what it
+    declined to send - which is the same silent-success failure this whole
+    script exists to refuse.
+
+    Deleting the file when there is nothing to review matters as much as writing
+    it. A stale one from the previous run reads as current, and a list of
+    problems that were fixed a week ago is worse than no list.
+
+    Carries the export's row number rather than any cell from it. That is
+    enough to find the row in the source, and it keeps the promise the module
+    docstring makes: nothing this script writes outside the sample contains a
+    phone number.
+    """
+    if not problems:
+        path.unlink(missing_ok=True)
+        return
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(("export_row", "reason"))
+        writer.writerows(problems)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Read the sign-up export, write the sample, report what needs a human."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -662,13 +692,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--name-col", default=None)
     parser.add_argument("--phone-col", default=None)
     parser.add_argument("--country-col", default=None)
+    parser.add_argument(
+        "--review",
+        type=Path,
+        default=None,
+        help="Where to write the rows needing review (default: <out>_needs_human_review.csv)",
+    )
     args = parser.parse_args(argv)
+    review_path = args.review or args.out.with_name(
+        f"{args.out.stem}_needs_human_review.csv"
+    )
 
     if not args.signups.is_file():
         print(
             f"Not found: {args.signups}\n\n"
             f"Put the sign-up export there, or name one:\n"
-            f'  just signups "path/to/export.xlsx"',
+            f'  just intake {Path(__file__).as_posix()} "path/to/export.xlsx"',
             file=sys.stderr,
         )
         return 1
@@ -694,6 +733,11 @@ def main(argv: list[str] | None = None) -> int:
         print("No usable rows. Nothing written.", file=sys.stderr)
         for position, reason in problems:
             print(f"  row {position}: {reason}", file=sys.stderr)
+        # Written on this path above all: no sample means the whole export needs
+        # work, and that is the case where a list to hand back is worth most.
+        write_review(review_path, problems)
+        if problems:
+            print(f"\nAlso written to {review_path}", file=sys.stderr)
         return 1
 
     sample.to_excel(args.out, index=False, sheet_name="sample")
@@ -706,21 +750,25 @@ def main(argv: list[str] | None = None) -> int:
     for note in notes:
         print(f"  note: {note}")
 
+    write_review(review_path, problems)
+
     if problems:
-        print(f"\n{len(problems)} row(s) need a human (export row -> reason):")
+        print(f"\n{len(problems)} row(s) need human review (export row -> reason):")
         for position, reason in problems:
             print(f"  row {position}: {reason}")
+        print(f"\nAlso written to {review_path}")
         print(
-            "\nFix them in the export and re-run - none were sent anywhere, and "
+            "Fix them in the export and re-run - none were sent anywhere, and "
             "a re-run does not move anybody already assigned."
         )
     else:
         print("\nEvery sign-up resolved.")
 
+    stem = args.out.stem
     print(
         "\nNext:\n"
-        '  just send "--dry-run"   # every pre-flight check, sends nothing\n'
-        "  just send               # sends to whoever has not been sent to yet"
+        f'  just send {stem} caseid,name,arm "--dry-run"   # checks, sends nothing\n'
+        f"  just send {stem} caseid,name,arm   # sends to whoever is left"
     )
     return 0
 

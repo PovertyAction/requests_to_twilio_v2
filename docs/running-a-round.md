@@ -123,7 +123,7 @@ refuses anything already submitted.
 
 ## Launching
 
-### `just signups` / `just send` — one path in
+### `just intake` / `just send` — one path in
 
 `rtt launch` validates that `Number` and `caseid` are present and that `caseid`
 is neither blank nor duplicated. It does **not** validate the value in `Number` —
@@ -135,17 +135,34 @@ So a sample that reached `rtt launch` by any other route was never checked at
 all, and these two recipes exist to be the only route:
 
 ```powershell
-just signups scripts/build_rst2026_sample.py                          # export -> sample
-just signups scripts/build_rst2026_sample.py "--prefix RST2026-TEST"  # a rehearsal, kept apart
-just send rst2026_sample "--dry-run"      # every pre-flight check, sends nothing
-just send rst2026_sample                  # sends, then watches for an hour
+just intake scripts/build_rst2026_sample.py                          # export -> sample
+just intake scripts/build_rst2026_sample.py "--prefix RST2026-TEST"  # a rehearsal, kept apart
+just send rst2026_sample caseid,name,arm "--dry-run"   # checks, sends nothing
+just send rst2026_sample caseid,name,arm               # sends, then watches for an hour
 ```
 
-Both take the round rather than assuming one. The builder is the script that
-knows a particular sign-up form's shape — which column holds the number, which
-is the consent tick — and that is per-round by nature, because a form belongs to
-whoever made it. `just send` takes the sample's name without its extension; the
-tracker is always `<sample>_output.csv`, because that is what `rtt launch` writes.
+**Numbers are collected somewhere else.** A form, a partner's spreadsheet, a
+panel, last round's completers — and they arrive in whatever shape that place
+produced. `intake` is where whatever arrived becomes something safe to send, and
+it is the only place that check can live, because `rtt launch` verifies that
+`Number` is *present* and never what is *in* it.
+
+So messy input is the expected case rather than a failure. Rows that do not
+resolve are reported with a reason and written to
+`<out>_needs_human_review.csv`; nobody is sent anything; and re-running after a
+fix moves nobody already assigned, because `caseid` and `arm` are frozen across
+rebuilds. The loop is: export, intake, read the review file, fix at the source,
+intake again.
+
+Both recipes take the round rather than assuming one. The builder is the script
+that knows one source's shape — which column holds the number, which is the
+consent tick — and that is per-source by nature, because a form belongs to
+whoever made it. `just send` takes the sample's name without its extension (the
+tracker is always `<sample>_output.csv`, because that is what `rtt launch`
+writes) and the columns the flow should receive. `caseid` earns its place there
+— it is the non-identifying key everything downstream joins on, which is what
+confines phone numbers to the master list — but the rest is yours. `arm` belongs
+to a study that randomises, and most rounds do not.
 
 `just send` does two things, because during a session they are one action: it
 launches, and then it polls for an hour and rewrites the `tracking` tab every

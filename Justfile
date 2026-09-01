@@ -155,16 +155,28 @@ launch *ARGS:
 # mobiles), and carries every caseid and arm it has already assigned forward
 # unchanged - so re-running as more people sign up moves nobody.
 #
-# BUILDER is the script that knows one sign-up form's shape - which column is
-# the number, which is the consent tick, what the country field is called. That
-# is per-round by nature: a form is somebody's Google Form, not a repo's API.
-# Nothing it prints contains a phone number.
+# Numbers are collected somewhere else - a form, a partner's spreadsheet, a
+# panel, last round's completers - and they arrive in whatever shape that place
+# produced. This is where whatever arrived becomes something safe to send, and
+# it is the only place that check can live: `rtt launch` verifies that Number is
+# present, never what is in it.
 #
-#   just signups scripts/build_rst2026_sample.py
-#   just signups scripts/build_rst2026_sample.py "--prefix RST2026-TEST"
-#   just signups scripts/build_rst2026_sample.py "export.csv --out today.xlsx"
-[doc("Build the launch sample from the sign-up export")]
-signups BUILDER *ARGS:
+# So messy input is expected rather than a problem. Rows that do not resolve are
+# reported with a reason and written to <out>_needs_human_review.csv, nobody is
+# sent anything, and re-running after a fix moves nobody already assigned -
+# caseid and arm are frozen across rebuilds. Export, intake, read the review
+# file, fix at the source, intake again.
+#
+# BUILDER is the script that knows one source's shape - which column is the
+# number, which is the consent tick, what the country field is called. That is
+# per-source by nature: a form belongs to whoever made it, not to this repo.
+# Nothing it prints or writes outside the sample contains a phone number.
+#
+#   just intake scripts/build_rst2026_sample.py
+#   just intake scripts/build_rst2026_sample.py "--prefix RST2026-TEST"
+#   just intake scripts/build_rst2026_sample.py "export.csv --out today.xlsx"
+[doc("Turn an external export into a validated launch sample")]
+intake BUILDER *ARGS:
     uv run python {{ BUILDER }} {{ ARGS }}
 
 # Sends, then watches for an hour. Two things worth knowing about each half.
@@ -192,11 +204,18 @@ signups BUILDER *ARGS:
 # always SAMPLE_output.csv because that is what `rtt launch` writes, so naming
 # the sample names both.
 #
-#   just send rst2026_sample "--dry-run"   # every pre-flight check, sends nothing
-#   just send rst2026_sample
+# COLUMNS is what the flow receives per respondent. `caseid` earns its place -
+# it is the non-identifying key everything downstream joins on, which is what
+# keeps phone numbers confined to the master list. The rest is yours: `arm`
+# belongs to a study that randomises and most rounds do not, and a name column
+# is only needed by an opener that greets somebody.
+#
+#   just send rst2026_sample caseid,name,arm "--dry-run"   # checks, sends nothing
+#   just send rst2026_sample caseid,name,arm
+#   just send panel_wave3 caseid                           # no greeting, no arms
 [doc("Send a round, then watch it land for an hour")]
-send SAMPLE *ARGS:
-    uv run rtt launch {{ SAMPLE }}.xlsx --columns caseid,name,arm --resume {{ ARGS }}
+send SAMPLE COLUMNS *ARGS:
+    uv run rtt launch {{ SAMPLE }}.xlsx --columns {{ COLUMNS }} --resume {{ ARGS }}
     {{ if ARGS =~ "dry-run" { "echo 'dry run, so no tracker started'" } else { "uv run rtt monitor --tracker " + SAMPLE + "_output.csv --sample " + SAMPLE + ".xlsx --sheet --every 2 --hours 1 --full-window" } }}
 
 # Clear a round's collected rows, keeping a copy as a dashboard template. A dry
