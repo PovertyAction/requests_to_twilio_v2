@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "CLOSING template for the data-use demo, English. The mirror of",
+    "templates/data_use_demo_close_es.json - read that file's comment for why",
+    "this exists; the reasoning is identical and is not repeated here.",
+    "",
+    "In short: it goes only to people who never replied to the opener. They never",
+    "opened the 24-hour window, so a free-form message to them fails with error",
+    "63016 - and 'nothing arrived and nothing said so' is the failure this",
+    "repository exists to refuse. Everyone who did reply is inside the window and",
+    "gets the same words as a plain in-session message, needing no template.",
+    "",
+    "twilio/text rather than quick-reply on purpose. There is nothing to tap: the",
+    "round is over, and offering a button to somebody whose window has closed",
+    "invites a reply that cannot be delivered.",
+    "",
+    "It says no reply is needed and that we will not write again, because both",
+    "are true and because a closing message that reads like an opening one is how",
+    "a UTILITY template earns a block.",
+    "",
+    "This file replaces templates/rst2026_close.json, now in templates/archive/,",
+    "which named one specific training and invited the reader to a session during",
+    "it. See the comment in data_use_demo_intro_en.json for why the event name had",
+    "to leave the templates rather than be corrected after the fact."
+  ],
+  "friendly_name": "data_use_demo_close_en",
+  "language": "en",
+  "variables": {
+    "1": "Priya"
+  },
+  "types": {
+    "twilio/text": {
+      "body": "Hi {{1}}, thank you for your time. The short WhatsApp survey we sent has now closed.\n\nNo reply is needed from you, and we will not message you about this exercise again.\n\nIf you would like to see what the exercise showed, we hope to see you at the session.\n\n_IPA Team_"
+    }
+  }
+}

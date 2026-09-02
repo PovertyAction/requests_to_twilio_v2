@@ -68,11 +68,11 @@ Everything in between — consent buttons, answer lists, retry nudges, the closi
 message to someone who did reply — is inside the window and needs nothing.
 
 ```powershell
-just template-create templates/rst2026_intro.json
-just template-create templates/rst2026_close.json
-just template-submit rst2026_intro --category UTILITY
-just template-submit rst2026_close --category UTILITY
-just template-status rst2026_intro
+just template-create templates/data_use_demo_intro_en.json
+just template-create templates/data_use_demo_close_en.json
+just template-submit data_use_demo_intro_en --category UTILITY
+just template-submit data_use_demo_close_en --category UTILITY
+just template-status data_use_demo_intro_en
 ```
 
 Three things worth knowing before you submit:

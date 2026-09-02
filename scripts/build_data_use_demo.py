@@ -292,9 +292,15 @@ EN: dict[str, Any] = {
     "language": "en",
     # The two ends of the bookend, and the only two templates in this flow that
     # Meta ever sees. Everything between them is in session and free.
-    "intro_template": "rst2026_intro",
-    "close_template": "rst2026_close",
-    "description": "Data use demo (ARM1/ARM2 experiment) - English, RST Jaipur 2026",
+    #
+    # Named for the instrument, not for one round of it. These used to be
+    # `rst2026_intro`/`rst2026_close`, whose approved bodies welcomed the reader
+    # to a specific training in a specific city - so the demo could not be built
+    # by anybody else without first submitting somebody else's event branding to
+    # Meta, permanently. Spanish was written this way from the start.
+    "intro_template": "data_use_demo_intro_en",
+    "close_template": "data_use_demo_close_en",
+    "description": "Data use demo (ARM1/ARM2 experiment) - English",
     "consent": {
         "body": (
             "👋 Before we start - would you like to take part?\n\n"

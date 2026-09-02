@@ -104,10 +104,10 @@ credentials unless you insist.
 
 ```powershell
 just template-list --filter rst
-just template-create templates/rst2026_intro.json
+just template-create templates/data_use_demo_intro_en.json
 just template-create templates/generated --skip-existing --yes
-just template-status rst2026_intro
-just template-submit rst2026_intro --category UTILITY   # IRREVERSIBLE
+just template-status data_use_demo_intro_en
+just template-submit data_use_demo_intro_en --category UTILITY   # IRREVERSIBLE
 just template-delete rst2026_draft --yes
 ```
 
