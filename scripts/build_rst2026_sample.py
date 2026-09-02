@@ -306,6 +306,25 @@ def pick_column(
     )
 
 
+def _text(raw: object) -> str:
+    """Return a cell as clean text, with pandas' missing values read as empty.
+
+    `pd.read_csv(..., dtype=str)` yields `float("nan")` for an empty cell, and
+    **`float("nan")` is truthy** - so the natural idiom `str(raw or "")` returns
+    the literal string `"nan"` rather than `""`, and every guard built on it
+    passes silently. That cost two real defects: a sign-up who left the name box
+    empty was greeted *"Hi nan"* in the opener Meta had already approved, and the
+    blank-caseid check could never fire because `"nan"` is a non-empty string.
+
+    `region_from` and `normalise` already carried the check inline. This is the
+    same test in one place, so no caller has to remember it.
+    """
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    return "" if text.lower() in {"nan", "nat", "none", "<na>"} else text
+
+
 def region_from(raw: object) -> str | None:
     """Turn a country-code cell into an ISO region code, or None.
 
@@ -314,8 +333,8 @@ def region_from(raw: object) -> str | None:
     dropdown produces. Digits win when the cell has any, which is what makes
     the dropdown shape resolve on its code rather than on its spelling.
     """
-    text = str(raw or "").strip()
-    if not text or text.lower() in {"nan", "none"}:
+    text = _text(raw)
+    if not text:
         return None
 
     digits = re.sub(r"\D", "", text)
@@ -351,8 +370,8 @@ def normalise(raw: object, region: str | None) -> str:
     without a plus all resolve correctly - and what makes a row with no country
     a reported problem rather than a guess.
     """
-    text = str(raw or "").strip()
-    if not text or text.lower() in {"nan", "none"}:
+    text = _text(raw)
+    if not text:
         raise Unresolved("blank number")
 
     # `rtt launch` sends `whatsapp:+<E164>`, so this function has to accept its
@@ -404,7 +423,7 @@ def normalise(raw: object, region: str | None) -> str:
 
 def consented(raw: object) -> bool:
     """Return True when the consent cell says yes. An empty box is not a yes."""
-    return str(raw or "").strip().lower() not in REFUSALS
+    return _text(raw).lower() not in REFUSALS
 
 
 def read_existing(path: Path) -> tuple[dict[str, tuple[str, str]], int]:
@@ -427,11 +446,11 @@ def read_existing(path: Path) -> tuple[dict[str, tuple[str, str]], int]:
     assignments: dict[str, tuple[str, str]] = {}
     highest = 0
     for record in frame.to_dict("records"):
-        number = str(record.get("Number") or "").strip()
-        caseid = str(record.get("caseid") or "").strip()
+        number = _text(record.get("Number"))
+        caseid = _text(record.get("caseid"))
         if not number or not caseid:
             continue
-        assignments[number] = (caseid, str(record.get("arm") or "").strip())
+        assignments[number] = (caseid, _text(record.get("arm")))
         tail = caseid.rsplit("-", 1)[-1]
         if tail.isdigit():
             highest = max(highest, int(tail))
@@ -563,7 +582,7 @@ def build(
             continue
         seen[number] = position
 
-        name = str(record.get(name_col) or "").strip().split(" ")[0] or "there"
+        name = _text(record.get(name_col)).split(" ")[0] or "there"
         rows.append({"Number": number, "name": name})
 
     if refused:
@@ -611,23 +630,53 @@ def validate_launch_shape(
     print("  input is already in launch shape - validating, not converting\n")
     rows: list[dict[str, str]] = []
     problems: list[tuple[int, str]] = []
+    # Two rows can name the same person while looking nothing alike, and it is
+    # `normalise` that makes them identical: `whatsapp:+919812345678` and
+    # `+91 98123 45678` are one number after resolution and two strings before
+    # it. So the check has to happen here rather than by eye on the input.
+    # Sending twice starts a second execution, and the second overwrites the
+    # first one's answers - `build()` has guarded this from the beginning; this
+    # path did not, and it is the path the Justfile invites for "last round's
+    # completers", where a number appearing twice is exactly what happens.
+    seen: dict[str, int] = {}
+    seen_caseids: dict[str, int] = {}
     for position, record in enumerate(frame.to_dict("records"), start=2):
         try:
             number = normalise(record.get("Number"), None)
         except Unresolved as exc:
             problems.append((position, str(exc)))
             continue
+        if number in seen:
+            problems.append((position, f"same number as row {seen[number]}"))
+            continue
+        seen[number] = position
+
+        caseid = _text(record.get("caseid"))
+        if caseid and caseid in seen_caseids:
+            problems.append(
+                (position, f"same caseid {caseid!r} as row {seen_caseids[caseid]}")
+            )
+            continue
+        if caseid:
+            seen_caseids[caseid] = position
+
         rows.append(
             {
                 "Number": number,
-                "caseid": str(record.get("caseid") or "").strip(),
-                "name": str(record.get("name") or "there").strip(),
-                "arm": str(record.get("arm") or "").strip(),
+                "caseid": caseid,
+                "name": _text(record.get("name")) or "there",
+                "arm": _text(record.get("arm")),
             }
         )
 
     blank = sum(1 for row in rows if not row["caseid"])
     notes = [f"{blank} row(s) have a blank caseid."] if blank else []
+    # An arm the flow cannot split on sends the respondent down neither branch.
+    odd = sorted({row["arm"] for row in rows if row["arm"] not in {"1", "2"}})
+    if odd:
+        notes.append(
+            f"arm values that are neither 1 nor 2: {', '.join(map(repr, odd))}"
+        )
     return _as_sample(rows), problems, notes
 
 
@@ -665,12 +714,30 @@ def write_review(path: Path, problems: list[tuple[int, str]]) -> None:
     docstring makes: nothing this script writes outside the sample contains a
     phone number.
     """
+    header = "export_row,reason"
     if not problems:
-        path.unlink(missing_ok=True)
+        # Only ever remove a file this function wrote. `--review` names an
+        # arbitrary path, and an unconditional unlink on the clean path meant
+        # `--review signups.xlsx` deleted the sign-up export - hand-maintained,
+        # gitignored, unrecoverable - as its reward for a run where nothing was
+        # wrong. Checking the first line is enough: nothing else opens with it.
+        if not path.is_file():
+            return
+        try:
+            first = path.read_text(encoding="utf-8").splitlines()[:1]
+        except (OSError, UnicodeDecodeError):
+            first = []
+        if first and first[0].strip() == header:
+            path.unlink()
+        else:
+            print(
+                f"  note: leaving {path} alone - it is not a review file "
+                f"this build wrote"
+            )
         return
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(("export_row", "reason"))
+        writer.writerow(tuple(header.split(",")))
         writer.writerows(problems)
 
 

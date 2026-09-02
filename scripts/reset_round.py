@@ -13,7 +13,7 @@ Three operations, chosen independently so one command covers the whole day:
     just round-reset SAMPLE.xlsx                  # say what is there, change nothing
     just round-reset SAMPLE.xlsx "--snapshot"     # data -> data_template, and tracking
     just round-reset SAMPLE.xlsx "--truncate"     # live tabs back to their header row
-    just round-reset SAMPLE.xlsx "--local"        # delete the local test artifacts
+    just round-reset SAMPLE.xlsx "--local old_output.csv"   # delete named leftovers
     just round-reset SAMPLE.xlsx "--snapshot --truncate --yes"
 
 **Nothing happens without `--yes`.** Every operation here destroys something on
@@ -52,24 +52,22 @@ SNAPSHOTS = {"data": "data_template", "tracking": "tracking_template"}
 #: form's response tab above all - is out of reach by construction.
 TOUCHABLE = frozenset(SNAPSHOTS) | frozenset(SNAPSHOTS.values())
 
-#: Leftovers from the August test rounds: all gitignored, none reproducible,
-#: none worth keeping. `round_decrypted.csv` is the one that matters - it is
-#: plain-text PII sitting in a working directory.
+#: Filename patterns that mean "collected data sitting in a working directory".
+#: Used to *report* what is there, never to delete it: `--local` takes the names
+#: explicitly, because a wildcard that deletes is a wildcard that deletes the
+#: wrong thing once.
+#:
+#: This replaces a hardcoded tuple of one operator's rehearsal filenames -
+#: `my_solo_test.xlsx`, `my_es_test.xlsx`, two dated files under
+#: `.launch_archive/`. Every stranger running `just round-reset` was shown
+#: filenames from somebody else's laptop and told they were "local test
+#: artifacts", and `--local` then deleted by those names from whatever working
+#: directory they happened to be in. A default here is somebody else's round.
 #:
 #: The current round's own files are round_files() below, and the split is not
-#: cosmetic: this list is safe to delete at any time, that one is only safe to
-#: delete between rounds.
-LOCAL_ARTIFACTS = (
-    "round_export.csv",
-    "round_decrypted.csv",
-    "my_test_input_output.csv",
-    "my_solo_test_output.csv",
-    "my_test_input.xlsx",
-    "my_solo_test.xlsx",
-    "my_es_test.xlsx",
-    ".launch_archive/my_solo_test_output_20260818-093858.csv",
-    ".launch_archive/my_test_input_output_20260818-095040.csv",
-)
+#: cosmetic: what this finds is old and safe to remove at any time, that one is
+#: current state and only safe to remove between rounds.
+DATA_SHAPED = ("*_output.csv", "*_decrypted.csv", "*_export.csv", "*.xlsx")
 
 
 #: The working files of the round that just ran. Deleting these is what makes
@@ -96,9 +94,24 @@ LOCAL_ARTIFACTS = (
 #: monitor merges into it. Naming the files here instead would bind this script
 #: to one round, which is how the previous version shipped with `rst2026_` in it.
 def round_files(sample: str) -> tuple[str, ...]:
-    """Return the three files that carry state from one round into the next."""
-    stem = Path(sample).stem
-    return (f"{stem}.xlsx", f"{stem}_output.csv", "delivery_log.csv")
+    """Return the three files that carry state from one round into the next.
+
+    Both the directory and the real suffix have to survive. `rtt launch` writes
+    the tracker *beside* the sample rather than in the working directory, and it
+    accepts `.xlsx`, `.xlsm` and `.csv` samples alike. Deriving from the bare
+    stem was wrong twice over: `--sample rounds/today.xlsx` deleted an unrelated
+    `today.xlsx` in the working directory while reporting the real tracker as
+    absent, and `--sample panel.csv` named a `panel.xlsx` that never existed.
+    Both failures leave the round's real state in place, which is the thing this
+    command exists to remove.
+
+    A bare name with no suffix is taken as `.xlsx`, because that is the form
+    `just send` uses.
+    """
+    path = Path(sample)
+    workbook = path if path.suffix else path.with_suffix(".xlsx")
+    tracker = workbook.with_name(f"{workbook.stem}_output.csv")
+    return (str(workbook), str(tracker), "delivery_log.csv")
 
 
 #: Never deleted. Committed reference material that ships with the toolkit
@@ -228,27 +241,66 @@ def report(
         rows = max(len(values(sheet_id, token, title)) - 1, 0)
         print(f"  {title!r}{hidden}: {rows} data row(s)")
 
-    for label, names in (
-        ("Local test artifacts (--local)", LOCAL_ARTIFACTS),
-        ("This round's working files (--round)", round_files(sample)),
-    ):
-        print(f"\n{label}:")
-        for name in names:
-            path = Path(name)
-            if path.is_file():
-                print(f"  {name}: {path.stat().st_size} bytes")
-            else:
-                print(f"  {name}: absent")
+    print("\nThis round's working files (--round):")
+    for name in round_files(sample):
+        path = Path(name)
+        if path.is_file():
+            print(f"  {name}: {path.stat().st_size} bytes")
+        else:
+            print(f"  {name}: absent")
+
+    print("\nOther data-shaped files here (name them to --local to delete):")
+    protected = {Path(n).resolve() for n in keep if Path(n).name}
+    current = {Path(n).resolve() for n in round_files(sample)}
+    found = sorted(
+        {
+            p
+            for pattern in DATA_SHAPED
+            for p in Path().glob(pattern)
+            if p.is_file() and p.resolve() not in protected | current
+        }
+    )
+    for path in found:
+        print(f"  {path}: {path.stat().st_size} bytes")
+    if not found:
+        print("  (none)")
+
     print(f"\n  never deleted: {', '.join(keep)}")
     return present
 
 
-def delete_files(names: tuple[str, ...], *, commit: bool) -> int:
-    """Delete the named files. Returns how many were removed."""
+def delete_files(
+    names: tuple[str, ...], *, commit: bool, keep: tuple[str, ...] = ()
+) -> int:
+    """Delete the named files, never one named in ``keep``. Returns how many went.
+
+    ``keep`` used to be printed as a guarantee and enforced nowhere, which made
+    the report actively misleading: `--sample x.xlsx --signups x.xlsx --round
+    --yes` printed "never deleted: x.xlsx" and then deleted it in the next
+    breath. A sign-up export is hand-maintained and matched by the repository's
+    blanket `*.xlsx` ignore, so that is unrecoverable respondent data.
+
+    Comparison is by resolved path, not by string, so `./signups.xlsx` and
+    `signups.xlsx` are recognised as the same file.
+    """
+    protected = set()
+    for name in keep:
+        try:
+            protected.add(Path(name).resolve())
+        except OSError:
+            continue
+
     removed = 0
     for name in names:
         path = Path(name)
         if not path.is_file():
+            continue
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = None
+        if resolved is not None and resolved in protected:
+            print(f"  KEPT {name} - named by --signups or reference material")
             continue
         if commit:
             path.unlink()
@@ -271,7 +323,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Delete every row below the header in data and tracking",
     )
     parser.add_argument(
-        "--local", action="store_true", help="Delete the local test artifacts"
+        "--local",
+        nargs="*",
+        metavar="FILE",
+        default=None,
+        help=(
+            "Delete exactly these files. Names are required: there is no default "
+            "list, because a default here is somebody else's round. Run with no "
+            "operations to see what is present."
+        ),
     )
     parser.add_argument(
         "--round",
@@ -302,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     email, key, sheet_id = sheets.credentials_from_env()
     token = sheets.access_token(email, key)
 
-    wanted = args.snapshot or args.truncate or args.local or args.round
+    wanted = args.snapshot or args.truncate or bool(args.local) or args.round
     try:
         present = report(sheet_id, token, args.sample, keep)
     except sheets.SheetsError as exc:
@@ -350,10 +410,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {verb} {count} row(s) from {tab!r}, header kept")
 
         if args.local:
-            delete_files(LOCAL_ARTIFACTS, commit=args.yes)
+            delete_files(tuple(args.local), commit=args.yes, keep=keep)
 
         if args.round:
-            delete_files(round_files(args.sample), commit=args.yes)
+            delete_files(round_files(args.sample), commit=args.yes, keep=keep)
 
     except (sheets.SheetsError, ResetError) as exc:
         print(f"\n{exc}", file=sys.stderr)

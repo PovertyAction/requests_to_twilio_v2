@@ -269,7 +269,7 @@ public key the flow uses:
 ```python
 from requests_to_twilio import crypto
 
-pub = crypto.load_public_key(public_key_b64)      # the key `just keygen` printed
+pub = crypto.load_public_key(public_key_b64)  # the key `just keygen` printed
 frame["guardian_name"] = [crypto.encrypt(v, pub) for v in frame["guardian_name"]]
 ```
 
@@ -528,7 +528,7 @@ Writing over the input is refused: the ciphertext is the only copy.
 just round-reset rst2026_sample.xlsx                             # report only, changes nothing
 just round-reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run of the real thing
 just round-reset rst2026_sample.xlsx "--snapshot --truncate --yes"
-just round-reset rst2026_sample.xlsx "--local --yes"             # the test files on disk
+just round-reset rst2026_sample.xlsx "--local old_output.csv --yes"  # named leftovers
 ```
 
 The sample is required rather than defaulted, and `--round` derives the other
@@ -552,11 +552,18 @@ tab with **no header row**, and `publish_gsheets` maps a parameter to a column b
 matching row 1 — so the next submission would have nowhere to go and would be
 dropped behind an HTTP 200.
 
-`--local` deletes the test trackers, exports and sample workbooks from the
-working directory, `round_decrypted.csv` among them — a decrypted export is
-plain-text PII, and it is the one worth not leaving lying around.
-`sample_input.xlsx` and `sample_template.xlsx` are never touched: both are
-committed reference material rather than data from a round.
+`--local` deletes **exactly the files you name** — there is no default list.
+Run the command with no operations first: it reports every data-shaped file in
+the working directory (`*_output.csv`, `*_decrypted.csv`, `*_export.csv`,
+`*.xlsx`) so you can see what is there and choose. A decrypted export is
+plain-text PII and is the one worth not leaving lying around.
+
+There was a default list, and it was one operator's rehearsal filenames — so
+every other user was shown files from somebody else's laptop and told they were
+"local test artifacts". `sample_input.xlsx` and `sample_template.xlsx` are never
+deleted, nor is anything named by `--signups`: both are committed reference
+material rather than data from a round, and the sign-up export is
+hand-maintained.
 
 Only four tabs are ever read or written, so a sign-up form whose responses land
 in the same workbook cannot be caught by this.
