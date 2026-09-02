@@ -6,13 +6,13 @@ different formats, and the close reveals the experiment.
 
 * **ARM 1** is the counter-example: dense prose, cold register, no progress
   cues, and a demand to type the answer.
-* **ARM 2** is the recommendation: the same four constructs in plain language,
+* **ARM 2** is the recommendation: the same six constructs in plain language,
   as a tappable list, warm in tone and paced so the respondent knows where they
   are.
 
 ARM 2 is not merely the easier arm - it is the pattern this repo recommends, and
 the session's conclusion. Every choice in it is deliberate and worth copying:
-tappable options over typed input, one idea per message, "Question 2 of 4" so
+tappable options over typed input, one idea per message, "Question 2 of 6" so
 break-off is a decision and not confusion, and a warm but neutral voice - no
 persuasion, no urgency, no incentives. ARM 1 exists to make the size of that
 difference measurable rather than asserted.
@@ -24,7 +24,7 @@ Training 2026 in Jaipur.
 
 Why one builder for two languages
 ---------------------------------
-Because the alternative already bit this account. Seven flows here share one
+Because the alternative has already bitten us. A family of copied flows share one
 identical break-off path that never reaches the publish widget - the same defect
 copied six times as flows were cloned from one another, six of them published.
 Two hand-maintained language variants of the same instrument is that same
@@ -346,7 +346,7 @@ EN: dict[str, Any] = {
     # WARNING - THESE DATES ARE THE AUGUST 2026 RST JAIPUR SESSION.
     # The session runs Sunday 23 to Friday 28 August 2026 and presents on
     # Wednesday 26 August at 14:00, so "earlier today" is Wednesday's lunch and
-    # "yesterday" is Tuesday the 25th. Move the training and all five of these
+    # "yesterday" is Tuesday the 25th. Move the training and all six of these
     # strings are wrong - specifically, silently wrong, because a reference
     # frame that names the wrong day still reads as a well-formed question.
     "arm1": {
@@ -451,7 +451,7 @@ EN: dict[str, Any] = {
             "_Reply with your expected departure date and time._"
         ),
     },
-    # ARM 2 - the recommended pattern. The same five constructs, as tappable
+    # ARM 2 - the recommended pattern. The same six constructs, as tappable
     # lists, one idea per message, with a progress cue so the respondent always
     # knows how much is left. Emoji are used sparingly and only in bodies.
     #

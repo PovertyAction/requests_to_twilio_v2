@@ -1822,7 +1822,7 @@ def deploy(
             Twilio rejects the definition, or if the API call fails.
 
     The gate exists because this class of defect spreads by duplication. Seven
-    flows on this account share one identical break-off path that never reaches
+    copied flows share one identical break-off path that never reaches
     the publish widget - the same bug copied six times when flows were cloned
     from each other, six of them published. Detection that has to be remembered
     does not stop that; a deploy that refuses does.

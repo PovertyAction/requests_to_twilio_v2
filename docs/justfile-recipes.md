@@ -38,7 +38,7 @@ Run these once, when you clone the repo or when the toolchain changes.
 
 ## Writing an instrument
 
-A Studio flow is 84 widgets for 5 questions and nobody can review that. The spec
+A Studio flow is 97 widgets for 6 questions and nobody can review that. The spec
 is the same instrument as ~20 rows, in the shape SurveyCTO users already know.
 
 **The JSON is canonical** — it is what git carries and what a reviewer diffs. The

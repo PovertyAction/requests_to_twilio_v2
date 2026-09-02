@@ -1136,7 +1136,7 @@ def starter_spec(language: str = "en") -> Spec:
     subgraph - the first question anybody has is what a filled-in row looks
     like, and a template that cannot answer it sends them off to find an
     existing survey and copy it. Copying an existing survey is how seven flows
-    on this account came to share one identical break-off defect.
+    came to share one identical break-off defect.
 
     It is also *valid*, so ``rtt survey check`` on an untouched template is
     clean. That matters more than it sounds: it means the first finding somebody

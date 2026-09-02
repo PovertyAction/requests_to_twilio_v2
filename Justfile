@@ -394,7 +394,7 @@ data-check FILE *ARGS:
 monitor *ARGS:
     uv run rtt monitor {{ ARGS }}
 
-# A Studio flow is 73 widgets for 8 questions and nobody can review it. The spec
+# A Studio flow is 97 widgets for 6 questions and nobody can review it. The spec
 # is the same instrument as ~20 rows, in the shape SurveyCTO users already know:
 # one row is one question AND the whole subgraph it becomes.
 #

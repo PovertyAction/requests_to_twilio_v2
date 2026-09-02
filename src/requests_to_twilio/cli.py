@@ -1265,7 +1265,7 @@ def flow_schema(
     table: Annotated[
         str,
         typer.Option("--table", help="Fully qualified destination table."),
-    ] = "rst_2026.main.data_use",
+    ] = "your_database.main.your_round",
     output_format: Annotated[
         str,
         typer.Option(
@@ -1326,7 +1326,7 @@ def flow_deploy(
     """Deploy a flow, refusing to ship one that fails the checks.
 
     The gate matters because this class of defect spreads by duplication:
-    seven flows on this account carry one identical break-off path that never
+    a whole family of copied flows can carry one identical break-off path that never
     reaches the publish widget, copied six times when flows were cloned. A
     check you have to remember to run does not prevent that.
     """
@@ -2004,7 +2004,7 @@ def survey_template(
 
     That matters for a reason beyond convenience: given a blank sheet, the next
     move is to find an existing survey and copy it, and copying an existing
-    survey is how seven flows on this account came to share one identical
+    survey is how a family of flows comes to share one identical
     break-off defect.
     """
     configure(verbose)

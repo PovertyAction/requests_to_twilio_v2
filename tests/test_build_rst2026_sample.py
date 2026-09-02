@@ -350,13 +350,14 @@ def test_consented() -> None:
     assert not builder.consented("No")
 
 
-#: The workbook actually used on the day: the form's own columns plus a
-#: `Number` column maintained alongside them.
+#: The seven-column shape a maintained workbook has: the form's own columns plus
+#: a `Number` column somebody keeps alongside them. Numbers here are synthetic -
+#: `300 555 04xx` is a valid Colombian mobile that nobody holds.
 HYBRID_COLUMNS = [*FORM_COLUMNS, "Number"]
 
 
 def hybrid(
-    number: str, *, country: str = "+57", local: str = "3006701420"
+    number: str, *, country: str = "+57", local: str = "3005550420"
 ) -> pd.DataFrame:
     """One row of the seven-column workbook, with an explicit Number."""
     return pd.DataFrame(
@@ -378,10 +379,10 @@ def hybrid(
 def test_an_explicit_number_column_is_used(tmp_path: Path) -> None:
     """A workbook that keeps its own Number column is trusted."""
     sample, problems, _ = builder.build(
-        hybrid("whatsapp:+573006701420"), make_args(tmp_path)
+        hybrid("whatsapp:+573005550420"), make_args(tmp_path)
     )
     assert problems == []
-    assert sample["Number"].tolist() == ["whatsapp:+573006701420"]
+    assert sample["Number"].tolist() == ["whatsapp:+573005550420"]
 
 
 def test_a_disagreeing_number_column_is_reported(tmp_path: Path) -> None:
@@ -392,7 +393,7 @@ def test_a_disagreeing_number_column_is_reported(tmp_path: Path) -> None:
     message on a coin flip, so the row is reported instead.
     """
     sample, problems, _ = builder.build(
-        hybrid("whatsapp:+573006701421"), make_args(tmp_path)
+        hybrid("whatsapp:+573005550421"), make_args(tmp_path)
     )
     assert sample.empty
     assert "disagree" in problems[0][1]
@@ -401,10 +402,10 @@ def test_a_disagreeing_number_column_is_reported(tmp_path: Path) -> None:
 def test_an_explicit_number_rescues_an_unreadable_country(tmp_path: Path) -> None:
     """A Number carries its own country, which is more than the cells managed."""
     sample, problems, _ = builder.build(
-        hybrid("whatsapp:+573006701420", country="Atlantis"), make_args(tmp_path)
+        hybrid("whatsapp:+573005550420", country="Atlantis"), make_args(tmp_path)
     )
     assert problems == []
-    assert sample["Number"].tolist() == ["whatsapp:+573006701420"]
+    assert sample["Number"].tolist() == ["whatsapp:+573005550420"]
 
 
 def test_a_malformed_number_column_is_reported(tmp_path: Path) -> None:
@@ -435,7 +436,7 @@ def test_organization_name_is_never_the_respondent_name(tmp_path: Path) -> None:
                 "2026-08-24 09:00:00",
                 "Ana",
                 "+57",
-                "3006701420",
+                "3005550420",
                 "IPA Colombia",
                 CONSENT_TEXT,
             ]
@@ -473,7 +474,7 @@ def test_the_consent_question_is_never_the_phone_column(tmp_path: Path) -> None:
                 "Ana",
                 "+57",
                 CONSENT_TEXT,
-                "3006701420",
+                "3005550420",
                 "IPA",
             ]
         ],
@@ -487,4 +488,4 @@ def test_the_consent_question_is_never_the_phone_column(tmp_path: Path) -> None:
     )
     sample, problems, _ = builder.build(frame, make_args(tmp_path))
     assert problems == []
-    assert sample["Number"].tolist() == ["whatsapp:+573006701420"]
+    assert sample["Number"].tolist() == ["whatsapp:+573005550420"]

@@ -101,8 +101,8 @@ which `rtt launch` also checks.
 
 ```powershell
 just flow-list
-just flow-pull BSC_endline                     # writes flows/BSC_endline.json
-just flow-pull BSC_endline --out /tmp/snapshots --allow-secrets
+just flow-pull my_endline                      # writes flows/my_endline.json
+just flow-pull my_endline --out /tmp/snapshots --allow-secrets
 ```
 
 `pull` scans what it saves and refuses to write a definition containing
@@ -183,7 +183,7 @@ polling repeatedly earns a 429 eventually, and a rate limit in front of a room i
 worse than a two-minute refresh. And `--full-window`, without which the watch
 would end almost immediately — see below, it is not obvious.
 
-`signups` reads the sign-up export and writes a launch sample. Four things it
+`intake` reads the export and writes a launch sample. Five things it
 does that a hand-made spreadsheet does not:
 
 | | |
