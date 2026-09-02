@@ -25,6 +25,8 @@ from .crypto import CryptoError, KeyPair, load_private_key
 from .decryptor import DecryptionError, decrypt_dataset
 from .fetch import FetchError, fetch_executions, reconcile, write_output
 from .flows import (
+    ACCOUNT_ONLY_CHECKS,
+    TOTAL_CHECKS,
     FlowError,
     check_flow,
     check_preloaded,
@@ -1174,6 +1176,19 @@ def flow_check(
         if errors_only:
             findings = [f for f in findings if f.severity == "error"]
         _print_findings(local.name, findings)
+        # Say what did not run. Four checks read each template's content type,
+        # which only Twilio can answer, so on a local file they are skipped -
+        # and "all checks passed" then means 17 of 21, which is exactly the kind
+        # of quiet partial success this command exists to expose. A list-picker
+        # opener passes on disk and cannot open a conversation.
+        typer.secho(
+            f"\n  Not run on a local file ({len(ACCOUNT_ONLY_CHECKS)} of "
+            f"{TOTAL_CHECKS} checks): "
+            + ", ".join(ACCOUNT_ONLY_CHECKS)
+            + ".\n  These read a template's content type from the account. "
+            "Re-run against the\n  deployed flow by name to exercise them.",
+            fg=typer.colors.BLUE,
+        )
         if any(f.severity == "error" for f in findings):
             raise typer.Exit(code=1)
         return

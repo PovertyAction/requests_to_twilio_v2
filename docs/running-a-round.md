@@ -50,15 +50,23 @@ one is there:
 | `no-optout-path` | nothing looks for a mid-survey "STOP", so it is stored as an answer and the next question is sent anyway |
 | `trigger-ignores-api-launch` | the flow does not route `incomingRequest`, so an API launch ends at the trigger having sent nothing |
 | `opening-not-a-template` | a free-form opener, which WhatsApp rejects with 63016 outside the 24-hour window |
-| `opening-cannot-open-session` | a list picker as the opener — it cannot be approved, so it cannot open a conversation |
+| `opening-cannot-open-session` † | a list picker as the opener — it cannot be approved, so it cannot open a conversation |
 | `unmatchable-condition` | a split option no reply can ever reach. Evaluated, not read |
 | `split-without-nomatch` | a split with no fallback, so an unexpected reply goes nowhere |
-| `too-many-options` / `text-too-long` / `text-may-truncate` | past a Twilio limit; the create call fails with a generic error that names nothing |
+| `too-many-options` † / `text-too-long` † / `text-may-truncate` † | past a Twilio limit; the create call fails with a generic error that names nothing |
 | `respondent-initiated-start` | writing to the number starts the survey, so someone can begin a round nobody launched |
 | `no-final-status` | publishes with no outcome variable, so completion cannot be told from break-off |
+| `no-derived-final-status` | outcomes are recorded, but only as separate `set_*` flags. Those are `1` or **blank**, never `0`, so "not complete" is encoded as absence and reads the same as a dropped column. Strongly suggested rather than required — how you compose an outcome is your business |
 | `unpaired-answers` | an answer with no status beside it, so a blank cannot be read as timed-out vs not-asked |
 | `no-encryption` | publishes with no encryption widget, so identifiers reach the warehouse in clear |
 | `credentials` | a SID or token inside the definition |
+
+**† needs the account.** Four checks read each template's *content type*, which
+only Twilio can answer, so they are **silently skipped when the target is a local
+file**. `just flow-check flows/my_round.json` reporting "all checks passed" means
+17 of 21 passed and four did not run; the command now says so. Run it against
+the deployed flow by name — `just flow-check my_round` — before a round, because
+a list-picker opener passes on disk and cannot open a conversation.
 
 ### `rtt flow schema` — the shape the destination needs
 
