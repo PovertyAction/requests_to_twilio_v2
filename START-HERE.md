@@ -165,11 +165,16 @@ when the flow is built.
 
 ## 8. Prepare the destination
 
-Pick one. They are peers, chosen per build, and the choice is yours: Sheets
-needs a spreadsheet and a service account, MotherDuck needs a warehouse account.
-**Sheets is the default** because it is the lower barrier, not because it is the
-lesser option — a warehouse account should not be the first step of somebody's
-first WhatsApp survey.
+Pick one. They are peers, chosen per build, and which one fits depends on the
+project — on budget and on what accounts you can get.
+
+- **Google Sheets** needs a spreadsheet and a service account, and nothing you
+  have to pay for. It is **the default**, because a warehouse account should not
+  be the first step of somebody's first WhatsApp survey.
+- **MotherDuck** needs warehouse access. It is the better home for tracking a
+  round and for analysis that continues after collection.
+
+Neither is the lesser option and neither is a legacy path.
 
 Whichever you pick, **the publish step never creates the destination.** Guessing
 a schema for survey data produces wrong types, and a silent create would hide a
