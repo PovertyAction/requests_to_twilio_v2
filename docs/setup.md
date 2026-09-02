@@ -51,7 +51,7 @@ the flow graph, both are deployed by `just deploy-functions`, and both write the
 same payload. Choose per build:
 
 ```powershell
-just build-demo-flow "--lang en"                          # MotherDuck (default)
+just build-demo-flow "--lang en"                          # Google Sheets (default)
 just build-demo-flow "--lang en --publish-target gsheets" # Google Sheets
 ```
 
@@ -63,9 +63,10 @@ just build-demo-flow "--lang en --publish-target gsheets" # Google Sheets
 | Rate limits | Sheets API quota, and it does throttle | none in practice |
 | Best for | a first round, a small instrument, a team that wants to *watch* rows arrive | a real round, a long instrument, analysis that continues after collection |
 
-**Sheets is the lower barrier and often the right first choice.** MotherDuck is
-the default here because that is where this project's own rounds land, not
-because Sheets is a legacy path.
+**Sheets is the lower barrier and it is the default**, because a warehouse
+account should not be the first step of somebody's first WhatsApp survey.
+MotherDuck is where this project's own rounds land, which is a fact about this
+project rather than a recommendation: pick the one that fits your round.
 
 Configure either, or both. `just deploy-functions` reports what each target is
 missing and only fails when *no* target is configured — which would mean a

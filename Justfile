@@ -231,7 +231,7 @@ send SAMPLE COLUMNS *ARGS:
 #   just round-reset rst2026_sample.xlsx                            # report only
 #   just round-reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run
 #   just round-reset rst2026_sample.xlsx "--snapshot --truncate --yes"
-#   just round-reset rst2026_sample.xlsx "--local --yes"    # old test files on disk
+#   just round-reset rst2026_sample.xlsx "--local old_output.csv --yes"
 #   just round-reset rst2026_sample.xlsx "--round --yes"    # THIS round's three files
 #
 # --round is the one to remember between a rehearsal and the real send. All
@@ -303,7 +303,7 @@ flow-check *ARGS:
 # deployed by `just deploy-functions`, so switching is a rebuild of the flow
 # rather than a redeployment of the account:
 #
-#   just build-demo-flow "--lang en"                          # MotherDuck
+#   just build-demo-flow "--lang en"                          # Google Sheets (default)
 #   just build-demo-flow "--lang en --publish-target gsheets" # Google Sheets
 #
 # The flow file is written to the same path either way, so `git diff flows/`

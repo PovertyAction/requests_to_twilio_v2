@@ -148,7 +148,7 @@ class TestTheHeaderRowMatchesWhatTheFlowPublishes:
 class TestThePublishTargetPicksTheRightFunction:
     """The build-time choice has to reach every place the widget is named."""
 
-    def test_both_targets_are_offered_and_motherduck_is_the_default(self, demo):
+    def test_both_targets_are_offered_and_gsheets_is_the_default(self, demo):
         assert set(demo.PUBLISH_TARGETS) == {"motherduck", "gsheets"}
         assert demo.DEFAULT_PUBLISH_TARGET == "gsheets"
 
