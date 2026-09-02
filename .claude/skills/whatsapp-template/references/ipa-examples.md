@@ -1,15 +1,15 @@
-# A library of templates that shipped, and the categories Meta gave them
+# Templates IPA got approved, and what their categories reveal
 
-Real copy from IPA WhatsApp studies, all of it `approved` and all of it sent to
-respondents. The categories shown are what Meta actually assigned, not what was
-requested - which is the whole reason this file exists. House style is already
-established, and the category pattern is visible in copy that went out rather
-than theoretical.
+Real copy from IPA WhatsApp studies, all of it in `approved` status and all of
+it sent to respondents. **The categories shown are what Meta actually assigned,
+not what was requested** - which is the whole reason this file exists. Category
+is not a label you pick; it is a verdict on your wording, and the only reliable
+guide to it is copy that has already been through review.
 
-**Read this before drafting.** The use cases below are the ones IPA has actually
-run - recruitment openings, consent-bearing invitations, incentive offers,
-reminders, availability windows, and closings - so the nearest match is usually
-already here. Lift the shape, then write your own words.
+**Read this before drafting.** Wording that is close to something already
+approved is wording that will probably be approved. The openings, closings,
+reminders and incentive offers below cover most of what a survey needs, so start
+from the nearest one rather than from a blank file.
 
 Pull the current set any time with:
 
@@ -146,7 +146,7 @@ The UTILITY-approved openings share a shape:
 
 Step 3 is the one people skip, and it is the one that earns UTILITY.
 
-## Further use cases
+## Other shapes that got approved
 
 **Availability windows are stated up front.** `beat_intro2_recontacto` says
 "estará disponible durante 24 horas". That is honest about the WhatsApp session
