@@ -163,22 +163,49 @@ secret is pasted into the Console.
 You do not need to copy anything from its output. Everything is looked up by name
 when the flow is built.
 
-## 8. Create the warehouse table
+## 8. Prepare the destination
 
-The publish step **never creates a table**. Guessing a schema for survey data
-produces wrong types, and a silent `CREATE` would hide a typo in the table name.
-Print the right DDL from the flow itself:
+Pick one. They are peers, chosen per build, and the choice is yours: Sheets
+needs a spreadsheet and a service account, MotherDuck needs a warehouse account.
+**Sheets is the default** because it is the lower barrier, not because it is the
+lesser option — a warehouse account should not be the first step of somebody's
+first WhatsApp survey.
+
+Whichever you pick, **the publish step never creates the destination.** Guessing
+a schema for survey data produces wrong types, and a silent create would hide a
+typo. Both Functions write only into columns that already exist, so a question
+with nowhere to go is dropped **silently behind an HTTP 200**. Re-run the command
+below whenever you add a question.
+
+### Google Sheets (default)
+
+Print the header row the flow expects, and paste it into row 1 of a tab:
+
+```powershell
+just flow-header flows/data_use_demo_en.json
+```
+
+Create the sheet, share it with your service account's address as an Editor,
+then set `GOOGLE_SERVICE_ACCOUNT_FILE`, `GOOGLE_SHEET_ID` and
+`GOOGLE_SHEET_TAB` in `.env`.
+
+**Set `GOOGLE_SHEET_TAB` explicitly.** Unset means *the first visible tab*, so
+adding a tracking tab later silently redirects every submission into it.
+
+### MotherDuck
+
+Print the DDL from the flow itself and run it:
 
 ```powershell
 just flow-schema flows/data_use_demo_en.json --table my_db.main.my_round
 ```
 
-Run that `CREATE TABLE` in MotherDuck, and set `MOTHERDUCK_TOKEN`,
-`MOTHERDUCK_DATABASE`, `MOTHERDUCK_HOST` and `MOTHERDUCK_TABLE` in `.env`.
-
-Re-run `flow-schema` whenever you add a question. The publish Function only
-inserts into columns that already exist, so a new question with no matching
-column is dropped **silently behind an HTTP 200**.
+Then set `MOTHERDUCK_TOKEN`, `MOTHERDUCK_DATABASE`, `MOTHERDUCK_HOST` and
+`MOTHERDUCK_TABLE` in `.env`, and build with
+`just build-demo-flow "--lang en --publish-target motherduck"` in the next step —
+**the default is Sheets, so a MotherDuck round has to say so.** Configuring
+MotherDuck and building without that flag gives you a flow that publishes to a
+sheet you never made, and `deploy-functions` will not catch it.
 
 ## 9. Build and deploy the flow
 
