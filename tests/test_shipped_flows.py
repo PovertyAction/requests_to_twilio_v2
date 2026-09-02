@@ -89,3 +89,23 @@ def test_total_checks_matches_the_source():
     emitted = set(re.findall(r'Finding\(\s*"[a-z]+",\s*"([a-z-]+)"', source))
     assert len(emitted) == TOTAL_CHECKS, sorted(emitted)
     assert set(ACCOUNT_ONLY_CHECKS) <= emitted
+
+
+def test_the_skill_lists_every_check_the_code_emits():
+    """The agent-facing table drifted to 15 of 22, missing two errors.
+
+    A reader working from the skill could hit a non-zero exit on a code it never
+    named - and two of the six missing were error severity, so they gate a
+    deploy. `docs/running-a-round.md` had all of them; the skill did not, and
+    nothing compared the two.
+    """
+    skill = (ROOT / ".claude" / "skills" / "studio-flow" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    source = (ROOT / "src" / "requests_to_twilio" / "flows.py").read_text(
+        encoding="utf-8"
+    )
+    emitted = set(re.findall(r'Finding\(\s*"[a-z]+",\s*"([a-z-]+)"', source))
+    listed = set(re.findall(r"^\| `([a-z-]+)` \| (?:error|warning) \|", skill, re.M))
+    assert emitted - listed == set(), sorted(emitted - listed)
+    assert listed - emitted == set(), sorted(listed - emitted)
