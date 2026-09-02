@@ -59,7 +59,13 @@ from .monitor import (
     read_tracker,
     update_log,
 )
-from .sheets import SheetsError, access_token, credentials_from_env, replace_tab
+from .sheets import (
+    TOKEN_LIFETIME_SECONDS,
+    SheetsError,
+    access_token,
+    credentials_from_env,
+    replace_tab,
+)
 from .spec import (
     SCOPE_NOTE,
     SpecError,
@@ -794,9 +800,11 @@ def monitor(
             )
 
         token = None
+        minted_at = 0.0
         if sheet:
             email, key, sheet_id = credentials_from_env()
             token = access_token(email, key)
+            minted_at = time.monotonic()
             typer.echo(f"Publishing each poll to tab {sheet_tab!r}")
 
         client = Client(conf.account_sid, conf.auth_token)
@@ -828,16 +836,52 @@ def monitor(
                 )
 
             if token is not None:
+                # A Google assertion is minted for TOKEN_LIFETIME_SECONDS, which
+                # is ten minutes. That was ample while a settled round exited on
+                # the first poll; `--full-window --hours 1` holds the loop open
+                # for sixty, so the token died a sixth of the way in and every
+                # later write returned 401. The failure is swallowed below by
+                # design, so the tracking tab - the whole reason --full-window
+                # exists - froze for the remaining fifty minutes while the
+                # terminal printed "all settled, still watching" and the command
+                # exited green.
+                #
+                # Re-mint with a poll's margin, and retry once on a fresh token
+                # so a write that straddles the boundary still lands.
+                age = time.monotonic() - minted_at
+                if age > TOKEN_LIFETIME_SECONDS - max(every * 60, 60):
+                    try:
+                        token = access_token(email, key)
+                        minted_at = time.monotonic()
+                    except SheetsError as exc:
+                        typer.secho(
+                            f"    could not refresh the sheet token: {exc}",
+                            fg=typer.colors.YELLOW,
+                        )
                 try:
                     rows, _ = replace_tab(
                         log, sheet_id=sheet_id, tab=sheet_tab, token=token
                     )
                     typer.echo(f"    sheet updated: {rows} row(s) in {sheet_tab!r}")
                 except SheetsError as exc:
-                    # A sheet that will not update must not end the round's
-                    # monitoring. The CSV is already written and is the record;
-                    # the sheet is a view of it.
-                    typer.secho(f"    sheet not updated: {exc}", fg=typer.colors.YELLOW)
+                    retried = False
+                    try:
+                        token = access_token(email, key)
+                        minted_at = time.monotonic()
+                        rows, _ = replace_tab(
+                            log, sheet_id=sheet_id, tab=sheet_tab, token=token
+                        )
+                        retried = True
+                        typer.echo(f"    sheet updated: {rows} row(s) in {sheet_tab!r}")
+                    except SheetsError:
+                        pass
+                    if not retried:
+                        # A sheet that will not update must not end the round's
+                        # monitoring. The CSV is already written and is the
+                        # record; the sheet is a view of it.
+                        typer.secho(
+                            f"    sheet not updated: {exc}", fg=typer.colors.YELLOW
+                        )
 
             settled_message = "\nEvery number has settled - nothing left to watch."
 
