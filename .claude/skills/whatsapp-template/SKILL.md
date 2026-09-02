@@ -143,7 +143,7 @@ with the consent basis landed in UTILITY. Compare:
 
 > **MARKETING** - "Luego de completar esta encuesta, **le daremos un bono de
 > regalo por COP 10.000**... **¿Se anima?**" (`edu_baseline_welcome2`)
-
+>
 > **UTILITY** - "Esta es una encuesta de actualización de datos de 5 minutos,
 > **para la cual nos autorizaste un nuevo contacto**."
 > (`beat_intro2_recontacto`)
@@ -199,25 +199,20 @@ multi-language template.
 
 Ask explicitly, and be precise about the locale code:
 
-- `en` vs `en_US` vs `en_GB` are distinct templates. This account already has
-  RST templates split across `en_US` and `en_GB` for no apparent reason, which
-  is now permanent clutter.
+- `en` vs `en_US` vs `en_GB` are distinct templates. It is easy to end up with
+  one study's templates split across two of them, and nothing merges them
+  afterwards.
 - **Pick one and use it consistently.** Prefer the bare code (`en`, `es`) unless
   there is a real regional difference in the copy.
 - For India, English is usually right, but ask - Hindi or a regional language
   may be expected, and that doubles the review cycles.
 
-**How bad this gets when nobody decides.** A sibling IPA account carries 560
-templates for Spanish-language studies, spread across four locale tags:
+**How bad this gets when nobody decides.** A long-running Spanish programme
+can accumulate hundreds of templates spread across four locale tags - `es`,
+`es_MX`, `es_ES`, `es_AR` - with the bulk under the bare code and the rest
+scattered.
 
-| Locale | Templates |
-| --- | --- |
-| `es` | 345 |
-| `es_MX` | 82 |
-| `es_ES` | 76 |
-| `es_AR` | 52 |
-
-Those are not four dialects of copy - they are one house voice submitted under
+Those are not four dialects of copy. They are one house voice submitted under
 four tags by different people at different times. Every tag is a separate
 approval queue, a separate rejection risk, and a separate thing to update when
 the wording changes. Nothing merges them later.
@@ -374,12 +369,13 @@ first three automatically. Check the rest by reading.
 
 ### Media has to be publicly reachable, by Meta, from outside
 
-Of 560 templates in a sibling IPA account, exactly two were rejected. One of
-them read:
+Rejections are rare once the copy is right - across hundreds of approved
+templates, the two that came back were both about the *media*, not the words.
+One read:
 
-```
+```text
 Failed to create template, Reason: Error downloading invalid media URL:
-https://edutainment-rifa-5237.twil.io/Rifa_2.png
+https://<your-service>-1234.twil.io/promo_image.png
 ```
 
 The copy was fine. The image was hosted on a Twilio Assets domain that Meta's
