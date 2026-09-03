@@ -26,7 +26,7 @@ If you have run a SurveyCTO project, you already know this shape:
 | Check it before the field | XLSForm validation | `just flow-check` |
 | Deploy a public key | server encryption key | `just deploy-functions` |
 | Launch | load a sample | `just launch` |
-| Monitor | server monitoring | the warehouse table, filling as replies arrive |
+| Monitor | server monitoring | `just monitor` for delivery state; the sheet or table fills as replies arrive |
 | Check the incoming data | HFC scripts | `just data-check` |
 | Retrieve | download encrypted data | export the table |
 | Decrypt | local, private key | `just decrypt` |
