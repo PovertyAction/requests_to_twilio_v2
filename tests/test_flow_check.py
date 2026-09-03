@@ -5,6 +5,9 @@ Every check here corresponds to a defect that is invisible in the Studio editor
 and only surfaces as unusable data after a round.
 """
 
+import json
+from pathlib import Path
+
 from requests_to_twilio.flows import check_flow, published_columns, unpaired_answers
 
 
@@ -92,6 +95,11 @@ def healthy_flow() -> dict:
                 ("q1", "{{widgets.q1.inbound.Body}}"),
                 ("q1_status", "{{flow.variables.q1_status}}"),
                 ("set_complete", "{{flow.variables.set_complete}}"),
+                # A flow named "healthy" should be exemplary, not merely
+                # passing. Without this it earns `no-derived-final-status`,
+                # which is correct: the `set_*` flags are `1` or blank, never
+                # `0`, so a single flag cannot say how the survey ended.
+                ("final_status", "{{flow.variables.final_status}}"),
             ),
         ]
     }
@@ -141,6 +149,73 @@ def test_section_scoped_status_counts_as_final_status():
         ("set_no_reply_dem", "{{flow.variables.set_no_reply_dem}}"),
     )
     assert "no-final-status" not in codes(definition)
+
+
+def test_derived_final_status_alone_satisfies_the_requirement():
+    """The documented convention must not fail an error-severity check.
+
+    `final_status` was missing from the accepted set, so a flow built the way
+    this project's own docs prescribe - derive `final_status` at the convergence
+    point, drop the legacy paradata - errored and could not be deployed. The
+    committed demo hid it by publishing both vocabularies at once, so its pass
+    was earned entirely by the `set_*` columns and said nothing about this one.
+    """
+    definition = healthy_flow()
+    definition["states"][-1] = publish(
+        ("q1", "{{widgets.q1.inbound.Body}}"),
+        ("final_status", "{{flow.variables.final_status}}"),
+    )
+    found = codes(definition)
+    assert "no-final-status" not in found
+    # And no nudge, because the recommended column is the one that is there.
+    assert "no-derived-final-status" not in found
+
+
+def test_legacy_flags_alone_earn_a_recommendation_not_an_error():
+    """Strongly suggest `final_status`; never demand a particular vocabulary.
+
+    How an outcome is composed from somebody's own `set_` flags is their
+    business. What is worth saying every run is that the flags are `1` or
+    *blank* - never `0` - so "not complete" is encoded as absence and reads the
+    same as a dropped column or a shifted header.
+    """
+    definition = healthy_flow()
+    definition["states"][-1] = publish(
+        ("q1", "{{widgets.q1.inbound.Body}}"),
+        ("set_complete", "{{flow.variables.set_complete}}"),
+    )
+    found = codes(definition)
+    assert "no-final-status" not in found
+    assert "no-derived-final-status" in found
+
+
+def test_a_consent_flag_is_not_an_outcome_on_its_own():
+    """`set_consent` says they agreed to start, never how it ended.
+
+    It stays in the accepted set - policing flag vocabularies is not this
+    checker's job - so the row does not error. It does earn the recommendation,
+    which is what stops a flow recording only consent from passing in silence.
+    """
+    definition = healthy_flow()
+    definition["states"][-1] = publish(
+        ("q1", "{{widgets.q1.inbound.Body}}"),
+        ("set_consent", "{{flow.variables.set_consent}}"),
+    )
+    assert "no-derived-final-status" in codes(definition)
+
+
+def test_the_committed_demo_publishes_the_recommended_column():
+    """Pins the fix in the artifact, not only in the unit.
+
+    The demo publishes 45 parameters carrying both vocabularies, so
+    `no-final-status` passing on it proves nothing by itself.
+    """
+    definition = json.loads(
+        (
+            Path(__file__).resolve().parents[1] / "flows" / "data_use_demo_en.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert "no-derived-final-status" not in codes(definition)
 
 
 def test_split_without_nomatch_is_a_warning():

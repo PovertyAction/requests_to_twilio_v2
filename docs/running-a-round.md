@@ -50,15 +50,23 @@ one is there:
 | `no-optout-path` | nothing looks for a mid-survey "STOP", so it is stored as an answer and the next question is sent anyway |
 | `trigger-ignores-api-launch` | the flow does not route `incomingRequest`, so an API launch ends at the trigger having sent nothing |
 | `opening-not-a-template` | a free-form opener, which WhatsApp rejects with 63016 outside the 24-hour window |
-| `opening-cannot-open-session` | a list picker as the opener — it cannot be approved, so it cannot open a conversation |
+| `opening-cannot-open-session` † | a list picker as the opener — it cannot be approved, so it cannot open a conversation |
 | `unmatchable-condition` | a split option no reply can ever reach. Evaluated, not read |
 | `split-without-nomatch` | a split with no fallback, so an unexpected reply goes nowhere |
-| `too-many-options` / `text-too-long` / `text-may-truncate` | past a Twilio limit; the create call fails with a generic error that names nothing |
+| `too-many-options` † / `text-too-long` † / `text-may-truncate` † | past a Twilio limit; the create call fails with a generic error that names nothing |
 | `respondent-initiated-start` | writing to the number starts the survey, so someone can begin a round nobody launched |
 | `no-final-status` | publishes with no outcome variable, so completion cannot be told from break-off |
+| `no-derived-final-status` | outcomes are recorded, but only as separate `set_*` flags. Those are `1` or **blank**, never `0`, so "not complete" is encoded as absence and reads the same as a dropped column. Strongly suggested rather than required — how you compose an outcome is your business |
 | `unpaired-answers` | an answer with no status beside it, so a blank cannot be read as timed-out vs not-asked |
 | `no-encryption` | publishes with no encryption widget, so identifiers reach the warehouse in clear |
 | `credentials` | a SID or token inside the definition |
+
+**† needs the account.** Four checks read each template's *content type*, which
+only Twilio can answer, so they are **silently skipped when the target is a local
+file**. `just flow-check flows/my_round.json` reporting "all checks passed" means
+17 of 21 passed and four did not run; the command now says so. Run it against
+the deployed flow by name — `just flow-check my_round` — before a round, because
+a list-picker opener passes on disk and cannot open a conversation.
 
 ### `rtt flow schema` — the shape the destination needs
 
@@ -93,8 +101,8 @@ which `rtt launch` also checks.
 
 ```powershell
 just flow-list
-just flow-pull BSC_endline                     # writes flows/BSC_endline.json
-just flow-pull BSC_endline --out /tmp/snapshots --allow-secrets
+just flow-pull my_endline                      # writes flows/my_endline.json
+just flow-pull my_endline --out /tmp/snapshots --allow-secrets
 ```
 
 `pull` scans what it saves and refuses to write a definition containing
@@ -104,10 +112,10 @@ credentials unless you insist.
 
 ```powershell
 just template-list --filter rst
-just template-create templates/rst2026_intro.json
+just template-create templates/data_use_demo_intro_en.json
 just template-create templates/generated --skip-existing --yes
-just template-status rst2026_intro
-just template-submit rst2026_intro --category UTILITY   # IRREVERSIBLE
+just template-status data_use_demo_intro_en
+just template-submit data_use_demo_intro_en --category UTILITY   # IRREVERSIBLE
 just template-delete rst2026_draft --yes
 ```
 
@@ -175,7 +183,7 @@ polling repeatedly earns a 429 eventually, and a rate limit in front of a room i
 worse than a two-minute refresh. And `--full-window`, without which the watch
 would end almost immediately — see below, it is not obvious.
 
-`signups` reads the sign-up export and writes a launch sample. Four things it
+`intake` reads the export and writes a launch sample. Five things it
 does that a hand-made spreadsheet does not:
 
 | | |
@@ -269,7 +277,7 @@ public key the flow uses:
 ```python
 from requests_to_twilio import crypto
 
-pub = crypto.load_public_key(public_key_b64)      # the key `just keygen` printed
+pub = crypto.load_public_key(public_key_b64)  # the key `just keygen` printed
 frame["guardian_name"] = [crypto.encrypt(v, pub) for v in frame["guardian_name"]]
 ```
 
@@ -528,7 +536,7 @@ Writing over the input is refused: the ciphertext is the only copy.
 just round-reset rst2026_sample.xlsx                             # report only, changes nothing
 just round-reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run of the real thing
 just round-reset rst2026_sample.xlsx "--snapshot --truncate --yes"
-just round-reset rst2026_sample.xlsx "--local --yes"             # the test files on disk
+just round-reset rst2026_sample.xlsx "--local old_output.csv --yes"  # named leftovers
 ```
 
 The sample is required rather than defaulted, and `--round` derives the other
@@ -552,11 +560,18 @@ tab with **no header row**, and `publish_gsheets` maps a parameter to a column b
 matching row 1 — so the next submission would have nowhere to go and would be
 dropped behind an HTTP 200.
 
-`--local` deletes the test trackers, exports and sample workbooks from the
-working directory, `round_decrypted.csv` among them — a decrypted export is
-plain-text PII, and it is the one worth not leaving lying around.
-`sample_input.xlsx` and `sample_template.xlsx` are never touched: both are
-committed reference material rather than data from a round.
+`--local` deletes **exactly the files you name** — there is no default list.
+Run the command with no operations first: it reports every data-shaped file in
+the working directory (`*_output.csv`, `*_decrypted.csv`, `*_export.csv`,
+`*.xlsx`) so you can see what is there and choose. A decrypted export is
+plain-text PII and is the one worth not leaving lying around.
+
+There was a default list, and it was one operator's rehearsal filenames — so
+every other user was shown files from somebody else's laptop and told they were
+"local test artifacts". `sample_input.xlsx` and `sample_template.xlsx` are never
+deleted, nor is anything named by `--signups`: both are committed reference
+material rather than data from a round, and the sign-up export is
+hand-maintained.
 
 Only four tabs are ever read or written, so a sign-up form whose responses land
 in the same workbook cannot be caught by this.

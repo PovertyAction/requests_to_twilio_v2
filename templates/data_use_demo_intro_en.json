@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "OPENING template for the English half of the data-use demo flow. The mirror",
+    "of templates/data_use_demo_intro_es.json - read that file's comment for the",
+    "full reasoning; it is identical and is not repeated at length here.",
+    "",
+    "In short: this is the one message in the flow that Meta reviews, and the",
+    "only one that is ever submitted. Consent and every ARM 2 question are sent",
+    "inside the 24-hour window that the reply to this message opens, so they need",
+    "no approval at all. Submission is irreversible - Meta has no edit operation",
+    "- so review the wording here first.",
+    "",
+    "Copy matches the `intro` widget that scripts/build_data_use_demo.py emits",
+    "for English. If one changes, change the other.",
+    "",
+    "Framed for UTILITY, not MARKETING. It names the session the participant is",
+    "already attending and states plainly what will happen, with no persuasion",
+    "and no incentive. Every approved opening on this account that led with",
+    "excitement or a reward landed in MARKETING, which carries per-user limits",
+    "and worse delivery. See",
+    ".claude/skills/whatsapp-template/references/ipa-examples.md.",
+    "",
+    "The quick-reply button matters mechanically, not just for tone: the flow's",
+    "intro widget is send-and-wait-for-reply, so tapping Start is what opens the",
+    "24-hour window and lets every later message be free-form - including the",
+    "list pickers, which cannot open a session themselves.",
+    "",
+    "'confidential' is a claim the pipeline actually keeps - encrypt_fields",
+    "encrypts name and phone before anything is stored.",
+    "",
+    "This file replaces templates/rst2026_intro.json, now in templates/archive/,",
+    "which named one specific training in its body. A demo whose opener welcomes",
+    "somebody to an event they are not attending cannot be run by anyone but its",
+    "author - and the wording cannot be fixed after submission, so the event name",
+    "had to come out of the template rather than be corrected later. Spanish was",
+    "written this way from the start; English was not, and this closes the gap.",
+    "",
+    "The event, the dates and the place still appear in the ARM 1 question",
+    "bodies inside the flow. Those are in-session and editable, unlike this one,",
+    "but they are equally specific - see the WARNING in build_data_use_demo.py."
+  ],
+  "friendly_name": "data_use_demo_intro_en",
+  "language": "en",
+  "variables": {
+    "1": "Priya"
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Hi {{1}}, welcome to the session on WhatsApp surveys.\n\nDuring the session you will take part in a short survey - and you are also part of the example.\n\nIt takes about 3 minutes. Your answers are confidential and will only be used to illustrate WhatsApp data collection during the session.\n\nPress Start when you are ready.",
+      "actions": [
+        {
+          "title": "Start",
+          "id": "Start_payload"
+        }
+      ]
+    }
+  }
+}

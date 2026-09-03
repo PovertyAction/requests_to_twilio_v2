@@ -38,7 +38,7 @@ Run these once, when you clone the repo or when the toolchain changes.
 
 ## Writing an instrument
 
-A Studio flow is 84 widgets for 5 questions and nobody can review that. The spec
+A Studio flow is 97 widgets for 6 questions and nobody can review that. The spec
 is the same instrument as ~20 rows, in the shape SurveyCTO users already know.
 
 **The JSON is canonical** — it is what git carries and what a reviewer diffs. The
@@ -104,7 +104,7 @@ answered — ever go to Meta.
 
 | Recipe | What it does |
 |---|---|
-| `just build-demo-flow` | Builds the demo flow and the templates its questions need, both languages from one structure and two string tables. `--lang en` for one. `--publish-target gsheets` writes to a spreadsheet instead of MotherDuck. Needs live Twilio credentials: content templates are looked up by name. |
+| `just build-demo-flow` | Builds the demo flow and the templates its questions need, both languages from one structure and two string tables. `--lang en` for one. `--publish-target gsheets` or `motherduck` chooses where a submission is written; naming neither builds for gsheets. Needs live Twilio credentials: content templates are looked up by name. |
 | `just flow-check [FILE]` | The instrument-side equivalent of high-frequency checks: verifies the survey was coded correctly. Omit the file to check every flow on the account. Exits non-zero on an error. |
 | `just flow-schema FILE` | Prints `CREATE TABLE` DDL matching what the flow publishes. **Run this after changing the instrument** — the publish Function only inserts into columns that already exist, so a new question with no column is dropped silently behind a 200. |
 | `just flow-header FILE` | The Google Sheets counterpart: prints the header row for row 1 of the target sheet. Same reason, same failure — `publish_gsheets` matches parameters to columns by header name. |

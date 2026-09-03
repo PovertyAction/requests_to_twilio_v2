@@ -8,7 +8,7 @@ questions themselves.
 
 Read it if you are choosing between a list and open text, deciding how many
 options an item should have, working out what to encrypt, or wondering why the
-conventions here differ from the flows already on our account.
+conventions here differ from what older flows tend to do.
 
 The rules below are IPA survey-research conventions, not generic Twilio chatbot
 practice, and several of them are deliberate departures from what the flows on
@@ -50,7 +50,7 @@ reports every send successful.
 
 ## Paradata is about half the columns, and that is correct
 
-Across the flows on our account there are roughly two control widgets per
+Across a mature account there are roughly two control widgets per
 question: a `set-variables` recording what happened, and a split deciding where
 to go. Publish them. A published answer with no status beside it means a blank
 cell cannot be read as *timed out* versus *not asked* versus *refused*.
@@ -68,7 +68,7 @@ Minimum published set:
 
 ## Asking a question
 
-**Use a list picker by default.** House practice on our own account is the
+**Use a list picker by default.** House practice is the
 opposite — 373 of 400 questions are plain text bodies — so this is a departure,
 and the argument for it is that a tap cannot be misspelled, mis-cased, or
 answered in a way the split did not anticipate.

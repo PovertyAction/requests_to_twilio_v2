@@ -27,7 +27,7 @@ in front of Meta, and can change without a resubmission.
 ## Category is set by how the ask is framed
 
 Category is requested at submission and Meta may disagree with you. From the
-approved corpus on our own account, the pattern is consistent:
+approved copy IPA has accumulated, the pattern is consistent:
 
 - Every opening that **leads with an incentive** landed in **MARKETING** — even
   one that also cited the prior survey.
@@ -38,7 +38,7 @@ Prefer UTILITY where the framing honestly supports it. Marketing messages are
 easier for a respondent to have blocked at the account level, and the framing is
 more accurate for research contact anyway.
 
-Two near-identical thank-you messages sit in different categories on our account,
+Two near-identical thank-you messages can sit in different categories,
 so the category you request is not merely a hint.
 
 ## Writing the copy

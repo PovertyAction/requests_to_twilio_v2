@@ -25,6 +25,8 @@ from .crypto import CryptoError, KeyPair, load_private_key
 from .decryptor import DecryptionError, decrypt_dataset
 from .fetch import FetchError, fetch_executions, reconcile, write_output
 from .flows import (
+    ACCOUNT_ONLY_CHECKS,
+    TOTAL_CHECKS,
     FlowError,
     check_flow,
     check_preloaded,
@@ -59,7 +61,13 @@ from .monitor import (
     read_tracker,
     update_log,
 )
-from .sheets import SheetsError, access_token, credentials_from_env, replace_tab
+from .sheets import (
+    TOKEN_LIFETIME_SECONDS,
+    SheetsError,
+    access_token,
+    credentials_from_env,
+    replace_tab,
+)
 from .spec import (
     SCOPE_NOTE,
     SpecError,
@@ -794,9 +802,11 @@ def monitor(
             )
 
         token = None
+        minted_at = 0.0
         if sheet:
             email, key, sheet_id = credentials_from_env()
             token = access_token(email, key)
+            minted_at = time.monotonic()
             typer.echo(f"Publishing each poll to tab {sheet_tab!r}")
 
         client = Client(conf.account_sid, conf.auth_token)
@@ -828,16 +838,52 @@ def monitor(
                 )
 
             if token is not None:
+                # A Google assertion is minted for TOKEN_LIFETIME_SECONDS, which
+                # is ten minutes. That was ample while a settled round exited on
+                # the first poll; `--full-window --hours 1` holds the loop open
+                # for sixty, so the token died a sixth of the way in and every
+                # later write returned 401. The failure is swallowed below by
+                # design, so the tracking tab - the whole reason --full-window
+                # exists - froze for the remaining fifty minutes while the
+                # terminal printed "all settled, still watching" and the command
+                # exited green.
+                #
+                # Re-mint with a poll's margin, and retry once on a fresh token
+                # so a write that straddles the boundary still lands.
+                age = time.monotonic() - minted_at
+                if age > TOKEN_LIFETIME_SECONDS - max(every * 60, 60):
+                    try:
+                        token = access_token(email, key)
+                        minted_at = time.monotonic()
+                    except SheetsError as exc:
+                        typer.secho(
+                            f"    could not refresh the sheet token: {exc}",
+                            fg=typer.colors.YELLOW,
+                        )
                 try:
                     rows, _ = replace_tab(
                         log, sheet_id=sheet_id, tab=sheet_tab, token=token
                     )
                     typer.echo(f"    sheet updated: {rows} row(s) in {sheet_tab!r}")
                 except SheetsError as exc:
-                    # A sheet that will not update must not end the round's
-                    # monitoring. The CSV is already written and is the record;
-                    # the sheet is a view of it.
-                    typer.secho(f"    sheet not updated: {exc}", fg=typer.colors.YELLOW)
+                    retried = False
+                    try:
+                        token = access_token(email, key)
+                        minted_at = time.monotonic()
+                        rows, _ = replace_tab(
+                            log, sheet_id=sheet_id, tab=sheet_tab, token=token
+                        )
+                        retried = True
+                        typer.echo(f"    sheet updated: {rows} row(s) in {sheet_tab!r}")
+                    except SheetsError:
+                        pass
+                    if not retried:
+                        # A sheet that will not update must not end the round's
+                        # monitoring. The CSV is already written and is the
+                        # record; the sheet is a view of it.
+                        typer.secho(
+                            f"    sheet not updated: {exc}", fg=typer.colors.YELLOW
+                        )
 
             settled_message = "\nEvery number has settled - nothing left to watch."
 
@@ -1130,6 +1176,19 @@ def flow_check(
         if errors_only:
             findings = [f for f in findings if f.severity == "error"]
         _print_findings(local.name, findings)
+        # Say what did not run. Four checks read each template's content type,
+        # which only Twilio can answer, so on a local file they are skipped -
+        # and "all checks passed" then means 17 of 21, which is exactly the kind
+        # of quiet partial success this command exists to expose. A list-picker
+        # opener passes on disk and cannot open a conversation.
+        typer.secho(
+            f"\n  Not run on a local file ({len(ACCOUNT_ONLY_CHECKS)} of "
+            f"{TOTAL_CHECKS} checks): "
+            + ", ".join(ACCOUNT_ONLY_CHECKS)
+            + ".\n  These read a template's content type from the account. "
+            "Re-run against the\n  deployed flow by name to exercise them.",
+            fg=typer.colors.BLUE,
+        )
         if any(f.severity == "error" for f in findings):
             raise typer.Exit(code=1)
         return
@@ -1206,7 +1265,7 @@ def flow_schema(
     table: Annotated[
         str,
         typer.Option("--table", help="Fully qualified destination table."),
-    ] = "rst_2026.main.data_use",
+    ] = "your_database.main.your_round",
     output_format: Annotated[
         str,
         typer.Option(
@@ -1267,7 +1326,7 @@ def flow_deploy(
     """Deploy a flow, refusing to ship one that fails the checks.
 
     The gate matters because this class of defect spreads by duplication:
-    seven flows on this account carry one identical break-off path that never
+    a whole family of copied flows can carry one identical break-off path that never
     reaches the publish widget, copied six times when flows were cloned. A
     check you have to remember to run does not prevent that.
     """
@@ -1945,7 +2004,7 @@ def survey_template(
 
     That matters for a reason beyond convenience: given a blank sheet, the next
     move is to find an existing survey and copy it, and copying an existing
-    survey is how seven flows on this account came to share one identical
+    survey is how a family of flows comes to share one identical
     break-off defect.
     """
     configure(verbose)

@@ -232,7 +232,7 @@ def google_variables() -> tuple[dict[str, str], list[str]]:
 
     Either way the key ends up in Twilio environment variables rather than in
     the Function's source. That is the whole point of the retrofit: the 18
-    legacy publish functions on this account each carry a copy of the key
+    legacy publish functions can each carry a copy of the key
     inline, which is how one of them reached a public GitHub repository.
     """
     sheet_id = cfg.optional("GOOGLE_SHEET_ID")
@@ -478,7 +478,7 @@ def main() -> None:
     # Nothing here has to be copied anywhere. The flow builder resolves all of
     # it from the service's unique name at build time, which is what lets the
     # same repository build a working flow on somebody else's account. This
-    # block used to print six SIDs to paste into `scripts/build_rst2026_flow.py`
+    # block used to print six SIDs to paste into the flow builder by hand
     # - a file that no longer exists.
     print()
     print(f"service           {service.sid}  {SERVICE_NAME}")

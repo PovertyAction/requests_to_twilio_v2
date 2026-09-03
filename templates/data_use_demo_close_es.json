@@ -1,7 +1,7 @@
 {
   "_comment": [
     "CLOSING template for the data-use demo, Spanish. The mirror of",
-    "templates/rst2026_close.json - read that file's comment for why this",
+    "templates/data_use_demo_close_en.json - read that file's comment for why this",
     "exists; the reasoning is identical and is not repeated here.",
     "",
     "In short: it goes only to people who never replied to the opener. They",

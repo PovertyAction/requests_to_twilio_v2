@@ -68,11 +68,11 @@ Everything in between — consent buttons, answer lists, retry nudges, the closi
 message to someone who did reply — is inside the window and needs nothing.
 
 ```powershell
-just template-create templates/rst2026_intro.json
-just template-create templates/rst2026_close.json
-just template-submit rst2026_intro --category UTILITY
-just template-submit rst2026_close --category UTILITY
-just template-status rst2026_intro
+just template-create templates/data_use_demo_intro_en.json
+just template-create templates/data_use_demo_close_en.json
+just template-submit data_use_demo_intro_en --category UTILITY
+just template-submit data_use_demo_close_en --category UTILITY
+just template-status data_use_demo_intro_en
 ```
 
 Three things worth knowing before you submit:
@@ -163,22 +163,54 @@ secret is pasted into the Console.
 You do not need to copy anything from its output. Everything is looked up by name
 when the flow is built.
 
-## 8. Create the warehouse table
+## 8. Prepare the destination
 
-The publish step **never creates a table**. Guessing a schema for survey data
-produces wrong types, and a silent `CREATE` would hide a typo in the table name.
-Print the right DDL from the flow itself:
+Pick one. They are peers, chosen per build, and which one fits depends on the
+project — on budget and on what accounts you can get.
+
+- **Google Sheets** needs a spreadsheet and a service account, and nothing you
+  have to pay for. It is **the default**, because a warehouse account should not
+  be the first step of somebody's first WhatsApp survey.
+- **MotherDuck** needs warehouse access. It is the better home for tracking a
+  round and for analysis that continues after collection.
+
+Neither is the lesser option and neither is a legacy path.
+
+Whichever you pick, **the publish step never creates the destination.** Guessing
+a schema for survey data produces wrong types, and a silent create would hide a
+typo. Both Functions write only into columns that already exist, so a question
+with nowhere to go is dropped **silently behind an HTTP 200**. Re-run the command
+below whenever you add a question.
+
+### Google Sheets (default)
+
+Print the header row the flow expects, and paste it into row 1 of a tab:
+
+```powershell
+just flow-header flows/data_use_demo_en.json
+```
+
+Create the sheet, share it with your service account's address as an Editor,
+then set `GOOGLE_SERVICE_ACCOUNT_FILE`, `GOOGLE_SHEET_ID` and
+`GOOGLE_SHEET_TAB` in `.env`.
+
+**Set `GOOGLE_SHEET_TAB` explicitly.** Unset means *the first visible tab*, so
+adding a tracking tab later silently redirects every submission into it.
+
+### MotherDuck
+
+Print the DDL from the flow itself and run it:
 
 ```powershell
 just flow-schema flows/data_use_demo_en.json --table my_db.main.my_round
 ```
 
-Run that `CREATE TABLE` in MotherDuck, and set `MOTHERDUCK_TOKEN`,
-`MOTHERDUCK_DATABASE`, `MOTHERDUCK_HOST` and `MOTHERDUCK_TABLE` in `.env`.
-
-Re-run `flow-schema` whenever you add a question. The publish Function only
-inserts into columns that already exist, so a new question with no matching
-column is dropped **silently behind an HTTP 200**.
+Then set `MOTHERDUCK_TOKEN`, `MOTHERDUCK_DATABASE`, `MOTHERDUCK_HOST` and
+`MOTHERDUCK_TABLE` in `.env`, and build with
+`just build-demo-flow "--lang en --publish-target motherduck"` in the next step —
+**the default is Sheets, so a MotherDuck round has to say so.** Configuring
+MotherDuck and building without that flag gives you a flow that publishes to a
+sheet you never made, and `deploy-functions` will not catch it.
 
 ## 9. Build and deploy the flow
 

@@ -29,7 +29,7 @@ validate, store, count the retry, decide, nudge, give up. A plain text question
 is three. The `widgets` column in the workbook says which, next to each row, so
 the cost of a design choice is visible while you are making it.
 
-That is the whole point. The demo instrument is 84 widgets for five questions
+That is the whole point. The demo instrument is 97 widgets for six questions
 asked two ways, and nobody reviews a canvas that size — which is the real reason
 instruments go to field with defects in them.
 
@@ -69,7 +69,7 @@ can look at it without installing anything. It is a small working instrument, no
 a blank sheet, and `rtt survey check` passes it as-is — so the first finding you
 ever see is about something you changed.
 
-Do not start by copying another round's survey. Seven flows on our account share
+Do not start by copying another round's survey. A family of copied flows can share
 one identical break-off defect because they were cloned from each other, and six
 of them are published.
 
@@ -161,7 +161,7 @@ begin group     ARM1  (relevance: ${arm}='1')                              1
 text            P1    Considering the training week currently…     0        3
 end group       ARM1                                                       0
 begin group     ARM2  (relevance: ${arm}='2')                              1
-select_list p1  P1    📅 Question 1 of 5⏎⏎Which day of the trai…   2        8
+select_list p1  P1    📅 Question 1 of 6⏎⏎Which day of the trai…   2        8
 end group       ARM2                                                       0
 ```
 

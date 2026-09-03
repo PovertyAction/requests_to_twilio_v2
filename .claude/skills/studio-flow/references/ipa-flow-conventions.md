@@ -1,246 +1,241 @@
-# IPA Studio flow conventions, measured
+# A widget library for survey flows
 
-Derived from all 47 Studio flows on the `IPA_Console_3` account (5.3 MB of
-definitions, 2021-2026). This is what the team actually does, not what a Twilio
-tutorial suggests. Re-derive it any time by pulling the corpus:
+How IPA builds a questionnaire in Twilio Studio. This is a library of shapes
+that have run rather than a tutorial: if you are turning a paper instrument into
+a WhatsApp flow, the subgraph below is the unit you are working in.
+
+The thing to internalise first is that **a question is not a widget.** On paper
+a question is one row. In Studio it is a small subgraph of six to nine widgets,
+and the extra ones are not ceremony — each exists because something in a
+messaging channel can fail in a way a paper form cannot: the answer can be
+unusable, it can never arrive, or it can arrive after the conversation has
+closed. Expect roughly twice as many control and paradata widgets as question
+widgets in a finished flow.
+
+Pull any flow to read its real shape:
 
 ```bash
 just flow-list
-just flow-pull <name>          # into flows/, which is gitignored
+just flow-pull <name>          # writes flows/<name>.json, gitignored
+just flow-check <name>         # what it gets wrong
 ```
 
-## Scale
+## One question, nine widgets
 
-| | |
-| --- | --- |
-| Flows | 47 |
-| Largest | `BSC_endline_v2`, 635 widgets |
-| Median | 41 widgets |
-| Highest revision | `FIM_followup`, rev 2613 |
+This is the full form, for a question whose answer has to satisfy a constraint —
+a number in a range, one of a fixed set of codes, a date. Names follow the
+question's own id (`P3` here), which is what makes a 60-widget canvas navigable.
 
-Revision counts in the hundreds and thousands are normal, and none of those
-edits were reviewable before this repo started pulling definitions.
+```text
+P3                    send-and-wait-for-reply
+   |- incomingMessage -> stopcheck_P3
+   |- timeout         -> mark_no_reply          (never answered)
+   |- deliveryFailure -> mark_delivery_failed   (never arrived)
 
-## Widget mix across the corpus
+stopcheck_P3          split-based-on   {{widgets.P3.inbound.Body}}
+   |- match (stop|quit|cancel) -> mark_optout
+   |- noMatch                  -> split_P3
 
-| Count | Type | What it is doing |
-| --- | --- | --- |
-| 1391 | `run-function` | Waits, encryption, publishing |
-| 1259 | `split-based-on` | Answer validation and error branching |
-| 1059 | `send-message` | Statements, error messages, closings |
-| 867 | `set-variables` | Paradata: errors, timestamps, status flags |
-| 723 | `send-and-wait-for-reply` | The actual questions |
-| 4 | `make-http-request` | Rare |
-| 4 | `run-subflow` | Rare |
+split_P3              split-based-on   {{widgets.P3.inbound.Body}}   <- the constraint
+   |- match   (a valid answer) -> store_P3
+   |- noMatch                  -> retry_P3
 
-**There are roughly twice as many paradata and control widgets as questions.**
-A 723-question corpus carries 867 `set-variables` and 1259 splits. That ratio is
-the survey discipline: every question is wrapped in validation, error counting
-and status tracking.
+store_P3              set-variables    -> next question               <- the flag
+retry_P3              set-variables    -> check_P3                    <- the counter
+check_P3              split-based-on   {{flow.variables.tries_P3}}    <- the stop rule
+   |- match (under the limit)  -> error_P3
+   |- noMatch (limit reached)  -> giveup_P3
 
-## Transition events
-
-| Count | Event | Note |
-| --- | --- | --- |
-| 2852 | `match` | Split branches |
-| 1259 | `noMatch` | **Every split has one** |
-| 723 | `timeout` | **One per question** |
-| 723 | `deliveryFailure` | **One per question** |
-| 770 | `incomingMessage` | |
-
-`timeout` and `deliveryFailure` appear exactly once per
-`send-and-wait-for-reply`. Every question handles non-response and delivery
-failure explicitly. Never leave either unwired.
-
-## Paradata variable vocabulary
-
-The `set-variables` widgets across the corpus, most-used first:
-
-| Variable | Uses | Meaning |
-| --- | --- | --- |
-| `set_complete` | 15 | Respondent finished |
-| `set_fail` | 14 | Delivery failed |
-| `set_no_reply` | 12 | Timed out |
-| `set_multierror` | 11 | Too many invalid answers |
-| `set_survey_fail` | 9 | Failure in the survey section |
-| `set_initial_no_reply` | 8 | Timed out at the opening |
-| `counter_error_<q>` | 7+ | Per-question invalid-answer counter |
-| `set_time_start` / `set_time_fin` | 5-6 | Duration measurement |
-| `set_consent` | 5 | Consent recorded |
-
-**Section-scoped naming.** The larger flows suffix by questionnaire section
-rather than reusing one global flag. `edutainment_bl` carries the full set for
-each of five sections:
-
+error_P3              send-message     -> P3        (say what was wrong, re-ask)
+giveup_P3             set-variables    -> next question
 ```
+
+Reading it as the seven jobs it does:
+
+| Job | Widget | Why it cannot be skipped |
+| --- | --- | --- |
+| Ask | `P3` | — |
+| Let them leave | `stopcheck_P3` | inside a session a "STOP" is an ordinary inbound message; nothing honours it unless the flow looks |
+| Constrain | `split_P3` conditions | the constraint is a *condition*, evaluated by Studio, not a note to the respondent |
+| Branch on validity | `split_P3` | `noMatch` is the whole point: an unexpected reply must go somewhere |
+| Count attempts | `retry_P3` + `check_P3` | without a limit a respondent who cannot answer is asked forever |
+| Record the answer | `store_P3` | — |
+| Handle absence | `mark_no_reply`, `giveup_P3` | silence and exhausted-retries are different outcomes and must not share a column |
+
+**`timeout` and `deliveryFailure` belong on every `send-and-wait-for-reply`,
+exactly once each.** They are the two ways a question can fail without the
+respondent doing anything. Leaving either unwired produces an execution that
+simply stops, and a person who is then absent from the data rather than recorded
+as unreachable.
+
+## One question, four widgets
+
+Open text needs no constraint, so the middle of the subgraph collapses:
+
+```text
+P1  send-and-wait-for-reply
+      |- incomingMessage -> stopcheck_P1 -> store_P1 -> next question
+      |- timeout         -> mark_no_reply
+      |- deliveryFailure -> mark_delivery_failed
+```
+
+Worth knowing what you are trading. An open question always "validates", so
+there is no retry, no error message and no give-up path — and also no usable
+codes. Free text arrives as `Thursfay`, `NO`, `R and surveycto`. That is the
+argument for constraining answers wherever the paper instrument would have used
+a code list, not an argument for skipping the constraint.
+
+## The stop rule
+
+The counter is the part people leave out, and it is the part that keeps a
+respondent from being trapped.
+
+```text
+[check_P3] tests {{flow.variables.tries_P3}}
+    is 1, is 2   -> error_P3        (re-ask, with a message saying what to send)
+    noMatch      -> giveup_P3       (abandon this question, or this section)
+```
+
+After N attempts the question is abandoned and the flow moves on. Two rules
+about that:
+
+- **The give-up is flagged and published.** An abandoned question and a skipped
+  question look identical in the data unless something says which happened.
+- **The re-ask says what was wrong.** `error_P3` is a `send-message`, not a bare
+  loop back to the question. Re-sending the same words to somebody who has
+  already failed to answer them is how a respondent stops replying.
+
+For a long instrument, scope the give-up to a **section** rather than a single
+question: `set_multierror_dem` abandons demographics and carries on. Somebody
+stuck on one item should not lose the rest of the questionnaire.
+
+## Paradata naming
+
+Suffix by questionnaire section rather than reusing one global flag, so the data
+can say *where* a respondent broke off rather than only that they did:
+
+```text
 set_multierror_dem   set_fail_dem   set_no_reply_dem      # demographics
 set_multierror_obs   set_fail_obs   set_no_reply_obs      # observation
 set_multierror_mig   set_fail_mig   set_no_reply_mig      # migration
 set_multierror_emp   set_fail_emp   set_no_reply_emp      # employment
-set_multierror_social set_fail_social set_no_reply_social # social
 ```
 
-That is what makes it possible to say *where* a respondent broke off, not just
-that they did. Copy this pattern.
+Prefixes mark the stage: `set_intro_*`, `set_survey_*`, `set_reminder_*`,
+`set_verif_*`.
 
-Prefixes also mark the stage: `set_intro_*`, `set_survey_*`, `set_reminder_*`,
-`set_initial_*`, `set_verif_*`.
-
-## The error-counter pattern
-
-Per question, three widgets:
-
-```
-question  --(reply)--> split_<q>        validate the answer
-                        |- match     -> next question
-                        |- noMatch   -> set_counter_error_<q>  (increment)
-                                        |
-                                        v
-                                     split_error_<q>
-                                        |- under limit -> error_message_<q> -> re-ask
-                                        |- over limit  -> set_multierror_<section>
-                                                          -> exit that section
-```
-
-From `edutainment_bl`:
-
-```
-[split_error_1] tests {{flow.variables.counter_error_1}}
-    less_than  -> error_message_1     (re-ask)
-    noMatch    -> set_multierror_dem  (give up on this section)
-```
-
-**This is the stop rule.** A respondent who cannot give a valid answer is not
-asked forever; after N attempts the section is marked `multierror` and the flow
-moves on. The flag is published, so the analyst can see the question was
-abandoned rather than skipped.
-
-## Timeouts on `send-and-wait-for-reply`
-
-| Seconds | Hours | Uses |
-| --- | --- | --- |
-| 14400 | 4h | 230 |
-| 3600 | 1h | 203 |
-| 18000 | 5h | 67 |
-| 10800 | 3h | 64 |
-| 7200 | 2h | 45 |
-| 86400 | 24h | 40 |
-
-**4 hours and 1 hour are the house defaults.** Long timeouts suit WhatsApp -
-respondents answer around their day, not in one sitting. But note the
-interaction with the 24-hour session window: a chain of 4-hour timeouts can push
-the closing message outside it, which is why the close is a template.
-
-## What gets encrypted
-
-Encrypt-widget parameters across the corpus:
-
-| Parameter | Uses |
-| --- | --- |
-| `name` | 15 |
-| `p_number_original` | 12 |
-| `Number` | 7 |
-| `verif_dob_1`, `verif_dob_2`, `year`, `month` | 4-6 each |
-| `phone_2_1`, `num_tel_contacto`, `num_wa`, `phone_fam` | 2-3 each |
-| `address`, `localidad` | 2 each |
-
-**Direct identifiers and date of birth are encrypted. Analysis variables are
-not.** `edutainment_bl` publishes `age`, `gender`, `education`,
-`ciudad_principal` and `assigned_group` in clear, while the phone number goes
-through the encrypt widget and lands as `enc_p_number_original`.
-
-That split is correct and deliberate: encrypting the analysis variables would
-make the Sheet useless for monitoring without buying much, since the identifiers
-are what re-identify a respondent.
-
-**Naming convention: `enc_` prefix** on the published column.
-
-```
-enc_p_number_original = {{widgets.function_encrypt.parsed.enc_p_number_original}}
-```
-
-## The publish payload
-
-From `edutainment_bl`, the shape to copy:
-
-```
-caseid                   {{flow.data.caseid}}              # launch data
-age, gender, education   {{flow.data.*}}                   # analysis vars, clear
-enc_p_number_original    {{widgets.function_encrypt.parsed...}}   # PII, encrypted
-set_multierror_dem       {{flow.variables.*}}              # paradata per section
-set_fail_dem             {{flow.variables.*}}
-set_no_reply_dem         {{flow.variables.*}}
-...                                                        # x5 sections
-set_time_first_message   {{flow.variables.*}}              # timestamps
-set_time_start           {{flow.variables.*}}
-```
-
-Four groups: launch data, analysis variables in clear, encrypted identifiers,
-paradata and timestamps. The paradata is roughly half the columns.
+**These flags are `1` or blank, never `0`.** So "not complete" is encoded as
+absence, which is indistinguishable from a column the publish step dropped. Do
+not build an analysis on them alone — derive a single `final_status` at the
+widget every terminal path converges on, and publish that too. See
+`requests_to_twilio.outcomes.final_status_liquid`.
 
 ## Widget naming
 
-Bilingual, and inconsistent across eras. Both appear:
+Prefer the English forms for new flows — `function_encrypt`, `publish_gsheets`,
+`wait_*`. Older flows use Spanish equivalents (`encriptador`, `espera_*`) and
+both are in circulation, but `rtt flow check` looks for the English ones when it
+decides whether a flow encrypts, so a Spanish name reads as *no encryption*.
 
-| Purpose | Names in use |
-| --- | --- |
-| Encryption | `encriptador` (16), `function_encrypt` (5) |
-| Publish | `publish_gsheets` (19), `publish` (5) |
-| Wait/delay | `espera_*` (Spanish), `wait_*`, `function_wait*` |
-| Error wait | `espera_multierror`, `espera_multierror_1` |
+## Timeouts
 
-For new flows prefer the English forms - `function_encrypt`, `publish_gsheets`,
-`wait_*` - which is what the newer flows use, and which `rtt flow pull` looks
-for when it checks whether a flow encrypts.
+**4 hours and 1 hour are the house defaults.** Long timeouts suit WhatsApp:
+respondents answer around their day, not in one sitting. 24 hours appears where
+a round is genuinely meant to span one.
+
+Note the interaction with the session window. A chain of 4-hour timeouts can
+push the closing message past 24 hours from the last inbound, at which point a
+free-form message is refused — which is why the close is a template.
+
+## What gets encrypted
+
+**Direct identifiers and dates of birth. Not analysis variables.** A typical
+flow encrypts `name`, the original phone number, contact numbers, address and
+the date-of-birth parts, while publishing `age`, `gender`, `education`, city and
+assigned group in clear.
+
+That split is deliberate rather than lazy: encrypting the analysis variables
+would make the sheet useless as a monitoring dashboard without buying much,
+because the identifiers are what re-identify a respondent.
+
+Convention: **`enc_` prefix** on the published column.
+
+```text
+enc_p_number_original = {{widgets.function_encrypt.parsed.enc_p_number_original}}
+```
+
+The encrypt widget goes immediately before the publish widget. Anything between
+them is a chance for the plaintext to reach the destination.
+
+## The publish payload
+
+Four groups, in this order:
+
+```text
+caseid                   {{flow.data.caseid}}            # launch data
+age, gender, education   {{flow.data.*}}                 # analysis vars, in clear
+enc_p_number_original    {{widgets.function_encrypt...}}  # identifiers, encrypted
+set_multierror_dem       {{flow.variables.*}}            # paradata, per section
+set_fail_dem             {{flow.variables.*}}
+set_no_reply_dem         {{flow.variables.*}}
+final_status             {{flow.variables.final_status}}  # the derived rollup
+set_time_first_message   {{flow.variables.*}}            # timestamps
+```
+
+Paradata is routinely half the columns. That is the right proportion, not
+bloat — it is the difference between a dataset that can report a response rate
+and one that cannot.
+
+**One publish widget, and every terminal path reaches it.** A break-off that
+ends without publishing produces no row, and a respondent with no row is
+indistinguishable from somebody never contacted.
 
 ## Consent
 
-22 of 47 flows carry consent language. The pattern:
+1. The opening identifies the organisation, the study, and the consent basis —
+   why this person is being contacted at all.
+2. A message links the full informed-consent document.
+3. A yes/no question records the decision into `set_consent`.
+4. Declining routes to a polite close, not to silence.
 
-1. Intro identifies IPA, the study, and the consent basis
-2. A `pre_consent` message links the full informed-consent document
-   (`https://bit.ly/consent_ipa_...`)
-3. A yes/no question records the decision into `set_consent`
-4. Declining routes to a polite close, not silence
+The consent basis is worth stating plainly, and it does double duty: naming why
+you are permitted to make contact ("you agreed to be contacted again") is also
+what tends to earn a UTILITY category on the opening template, rather than
+MARKETING with its per-user limits.
 
-From `BSC_baseline`:
+Consent belongs **in session**, not in a template. The reply to the opener opens
+the 24-hour window, and everything after it — consent included — is free-form
+and needs no approval.
 
-> Por último, *por favor tenga en cuenta que esta encuesta es sólo una parte de
-> un estudio más grande*. En este podría recibir mensajes y otra encuesta. Para
-> más información sobre este _consentimiento informado_ *ingrese al siguiente
-> link*: https://bit.ly/consent_ipa_p_CFM_2023
+## The template set a flow actually needs
 
-From `BEAT_control_recontact`, the consent-basis sentence that also earns
-UTILITY on the template:
+A business-initiated message must be an approved template; anything inside the
+24-hour window the respondent's reply opens is free-form. So the approval list
+is short, and it is always roughly this:
 
-> Nos estamos comunicando nuevamente para actualizar algunos datos, dado que
-> **nos autorizaste un nuevo contacto**. La encuesta te tomará 5 minutos y
-> estará disponible por las próximas 24 horas.
+| Template | Why it must be approved | Content type |
+| --- | --- | --- |
+| **The opener, with a Start button** | nobody has replied yet, so there is no session | `quick-reply` |
+| **A media header**, if the study shows an image or a document | same reason, when the opener carries media | media header |
+| **The close, for people who never replied** | their window never opened, so a free-form message is refused | `text` |
 
-## Content templates inside flows
+Everything else — consent, every question, every retry, every error message —
+goes out in session and needs no approval at all. On a six-question instrument
+that is two approved templates against a dozen free messages.
 
-Only 8 of 47 flows reference an `HX` content SID in a widget, `edutainment_bl`
-most heavily at 25 widgets. This is the newer practice and the one that survives
-the April 2025 rule change. Older flows send plain bodies and will fail
-business-initiated.
+Three things follow, and each has cost a round somewhere:
 
-## Audit: flows that publish without encrypting
+- **The Start button is mechanical, not decorative.** The opener is
+  send-and-wait-for-reply, and tapping Start is what opens the window. Without a
+  reply there is no session and every later message fails.
+- **The close is a template because of the timeout maths.** A chain of 4-hour
+  timeouts can push the ending past 24 hours from the last inbound. Somebody who
+  answered everything gets the close in session; somebody who never replied
+  needs the approved version.
+- **Media must be fetchable by Meta, from outside, at submission time.** A
+  Twilio asset set to `private`, an expired link, anything behind SSO — all fail
+  before a human reviews a word. Open the URL in a signed-out window first.
 
-10 flows have a publish widget and no encryption widget:
-
-```
-Apapachar_bonos                published
-BEAT_rifas_WA                  draft
-BEAT_rifas_endline             published
-ETPV Rifa                      published
-Mujeres360_post_facilitadoras  draft
-RST2023_WA_session_1           draft
-RST2023_india_feedback         draft
-RST2023_innovationfair         published
-Te cuidadores                  published
-extortion_survey               published
-```
-
-Some are legitimately identifier-free. **`extortion_survey` deserves a look** -
-a survey on that topic, published to a shared Google Sheet with no encryption
-widget, is the highest-risk item the corpus surfaced.
+An older flow that sends plain bodies business-initiated will fail. That is the
+April 2025 rule change, and it is why the newer practice is to reference a
+content SID from the widget rather than typing a body into it.

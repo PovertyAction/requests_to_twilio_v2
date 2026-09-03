@@ -12,9 +12,10 @@ those are not the same discipline. A chatbot can drop a confused user; a survey
 has to record *that* it dropped them, *where*, and *why*, or the dataset lies
 about its own missingness.
 
-So most of the work in an IPA flow is not the questions. Measured across all 47
-flows on the account: 723 question widgets, but 867 `set-variables` and 1259
-splits. **Roughly two control widgets for every question.** That ratio is the
+So most of the work in an IPA flow is not the questions. Across a mature body of
+instruments there are more `set-variables` widgets than question widgets, and
+more splits than either. **Roughly two control widgets for every question.**
+That ratio is the
 retrofit - it is what turns a chat tool into an instrument.
 
 Read `references/ipa-flow-conventions.md` before designing anything. It is the
@@ -98,8 +99,8 @@ they time out, the round collects nothing, and the delivery tracker reports
 
 This bit us on the first live test of the demo flow: replies came back with
 "Por el momento no estamos recibiendo mensajes. El canal de comunicación no se
-encuentra habilitado" - the boilerplate of `Te cuidadores`, a flow last edited in
-December 2021 that happened to own the webhook on the sending number.
+encuentra habilitado" - the boilerplate of a long-dormant flow, untouched for
+years, that happened to own the webhook on the sending number.
 
 **A sender routes to exactly one flow at a time.** Which number a study may use
 is an IPA process question and is deliberately outside this template - assume
@@ -127,8 +128,8 @@ Verify by hand in that case.
 
 ### A WhatsApp sender is not the phone number
 
-**This is the part that cost us an afternoon.** `whatsapp:+1318…` and
-`+1318…` are two different Twilio resources that happen to share digits, and
+**This is the part that cost us an afternoon.** `whatsapp:+15551234567` and
+`+15551234567` are two different Twilio resources that happen to share digits, and
 they have **separate inbound webhooks**:
 
 | Resource | Console | Governs |
@@ -230,7 +231,7 @@ confirmation before continuing; `--skip-preload-check` bypasses it.
 
 ### The house vocabulary
 
-Measured across the 47 flows, by how many use each key:
+The keys that recur, and what each is for:
 
 | Key | Flows | What it is |
 | --- | --- | --- |
@@ -242,8 +243,8 @@ Measured across the 47 flows, by how many use each key:
 | `nationality`, `sexo`, `edad`, `niv_educativo_sisben` | 7 each | Demographics carried from baseline |
 | `link`, `enlace`, `link1`, `link2` | 3-5 | Per-respondent URLs |
 
-Rich flows carry a lot: `BSC_intervention` references 26 preloaded keys,
-`FMI_screening` 23. Eight flows use none at all.
+Rich flows carry a lot - two dozen preloaded keys is normal for a screening or
+intervention flow. Plenty of flows use none at all.
 
 **`caseid` is the one that matters most.** It is what lets a response join back
 to the sampling frame, and without it a completed survey is an orphan.
@@ -285,7 +286,7 @@ Rules that avoid the silent failure:
 
 ## Stage 1 - consent
 
-22 of 47 flows carry consent language; the ones that do share a shape.
+Not every flow carries consent language; the ones that do share a shape.
 
 1. **Identify** IPA and the study in terms the respondent recognises.
 2. **State the consent basis** - "dado que nos autorizaste un nuevo contacto".
@@ -402,8 +403,8 @@ Three consequences for how questions get written:
 The field limits above are what the API enforces. They are far more generous
 than what a person can actually read on a phone, so they are the wrong target.
 
-Measured across 392 question bodies in IPA's own WhatsApp instruments,
-2022-2026:
+Measured across several hundred question bodies from IPA's own WhatsApp
+instruments:
 
 | | chars | lines |
 | --- | --- | --- |
@@ -429,8 +430,8 @@ Three habits that keep questions short:
 - **Put the scale in the rows, not in the question.** With a list picker the
   labels carry the response options, so the body does not need to repeat them.
   This is the single biggest saving when converting an older instrument.
-- **`*bold*` the part that must be found at a glance.** 90% of the corpus uses
-  it, and on a typed-number item it is what makes the digits scannable.
+- **`*bold*` the part that must be found at a glance.** Nearly everything does,
+  and on a typed-number item it is what makes the digits scannable.
 - **Progress markers are worth their characters.** `Question 3 of 8` costs 15
   and materially reduces break-off, because a respondent who cannot see the end
   assumes there isn't one.
@@ -632,9 +633,8 @@ numeric threshold on a value the flow already parsed. `equal_to` is fine for an
 internal flag your own `set-variables` widget wrote. Everything a respondent
 typed or tapped goes through a regex.
 
-Older flows on this account run the other way round - roughly nine
-`matches_any_of` for every `regex` - so expect to be the odd one out when
-reading them. What an option-list pattern looks like:
+Older flows commonly run the other way round, favouring `matches_any_of` over
+`regex` by a wide margin - so expect to be the odd one out when reading them. What an option-list pattern looks like:
 
 ```
 type:  regex
@@ -655,9 +655,9 @@ it is invisible on the canvas. In a regex a comma is just a character.
 ### The typed-number pattern, and converting off it
 
 Expect to open an existing IPA flow and find none of the above. Across a
-2022-2026 sample, **373 of 400 questions were plain text bodies and only 27 used
-a Content template**, and splits used `matches_any_of` over `regex` by roughly
-nine to one. The house pattern is a typed digit:
+historical sample, **the overwhelming majority of questions were plain text
+bodies rather than Content templates**, and splits favoured `matches_any_of`
+over `regex` by a wide margin. The house pattern was a typed digit:
 
 ```
 ¿Qué tan cómodo/a se sentiría teniendo vecinos colombianos?
@@ -804,7 +804,7 @@ question --(reply)--> split_<q>              validate
 | `set_no_reply_<section>` | Timed out |
 | `set_fail_<section>` | Delivery failed |
 
-**Scope them by section, not globally.** `edutainment_bl` carries the full set
+**Scope them by section, not globally.** A large instrument carries the full set
 for `dem`, `obs`, `mig`, `emp` and `social`. That is what lets an analyst say
 *where* a respondent broke off. A single global flag cannot.
 
@@ -863,9 +863,9 @@ Two things follow from that, and both are load-bearing.
 
 ### One publish widget, and every path must reach it
 
-All 29 publishing flows on the account carry **exactly one** publish widget -
-`edutainment_bl` funnels 471 widgets into a single call with 95 parameters. That
-is the right shape. Every terminal path routes through it: completed, timed out,
+Every publishing flow worth copying carries **exactly one** publish widget - a
+large instrument can funnel several hundred widgets into a single call with
+ninety-odd parameters. That is the right shape. Every terminal path routes through it: completed, timed out,
 too many errors, delivery failed. One exit point means a row exists whatever
 happened, carrying the paradata flags that say which of those it was.
 
@@ -886,8 +886,9 @@ state, re-fetchable at any time:
     ...
 ```
 
-`BSC_baseline` and `BSC_screening` both have six such paths today, in the pilot
-verification branch. Everyone who timed out there is simply absent from the data.
+Copied flows tend to carry several of these at once, clustered in whichever
+branch was duplicated. Everyone who timed out there is simply absent from the
+data - not a `no_reply` row, no row.
 
 ### Every respondent must end with a final status
 
@@ -1013,7 +1014,7 @@ analysable. Run it before a round starts and after any edit.
 
 ```bash
 just flow-check                       # every flow on the account
-just flow-check "edutainment_bl"      # one flow
+just flow-check "my_endline"          # one flow
 just flow-check "--errors-only"       # suppress warnings
 just flow-list                        # what exists, status, revision
 just flow-pull <name>                 # into flows/ (gitignored) for review
@@ -1036,41 +1037,55 @@ It exits non-zero on any error, so it can gate a deployment.
 | `text-may-truncate` | warning | Near a limit Meta enforces but Twilio does not document |
 | `unmatchable-condition` | error | A regex that does not compile, or a comma-broken `matches_any_of`; both route everyone to noMatch |
 | `credentials` | error | A definition is meant to be committed |
+| `publish-failure-thanks-respondent` | error | The closing message sends even though the publish failed - success from every angle, no data |
+| `trigger-ignores-api-launch` | error | The flow does not route `incomingRequest`, so an API launch ends at the trigger having sent nothing, and the launcher still records it as `active` |
 | `split-without-nomatch` | warning | An unexpected answer has nowhere to go |
 | `no-encryption` | warning | Publishing identifiers to Sheets in clear |
 | `unpaired-answers` | warning | A blank cell cannot be read as timed-out vs not-asked vs failed |
 | `respondent-initiated-start` | warning | Writing to the number starts the survey, so a "thanks" becomes a new round |
+| `no-derived-final-status` | warning | Outcomes exist, but only as `set_*` flags - which are `1` or blank, never `0`, so "not complete" is absence. Strongly suggests publishing a derived `final_status` |
+| `no-optout-path` | warning | Nothing looks for a mid-survey "STOP", so it is stored as an answer and the next question is sent anyway |
+| `discarded-paths` | warning | Any other branch that ends without a row |
+| `encrypt-failure-publishes-anyway` | warning | Blank identifier columns that read as missing data rather than a failure |
+| `no-publish-widget-found` | warning | The publish step was not recognised, so every check above it never ran |
 
-`opening-cannot-open-session` needs to know what each content template actually
-is, which costs one Content API call per template. It runs when you check a
+Four of these - `opening-cannot-open-session`, `too-many-options`,
+`text-too-long`, `text-may-truncate` - need to know what each content template
+actually is, which costs one Content API call per template. **They are skipped
+on a local definition file**, so "all checks passed" on `flows/x.json` means the
+rest passed; the command says which it skipped. They run when you check a
 single flow or deploy one, and is skipped on a whole-account sweep rather than
 guessed at.
 
-### What it found on this account
+### What running it actually turns up
 
-Running it over all 47 flows: **37 clean, 10 with errors.**
+The defects worth having a checker for are the ones the Studio editor cannot
+show you, in flows that have been running for years without anybody noticing.
+Two shapes come up again and again.
 
-Seven flows share one identical defect - `BSC_baseline`, `BSC_endline`,
-`BSC_screening`, `FMI_scheduling`, `FMI_screening_bsc`, `FMI_screening_bsv`,
-`FMI_screening_elic`:
+**One bug, copy-pasted.** Duplicating a flow to start the next round duplicates
+its mistakes, so a single unwired transition becomes six identical ones across a
+programme. The usual form is a chain of timeouts that walks a respondent from
+one widget to the next and off the end:
 
-```
-verif_1_pilot      --timeout--> verif_1_rem1_pilot
-verif_1_rem1_pilot --timeout--> verif_1_rem3
-verif_1_rem3       --timeout--> welcome_piloto_scr
+```text
+verif_1        --timeout--> verif_1_rem1
+verif_1_rem1   --timeout--> verif_1_rem3
+verif_1_rem3   --timeout--> welcome_screening
 (and the matching deliveryFailure transitions)
 ```
 
-That is one bug, copy-pasted six times when the flows were duplicated. Six of
-the seven are published. Anyone who stopped replying during pilot verification
-is absent from the data entirely - not a `no_reply` row, no row.
+Anyone who stops replying in there is absent from the data entirely - not a
+`no_reply` row, no row. Attrition and never-contacted become the same thing,
+which is the one distinction a response rate depends on.
 
-Three more (`RST2023_innovationfair`, `ETPV Rifa`, `Te cuidadores`) publish rows
-with no final-status variable at all, so those datasets cannot distinguish a
-completion from a break-off.
+**A published row that cannot say how it ended.** A flow with no final-status
+variable produces a dataset in which a completion and a break-off look
+identical. It is the quietest defect in this list, because everything about the
+run looks successful.
 
-**This is the argument for running the check at all.** None of it was visible in
-the Studio editor, and the flows had been running for years.
+**This is the argument for running the check at all**, and for running it on a
+flow you copied rather than assuming the original was sound.
 
 ### Locating the drop-off
 
@@ -1081,8 +1096,8 @@ section. They tell an analyst which section a respondent died in.
 For finer resolution, pair each answer with its own status column
 (`q3` next to `q3_status`), which is what `unpaired-answers` looks for. It costs
 a `set-variables` widget per question per break-off path, so it is a real
-investment in an 85-question survey - 94% of answer columns on this account are
-currently unpaired. Section-level is a legitimate choice; the point is to make
+investment in an 85-question survey, and most existing answer columns are
+unpaired. Section-level is a legitimate choice; the point is to make
 it deliberate, and to know that a blank answer cell alone is ambiguous between
 timed-out, not-asked and delivery-failed.
 

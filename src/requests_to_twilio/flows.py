@@ -994,8 +994,40 @@ def unpaired_answers(definition: dict) -> list[str]:
     return unpaired
 
 
+#: The checks that cannot run without the account, because they read each
+#: template's content type from the Content API. On a local definition they are
+#: skipped, so "all checks passed" on a file means the rest passed - which the
+#: CLI now states rather than leaving to be inferred.
+ACCOUNT_ONLY_CHECKS = (
+    "opening-cannot-open-session",
+    "too-many-options",
+    "text-too-long",
+    "text-may-truncate",
+)
+
+#: How many distinct findings :func:`check_flow` can emit. Asserted by a test
+#: against the source, so the number in the CLI's own output cannot drift from
+#: the number of checks that exist.
+TOTAL_CHECKS = 22
+
+#: The column this project derives at the convergence point, and the one it
+#: recommends. See :mod:`requests_to_twilio.outcomes`.
+DERIVED_FINAL_STATUS = "final_status"
+
 #: Variables whose presence in the publish payload means a final status is
 #: recorded. Section-scoped names (set_no_reply_dem) count via the prefix.
+#:
+#: `final_status` is in here because it was not, and that was the wrong way
+#: round: a flow built to this project's own documented convention - deriving
+#: `final_status` at the convergence point and dropping the legacy paradata -
+#: failed an *error*-severity check and could not be deployed. The demo hid it
+#: by publishing both vocabularies at once, so the pass was earned entirely by
+#: the `set_*` columns.
+#:
+#: How an outcome is composed is deliberately not this checker's business. Any
+#: of these satisfies the requirement that a published row say how the survey
+#: ended; the separate `no-derived-final-status` warning is where a
+#: `final_status` column is *recommended*, without being demanded.
 _FINAL_STATUS_PREFIXES = (
     "set_complete",
     "set_no_reply",
@@ -1003,6 +1035,7 @@ _FINAL_STATUS_PREFIXES = (
     "set_multierror",
     "set_consent",
     "set_survey_fail",
+    DERIVED_FINAL_STATUS,
 )
 
 
@@ -1360,8 +1393,33 @@ def check_flow(
                 Finding(
                     "error",
                     "no-final-status",
-                    "Published payload carries no final-status variable "
-                    "(set_complete / set_no_reply / set_fail / set_multierror)",
+                    "Published payload says nothing about how the survey ended, "
+                    "so a completion cannot be told from a break-off. Publish "
+                    f"{DERIVED_FINAL_STATUS} (recommended), or one of "
+                    + " / ".join(
+                        p for p in _FINAL_STATUS_PREFIXES if p != DERIVED_FINAL_STATUS
+                    ),
+                )
+            )
+        elif not any(c == DERIVED_FINAL_STATUS for c in columns):
+            # Recorded, but only as separate flags. Strongly suggested rather
+            # than required, because how somebody composes an outcome from their
+            # own `set_` flags is their business, not this checker's.
+            #
+            # The reason to want the derived column is a real one: the flags are
+            # `1` or *blank*, never `0`, so "not complete" is encoded as absence
+            # and is indistinguishable from a column the publish step dropped,
+            # a truncated row, or a shifted header. And an analysis grouping on
+            # a single flag misses that an encryption failure overrides the
+            # outcome - `complete` with `final_status = failed` is a real row.
+            findings.append(
+                Finding(
+                    "warning",
+                    "no-derived-final-status",
+                    f"Outcomes are recorded, but no {DERIVED_FINAL_STATUS} column "
+                    "is published. Deriving one at the widget every terminal path "
+                    "converges on gives analysis a single column to group on - see "
+                    "requests_to_twilio.outcomes.final_status_liquid",
                 )
             )
 
@@ -1764,7 +1822,7 @@ def deploy(
             Twilio rejects the definition, or if the API call fails.
 
     The gate exists because this class of defect spreads by duplication. Seven
-    flows on this account share one identical break-off path that never reaches
+    copied flows share one identical break-off path that never reaches
     the publish widget - the same bug copied six times when flows were cloned
     from each other, six of them published. Detection that has to be remembered
     does not stop that; a deploy that refuses does.
