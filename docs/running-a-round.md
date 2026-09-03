@@ -133,14 +133,9 @@ refuses anything already submitted.
 
 ### `just intake` / `just send` — one path in
 
-`rtt launch` validates that `Number` and `caseid` are present and that `caseid`
-is neither blank nor duplicated. It does **not** validate the value in `Number` —
-no country check, no `whatsapp:` prefix check. Whatever is in that cell goes to
-Twilio, and a malformed one fails per-row at send time, which on the day is 13:55
-with a room waiting.
-
-So a sample that reached `rtt launch` by any other route was never checked at
-all, and these two recipes exist to be the only route:
+`rtt launch` validates that `Number` and `caseid` are present, and that `caseid`
+is neither blank nor duplicated. It does **not** validate the value in `Number`.
+`intake` is where that check lives, so these two recipes are the route in:
 
 ```powershell
 just intake scripts/build_rst2026_sample.py                          # export -> sample
@@ -149,104 +144,71 @@ just send rst2026_sample caseid,name,arm "--dry-run"   # checks, sends nothing
 just send rst2026_sample caseid,name,arm               # sends, then watches for an hour
 ```
 
-**Numbers are collected somewhere else.** A form, a partner's spreadsheet, a
-panel, last round's completers — and they arrive in whatever shape that place
-produced. `intake` is where whatever arrived becomes something safe to send, and
-it is the only place that check can live, because `rtt launch` verifies that
-`Number` is *present* and never what is *in* it.
+Rows that do not resolve are written to `<out>_needs_human_review.csv` with a
+reason each, and nobody is sent anything. Re-running after a fix moves nobody
+already assigned. The loop is: export, intake, read the review file, fix at the
+source, intake again.
 
-So messy input is the expected case rather than a failure. Rows that do not
-resolve are reported with a reason and written to
-`<out>_needs_human_review.csv`; nobody is sent anything; and re-running after a
-fix moves nobody already assigned, because `caseid` and `arm` are frozen across
-rebuilds. The loop is: export, intake, read the review file, fix at the source,
-intake again.
+BUILDER is the script that knows one source's shape — which column holds the
+number, which is the consent tick. `just send` takes the sample's name without
+its extension; the tracker is always `<sample>_output.csv`. COLUMNS is what the
+flow receives per respondent.
 
-Both recipes take the round rather than assuming one. The builder is the script
-that knows one source's shape — which column holds the number, which is the
-consent tick — and that is per-source by nature, because a form belongs to
-whoever made it. `just send` takes the sample's name without its extension (the
-tracker is always `<sample>_output.csv`, because that is what `rtt launch`
-writes) and the columns the flow should receive. `caseid` earns its place there
-— it is the non-identifying key everything downstream joins on, which is what
-confines phone numbers to the master list — but the rest is yours. `arm` belongs
-to a study that randomises, and most rounds do not.
+`just send` launches and then watches for an hour, mirroring the round every two
+minutes into the `tracking` tab — or into a MotherDuck table with
+`just watch=motherduck send ...`. Ctrl-C ends the watch without affecting
+anything already sent; the tracker on disk is the record, and `just send` again
+picks up whoever signed up meanwhile. It polls `--every 2` minutes, and
+`--full-window` keeps the view moving after every number has settled.
 
-`just send` does two things, because during a session they are one action: it
-launches, and then it polls for an hour and rewrites the `tracking` tab every
-two minutes, so the round is visible to people who are not at a terminal. Ctrl-C
-ends the watch without affecting anything already sent — the tracker file on disk
-is the record, and `just send` again picks up whoever signed up meanwhile.
-
-Two choices in there worth knowing. `--every 2` rather than every minute because
-polling repeatedly earns a 429 eventually, and a rate limit in front of a room is
-worse than a two-minute refresh. And `--full-window`, without which the watch
-would end almost immediately — see below, it is not obvious.
-
-`intake` reads the export and writes a launch sample. Five things it
-does that a hand-made spreadsheet does not:
+What `intake` does that a hand-made spreadsheet does not:
 
 | | |
 | --- | --- |
-| **Country comes from the form, per row** | A bare 10-digit string is an Indian mobile, a US line and a Colombian mobile at once, and only the respondent can say which. The export's country column decides; a row that does not say, and whose number carries no `+`, is **reported for a human rather than resolved**. Resolving it on a default region is how a message reaches a stranger. |
-| **Consent is required** | An unticked box is not a yes. Those rows are excluded and counted. |
-| **A landline is refused** | It parses to valid E.164 and WhatsApp still cannot reach it, so sending is a message that never arrives. `FIXED_LINE_OR_MOBILE` **is** accepted — that is what the library answers when a numbering plan does not separate the two at all, which is every number in `+1`. |
-| **`caseid` and `arm` never move** | A rebuild carries every number's existing assignment forward and gives new ones only to new sign-ups. `--resume` keys on `caseid`, so an id that shifted when three more people signed up would re-send to somebody already contacted; an arm that shifted would move a respondent between treatments after they had answered. |
-| **An explicit `Number` column is trusted, but cross-checked** | The workbook kept on the day carries the form's columns *and* a `Number` column beside them. If both resolve to the same thing, fine. If they disagree, one is a typo and nothing here can tell which — so the row is reported rather than sent on a coin flip. A `Number` **is** allowed to rescue a row whose country cell could not be read, because it carries its own country. |
+| **Country comes from the form, per row** | The export's country column decides. A row that does not say, and whose number carries no `+`, is reported rather than resolved. |
+| **Consent is required** | Unticked rows are excluded and counted. |
+| **A landline is refused** | WhatsApp cannot reach one. `FIXED_LINE_OR_MOBILE` **is** accepted — that is the library's answer wherever a numbering plan does not separate the two, which is every number in `+1`. |
+| **`caseid` and `arm` never move** | A rebuild carries every existing assignment forward and gives new ones only to new sign-ups. `--resume` keys on `caseid`. |
+| **An explicit `Number` column is trusted, but cross-checked** | If the form's columns and a `Number` column disagree, the row is reported rather than sent. A `Number` may rescue a row whose country cell could not be read, since it carries its own. |
 
 Parsing is [libphonenumber](https://github.com/google/libphonenumber) via
-`phonenumbers`, not a table of per-country mobile lengths. That is what makes a
-trunk zero on an Indonesian `08…`, an eight-digit Singapore number and a country
-code typed without a plus all resolve correctly — and it handles the trap worth
-knowing: Indian mobiles start with 6-9, so an ordinary local number like
-`9123456789` **begins with the country code 91**, and any rule that reads the
-prefix to decide "it already has its country code" turns it into a ten-digit
+`phonenumbers`, so a trunk zero on an Indonesian `08…`, an eight-digit Singapore
+number and a country code typed without a plus all resolve. One trap worth
+knowing: Indian mobiles start with 6-9, so a local `9123456789` begins with the
+country code 91, and a prefix rule would turn it into a ten-digit
 `+9123456789` that Twilio rejects at send time.
 
 ### Which column is which
 
-Columns are found by hint, and two of the form's own headers are traps that hint
-matching walks straight into:
+Columns are found by hint, and two form headers are traps:
 
-- **`Organization Name` contains "name".** Read as the respondent name, every
+- **`Organization Name` contains "name"** — read as the respondent name, every
   opener goes out addressed to an employer.
-- **`I agree to receive one WhatsApp message from IPA...` contains "WhatsApp".**
-  Read as the phone column, every row fails to resolve at once.
+- **`I agree to receive one WhatsApp message from IPA...` contains "WhatsApp"** —
+  read as the phone column, every row fails to resolve.
 
-Today the hint *order* happens to save both, because `First Name` is matched
-before the bare `name` hint and the number column sits above the consent
-question. That is luck about column order, not a property — so each role also
-carries an explicit list of headers it must never match, and moving or renaming a
-question cannot silently repoint it. There is a test for each.
+Each role carries an explicit list of headers it must never match, with a test
+for each, so moving or renaming a question cannot repoint it.
 
-The country question is free text rather than a dropdown, so the cell is read as
-widely as can be done safely: a dial code (`+233`, `233`, `0091`), an ISO code
-(`GH`), or a country name with accents and punctuation ignored, so `Cote d
-Ivoire` and the properly spelled version are one key. A **dial code works for
-every country on earth** — that path goes through the library's own code-to-region
-lookup. A **name** only works if it is in the table in the script, which is
-hand-kept and deliberately not exhaustive; a name that is not there is reported
-with the remedy in the message ("put the dial code in the country column"),
-never guessed at. Add to that table freely — it is a list, not a design.
+The country question is free text, and the cell is read as a dial code (`+233`,
+`233`, `0091`), an ISO code (`GH`), or a country name with accents and
+punctuation ignored, so `Cote d Ivoire` and the properly spelled version are one
+key. A dial code works for every country; a **name** works only if it is in the
+table in the script, which is hand-kept and not exhaustive. A name that is not
+there is reported with the remedy in the message, never guessed at — add to that
+table freely.
 
-Nothing the report prints contains a phone number. Numbers are Confidential
-under IPA's data classification, and a report is the kind of thing that gets
-pasted into a chat window.
+Nothing the report prints contains a phone number.
 
 ### Your own IDs, and what Twilio actually needs
 
-**Twilio needs the number.** Nothing else about a respondent is required to
-reach them. Everything in `--columns` beyond that is a flow *parameter*, and a
-parameter is only worth sending if the flow reads it: `name` because the opener
-greets somebody, `arm` because the instrument branches on it, `caseid` because
-it is the key the submission carries back. An identifier the flow never reads is
-a value published to a third party for no reason at all.
+Everything in `--columns` beyond the number is a flow *parameter*, and is only
+worth sending if the flow reads it: `name` for an opener that greets somebody,
+`arm` for an instrument that branches, `caseid` for the key the submission
+carries back. If your sample already has a `student_id` or a `household_id`,
+**leave it out of `--columns`** — it stays in the sample and never leaves the
+machine.
 
-So if your sample already has a `student_id`, a `household_id`, or whatever the
-study calls its unit, **leave it out of `--columns`.** It stays in the sample and
-never leaves the machine.
-
-That works because the sample may carry more than the flow receives, and
 `--columns` is the boundary:
 
 ```powershell
@@ -254,25 +216,15 @@ That works because the sample may carry more than the flow receives, and
 just send wave3 caseid,name        # only caseid and name become flow parameters
 ```
 
-`rtt launch` reads the whole file, checks that every *requested* column exists,
-and builds the parameter set from that list alone. Columns it was not asked for
-are carried nowhere. Join your own ID back on `caseid` after `rtt decrypt` — the
-sample is the master list, and it is already one of the two files allowed to
-hold numbers.
-
-Two reasons point the same way here, which is why this is the default rather
-than a preference. The first is that Twilio has no use for the ID. The second is
-that the tool has to assume you know not to put identifying information in your
-own ID column — it cannot inspect what a study calls its unit — and keeping the
-column local means that if that assumption is ever wrong, the mistake does not
-leave the machine.
+`rtt launch` reads the whole file, checks that every requested column exists, and
+builds the parameter set from that list alone. Join your own ID back on `caseid`
+after `rtt decrypt`.
 
 #### If you do send PII, encrypt it first
 
-Sometimes there is a real reason — a value that has to land in the published
-dataset next to the answers, and the flow is the only thing writing there. In
-that case encrypt the column **before** it goes into the sample, with the same
-public key the flow uses:
+For a value that has to land in the published dataset next to the answers,
+encrypt the column **before** it goes into the sample, with the same public key
+the flow uses:
 
 ```python
 from requests_to_twilio import crypto
@@ -281,9 +233,9 @@ pub = crypto.load_public_key(public_key_b64)  # the key `just keygen` printed
 frame["guardian_name"] = [crypto.encrypt(v, pub) for v in frame["guardian_name"]]
 ```
 
-The ciphertext is the same `v2:` sealed box that `encrypt_fields.js` produces
-inside the flow, so nothing downstream needs to be told about it. `rtt decrypt`
-detects any column carrying the `v2:` marker and needs no column list:
+The ciphertext is the same `v2:` sealed box that `encrypt_fields.js` produces, so
+nothing downstream needs telling. `rtt decrypt` detects any column carrying the
+`v2:` marker and needs no column list:
 
 ```text
 ciphertext prefix          : v2:  (95 chars for a short name)
@@ -291,18 +243,13 @@ auto-detected as encrypted : ['guardian_name']
 round trip intact          : True
 ```
 
-Encrypting on this side is **stronger than encrypting in the flow**, and it is
-worth knowing why. `encrypt_fields.js` protects a value the respondent typed,
-which means the plaintext existed in a widget before the encrypt function ran. A
-value you seal on your own machine is ciphertext for its whole life in Twilio —
-the API call, the execution context, the published row. Twilio never holds the
-plaintext at all.
+A value sealed here is ciphertext for its whole life in Twilio — the API call,
+the execution context, the published row — where `encrypt_fields.js` protects a
+value that existed as plaintext in a widget first.
 
-The constraint is that **the flow cannot read what it cannot decrypt.** This works
-for a value the flow only passes through to the store. It does not work for
-anything the flow acts on: an encrypted name cannot greet somebody, and an
-encrypted `arm` cannot branch. Those have to stay plaintext, which is the real
-argument for sending as few of them as possible.
+The constraint: **the flow cannot read what it cannot decrypt.** This works for a
+value the flow passes through to the store, not for anything it acts on. An
+encrypted name cannot greet somebody and an encrypted `arm` cannot branch.
 
 ### `rtt launch` — the general case
 
@@ -368,11 +315,10 @@ Only `rtt monitor` can tell you which.
 just monitor "--tracker sample_output.csv --sample sample.xlsx"
 just monitor "--tracker sample_output.csv --sample sample.xlsx --hours 4"
 just monitor "--tracker sample_output.csv --sample sample.xlsx --sheet --every 1"
+just monitor "--tracker sample_output.csv --sample sample.xlsx --table tracking"
 ```
 
-One row per **respondent**, not per message — a round of 4 people produces around
-70 messages and nobody watching a live round wants 70 rows. Each respondent
-holds one state:
+One row per **respondent**, not per message. Each holds one state:
 
 | State | Meaning |
 | --- | --- |
@@ -382,50 +328,27 @@ holds one state:
 | `answered_back` | they replied, so the flow has taken over |
 | `unsolicited` | they wrote in without being launched |
 
-`failed` and `answered_back` are final and stop being polled. When everyone
-has settled the loop stops on its own rather than spending rate limit on a
-finished round.
+`failed` and `answered_back` are final and stop being polled, so the loop ends
+once everyone has settled.
 
-**That means the monitor can exit within a minute on a small round, and it does
-not mean the survey finished.** Somebody who has `answered_back` is still
-working through the questions; delivery simply has nothing further to say about
-them. Their data row appears only when the flow reaches its publish widget at
-the end. For where a respondent is mid-survey use `rtt fetch`, which reads
-execution state.
+**Settled is not finished.** Somebody who has `answered_back` is still working
+through the questions, and their data row appears only when the flow reaches its
+publish widget. On a small round the monitor can therefore exit within a minute.
+For where a respondent is mid-survey, use `rtt fetch`.
 
-**Pass `--full-window` when somebody is watching.** It keeps polling for the
-whole `--hours` window even once every number has settled, which is the only way
-the tracking tab keeps moving through a live session rather than freezing a
-minute after the send. The default is the right one for reconciling a round
-afterwards; this is the flag for doing it in front of a room, and `just send`
-passes it.
+| Flag | |
+| --- | --- |
+| `--full-window` | keeps polling for the whole `--hours` window after every number has settled — what a tab somebody is watching needs. `just send` passes it |
+| `--tracker` | scopes the poll to one round using the launcher's `sent_at`, and is the only place a send that never left is recorded. Those are reported first. Prefer it to `--since`, which is day-resolution |
+| `--sample` | the master list, and the only file this command reads a number from. The mapping to `caseid` is built in memory and nothing written carries a number. Without it every respondent is filed under `unknown-<digest>` |
+| `--sheet` / `--table` | mirrors each poll into a spreadsheet tab or a MotherDuck table. `--sheet-tab` defaults to `tracking` and must already exist; `--table` creates or replaces |
 
-**Pass `--tracker`.** It scopes the poll to one round using the launcher's own
-`sent_at`, and it is also the only place a send that never left is recorded —
-those are reported first, because no message exists for them to appear in any
-delivery status. A date is the wrong unit: `--since` at day resolution once
-returned 91 messages for a round of 4.
+**An error code on an *inbound* message is a failure**, even though its status
+reads `received`: the reply reached Twilio and Twilio could not hand it to the
+flow. Error `11200` is a webhook returning non-2xx. The answer is gone, and every
+other surface reports success.
 
-**Pass `--sample`.** It is the master list, and the only file this command reads
-a phone number from. The Messages API can answer only in phone numbers, so the
-mapping to caseid is built from the master list in memory and nothing written
-carries a number — see [publishing.md](publishing.md). Without it every
-respondent is filed under `unknown-<digest>`, which is safe and useless to
-watch.
-
-**Pass `--sheet`** to rewrite a Google Sheet tab after every poll, so the round
-is visible to people who are not at a terminal. `--sheet-tab` chooses which,
-default `tracking`. The tab must already exist.
-
-Two things worth knowing about what it reports:
-
-- **An error code on an *inbound* message is a failure**, even though its status
-  reads `received`. That means the reply reached Twilio and Twilio could not
-  hand it to the flow — error `11200` is a webhook returning non-2xx. The answer
-  is gone, and every other surface reports success.
-- **A rate limit is never reported as an empty round.** Polling repeatedly earns
-  a 429 eventually, and "no messages" at that moment would describe a quiet
-  healthy round when the account is at its busiest.
+A rate limit is reported as a rate limit, never as an empty round.
 
 ### `rtt data-check` — high-frequency checks for the data
 
@@ -461,9 +384,8 @@ widget that ends the execution:
 | `unreachable` | never replied at all |
 | `undeliverable` | the first message never arrived |
 
-`optout` is deliberately separate from `incomplete`: someone who asked to stop is
-exercising a right, not breaking off, and collapsing the two overstates attrition
-while burying a consent signal.
+`optout` is separate from `incomplete`: collapsing the two overstates attrition
+and buries a consent signal.
 
 **`final_status` — what the pipeline ended up with.** Four values, derived at
 `finish`, the one widget every terminal path passes through:
@@ -475,16 +397,11 @@ while burying a consent signal.
 | `incomplete` | `incomplete`, `optout`, `unreachable` |
 | `failed` | `undeliverable`, or encryption failed |
 
-This is the column to group by. **`failed` means the system let us down, never
-the respondent** — a refusal, an opt-out and a silence are all things a person
-is entitled to do, and none of them is a failure.
+This is the column to group by. **`failed` means the system, never the
+respondent**: a refusal, an opt-out and a silence are not failures.
 
 Both vocabularies are declared once, in `src/requests_to_twilio/outcomes.py`,
-and the Liquid the flow runs is generated from that same mapping. They were
-previously written out in three places and had already drifted: the flows
-emitted `unreachable`, `undeliverable` and `optout` long before the data checks
-recognised them, so a round of pure non-response was reported as having no
-recognisable outcome at all.
+and the Liquid the flow runs is generated from that same mapping.
 
 **One thing `final_status` cannot tell you.** A send that Meta rejects or the API
 refuses never becomes an execution, so it publishes no row at all — that person
