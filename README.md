@@ -6,6 +6,18 @@ without exposing respondents' personal information.
 **New here? → [START-HERE.md](START-HERE.md)** is the whole path, in order, from
 a Twilio signup to a launched round. Start there; this page is the overview.
 
+## This repository replaces `PovertyAction/requests_to_twilio`
+
+**This is the working version.** If you are at IPA and were sent to
+`PovertyAction/requests_to_twilio`, the work moved here. That repository is the
+2021-2024 original, is no longer maintained, and should not be cloned or built
+on — the 2.0 rewrite is not a fork of it, so nothing there is worth carrying
+forward.
+
+It is early, and what it needs is people running rounds with it. Issues and pull
+requests are welcome, and being told what broke is more useful than being told it
+looks fine.
+
 If you have run a SurveyCTO project, you already know this shape:
 
 | Step | SurveyCTO | Here |
@@ -32,9 +44,11 @@ If you have run a SurveyCTO project, you already know this shape:
       v
   encrypt_fields.js          (encrypts with your PUBLIC key)
       v
-  publish_motherduck.js      (one row per respondent, as they finish)
+  publish_gsheets.js  OR     (one row per respondent, as they finish)
+  publish_motherduck.js       -- pick one per build, or deploy both
       v
-  MotherDuck                 (delivery dashboard + database of record)
+  Google Sheets  OR          (your database of record either way)
+  MotherDuck
       |
       | rtt decrypt          (decrypts with your PRIVATE key)
       v
