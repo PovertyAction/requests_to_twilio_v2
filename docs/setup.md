@@ -51,8 +51,8 @@ the flow graph, both are deployed by `just deploy-functions`, and both write the
 same payload. Choose per build:
 
 ```powershell
-just build-demo-flow "--lang en"                          # Google Sheets (default)
-just build-demo-flow "--lang en --publish-target gsheets" # Google Sheets
+just build-demo-flow "--lang en --publish-target gsheets"    # Google Sheets
+just build-demo-flow "--lang en --publish-target motherduck" # MotherDuck
 ```
 
 | | Google Sheets | MotherDuck |

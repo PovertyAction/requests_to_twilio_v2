@@ -303,8 +303,9 @@ flow-check *ARGS:
 # deployed by `just deploy-functions`, so switching is a rebuild of the flow
 # rather than a redeployment of the account:
 #
-#   just build-demo-flow "--lang en"                          # Google Sheets (default)
-#   just build-demo-flow "--lang en --publish-target gsheets" # Google Sheets
+#   just build-demo-flow "--lang en --publish-target gsheets"    # Google Sheets
+#   just build-demo-flow "--lang en --publish-target motherduck" # MotherDuck
+#   just build-demo-flow "--lang en"                             # neither named, so gsheets
 #
 # The flow file is written to the same path either way, so `git diff flows/`
 # after switching shows exactly one widget changing - which is the review.
