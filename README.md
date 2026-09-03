@@ -97,6 +97,35 @@ Functions live on a different account — but
 `just flow-check flows/foro_nacional_datos_source.json` reads it off disk and
 reports real defects in it, which is part of why it is worth keeping.
 
+## Already have a flow?
+
+You do not have to start from the demo. If you are already running Studio flows
+on your own account, the shortest useful thing this repo does is read them.
+
+```powershell
+just flow-list                                 # what is on the account
+just flow-pull my_endline                      # writes flows/my_endline.json
+just flow-check flows/my_endline.json          # 22 checks, non-zero on an error
+```
+
+`flows/` is gitignored apart from the reference definitions this repo ships, so
+a pulled flow is a local working copy. Committing one is a deliberate act, and
+worth thinking about twice: a flow definition describes your instrument, your
+account's Functions and, if you built it by hand, occasionally a credential —
+`pull` scans for those and refuses to write rather than let you find out later.
+
+**Then ask an agent.** This repository ships
+[`.claude/skills/studio-flow/`](.claude/skills/studio-flow/SKILL.md), so opening
+it in Claude Code gives you a reviewer that reads a flow the way a survey
+methodologist would — consent, paradata, error and timeout handling, what should
+be encrypted, whether every path reaches the publish widget — rather than giving
+generic chatbot advice. `flow-check` finds what is mechanically wrong; the skill
+is for what is *designed* wrong, which is the part no linter reaches.
+
+`flows/foro_nacional_datos_source.json` is committed for exactly this: a real
+flow, kept because it still fails its checks. Run `just flow-check` against it to
+see what a review turns up before you point either at your own.
+
 ## Documentation
 
 | | |
@@ -113,6 +142,7 @@ reports real defects in it, which is part of why it is worth keeping.
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Error codes, and the failures that look like success |
 | [docs/portability.md](docs/portability.md) | What is Twilio-specific if you ever move providers |
 | [docs/upgrading-from-1.x.md](docs/upgrading-from-1.x.md) | For existing 1.x projects |
+| [.claude/skills/studio-flow/](.claude/skills/studio-flow/SKILL.md) | What an agent reviewing a flow is told to look for |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) | |
 
 `just --list` is the command index.
