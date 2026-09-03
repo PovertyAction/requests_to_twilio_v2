@@ -174,7 +174,10 @@ to a study that randomises, and most rounds do not.
 
 `just send` does two things, because during a session they are one action: it
 launches, and then it polls for an hour and rewrites the `tracking` tab every
-two minutes, so the round is visible to people who are not at a terminal. Ctrl-C
+two minutes, so the round is visible to people who are not at a terminal. A
+round that publishes to MotherDuck can be watched there instead, with
+`just watch=motherduck send ...`; Sheets is the default because it needs no
+warehouse account. Ctrl-C
 ends the watch without affecting anything already sent — the tracker file on disk
 is the record, and `just send` again picks up whoever signed up meanwhile.
 
