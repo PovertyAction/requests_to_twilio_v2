@@ -26,6 +26,34 @@ step 1 today and do the rest while you wait.
 | 10 | Launch to a test number | nobody | minutes |
 | 11 | Get the data back | nobody | minutes |
 
+## Already running flows? Start by reading one
+
+The table above is the path from nothing. If you already have a WhatsApp sender
+and flows on your own Twilio account, steps 1 to 4 are behind you and the
+quickest way to judge whether this toolkit is worth adopting is to point it at a
+flow you already trust.
+
+Do **step 5** (install), then:
+
+```powershell
+just flow-list                            # find it by friendly name
+just flow-pull my_endline                 # writes flows/my_endline.json, gitignored
+just flow-check flows/my_endline.json     # what is mechanically wrong with it
+```
+
+Nothing here writes to your account: `list`, `pull` and `check` only read. That
+makes it a safe first hour — and the checks are the same ones that gate a
+deploy, so what they say about an existing flow is what they would say about a
+new one.
+
+Not sure which flow your number is actually pointing at? `rtt launch` checks that
+before it sends and names the mismatch, so a dry run against a test number
+(step 10) will tell you. There is no command that resolves it on its own yet.
+
+If the flow is worth keeping, carry on from step 5. You will still want steps 6
+and 7 for encryption and publishing, and you can skip step 9 — the flow already
+exists.
+
 ---
 
 ## 1. A Twilio account
