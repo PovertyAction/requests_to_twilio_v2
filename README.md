@@ -6,19 +6,7 @@ without exposing respondents' personal information.
 **New here? → [START-HERE.md](START-HERE.md)** is the whole path, in order, from
 a Twilio signup to a launched round. Start there; this page is the overview.
 
-## This repository replaces `PovertyAction/requests_to_twilio`
-
-**This is the working version.** If you are at IPA and were sent to
-`PovertyAction/requests_to_twilio`, the work moved here. That repository is the
-2021-2024 original, is no longer maintained, and should not be cloned or built
-on — the 2.0 rewrite is not a fork of it, so nothing there is worth carrying
-forward.
-
-It is early, and what it needs is people running rounds with it. Issues and pull
-requests are welcome, and being told what broke is more useful than being told it
-looks fine.
-
-If you have run a SurveyCTO project, you already know this shape:
+## If you have run a SurveyCTO project
 
 | Step | SurveyCTO | Here |
 | --- | --- | --- |
@@ -30,6 +18,54 @@ If you have run a SurveyCTO project, you already know this shape:
 | Check the incoming data | HFC scripts | `just data-check` |
 | Retrieve | download encrypted data | export the table |
 | Decrypt | local, private key | `just decrypt` |
+
+## Already have a flow?
+
+You do not have to start from the demo. These three read nothing but your
+account, and write nothing to it:
+
+```powershell
+just flow-list                          # what is on the account
+just flow-pull my_endline               # writes flows/my_endline.json, gitignored
+just flow-check flows/my_endline.json   # 22 checks, non-zero on an error
+```
+
+`flow-check` finds what is mechanically wrong. For what is *designed* wrong,
+open the repo in Claude Code: it ships
+[`.claude/skills/studio-flow/`](.claude/skills/studio-flow/SKILL.md), which
+reviews a flow against survey conventions rather than generic Twilio practice.
+`flows/foro_nacional_datos_source.json` is committed as a flow that still fails,
+to try both against.
+
+## This repository replaces `PovertyAction/requests_to_twilio`
+
+**This is the working version.** If you were sent to
+`PovertyAction/requests_to_twilio`, the work moved here; that repository is the
+2021-2024 original and is no longer maintained. This is early, and what it needs
+is people running rounds with it — being told what broke is more useful than
+being told it looks fine.
+
+## Documentation
+
+| | |
+| --- | --- |
+| [START-HERE.md](START-HERE.md) | Zero to a launched round, in order, with the lead times |
+| [docs/setup.md](docs/setup.md) | Every configuration value and where it comes from |
+| [docs/justfile-recipes.md](docs/justfile-recipes.md) | Every `just` recipe, grouped by when you reach for it |
+| [docs/running-a-round.md](docs/running-a-round.md) | Every command of a round in order, and what each check blocks on |
+| [docs/publishing.md](docs/publishing.md) | Where the data and the delivery tracking go, and how to choose |
+| [docs/writing-a-survey.md](docs/writing-a-survey.md) | Writing an instrument as a spreadsheet — start here to build one |
+| [docs/flow-design.md](docs/flow-design.md) | The survey-research conventions behind that format |
+| [docs/demo-instrument.md](docs/demo-instrument.md) | The demo flow, its two arms, and the counter-example |
+| [docs/writing-templates.md](docs/writing-templates.md) | Template copy, categories, and Meta review |
+| [docs/encryption.md](docs/encryption.md) | The threat model, and IRB-ready wording |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Error codes, and the failures that look like success |
+| [docs/portability.md](docs/portability.md) | What is Twilio-specific if you ever move providers |
+| [docs/upgrading-from-1.x.md](docs/upgrading-from-1.x.md) | For existing 1.x projects |
+| [.claude/skills/studio-flow/](.claude/skills/studio-flow/SKILL.md) | What an agent reviewing a flow is told to look for |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) | |
+
+`just --list` is the command index.
 
 ## How the pipeline fits together
 
@@ -55,97 +91,20 @@ If you have run a SurveyCTO project, you already know this shape:
   analysis dataset
 ```
 
-The publish step runs **once per respondent, the moment that respondent's flow
-reaches it** — so the table fills as replies arrive rather than at the end of a
-round. Every terminal path routes through it, including timeouts and delivery
-failures, so a break-off still produces a row. That is what makes attrition
-measurable instead of merely missing.
-
-Encryption happens inside Twilio, before anything is written anywhere. The
-warehouse holds ciphertext for the identifying fields; only the holder of the
-private key can read them back. What that does **not** cover is the copy Twilio
-keeps for ~30 days — read [docs/encryption.md](docs/encryption.md) before an IRB
-submission.
+Publishing happens once per respondent, the moment that respondent reaches it,
+and every terminal path routes through it — including timeouts and delivery
+failures, so a break-off still produces a row. Encryption happens inside Twilio,
+before anything is written anywhere. Both have consequences worth knowing before
+an IRB submission: [docs/publishing.md](docs/publishing.md) and
+[docs/encryption.md](docs/encryption.md).
 
 ## The worked example
 
-`flows/data_use_demo_en.json` is a real instrument, generated by
-`scripts/build_data_use_demo.py`. It is a methods demonstration: respondents are
-randomised into two arms that get the **same six questions** in different
-formats, and the closing message reveals the experiment.
-
-- **ARM 1** asks in dense prose and demands a typed answer.
-- **ARM 2** asks the same things in plain language as a tappable list, warm in
-  tone, with a progress cue on every question.
-
-**ARM 2 is the pattern this repo recommends** — it exists to be copied. ARM 1
-exists so the difference between them can be measured rather than asserted.
-
-Both languages come from one structure and two string tables, so a fix to the
-graph lands in both and neither can quietly drift from the other. The builder
-resolves your Twilio Functions service and content templates **by name**, so
-`just build-demo-flow` produces a flow that points at your account.
-
-Both flows are committed - `flows/data_use_demo_en.json` and `_es.json` - and
-both build from the same code. Either one needs its two bookend templates to
-exist on your account first; `just build-demo-flow` stops and names them if they
-do not.
-
-`flows/foro_nacional_datos_source.json` is the as-ran Bogotá original, kept
-unmodified as provenance. It is **not runnable here** — its templates and
-Functions live on a different account — but
-`just flow-check flows/foro_nacional_datos_source.json` reads it off disk and
-reports real defects in it, which is part of why it is worth keeping.
-
-## Already have a flow?
-
-You do not have to start from the demo. If you are already running Studio flows
-on your own account, the shortest useful thing this repo does is read them.
-
-```powershell
-just flow-list                                 # what is on the account
-just flow-pull my_endline                      # writes flows/my_endline.json
-just flow-check flows/my_endline.json          # 22 checks, non-zero on an error
-```
-
-`flows/` is gitignored apart from the reference definitions this repo ships, so
-a pulled flow is a local working copy. Committing one is a deliberate act, and
-worth thinking about twice: a flow definition describes your instrument, your
-account's Functions and, if you built it by hand, occasionally a credential —
-`pull` scans for those and refuses to write rather than let you find out later.
-
-**Then ask an agent.** This repository ships
-[`.claude/skills/studio-flow/`](.claude/skills/studio-flow/SKILL.md), so opening
-it in Claude Code gives you a reviewer that reads a flow the way a survey
-methodologist would — consent, paradata, error and timeout handling, what should
-be encrypted, whether every path reaches the publish widget — rather than giving
-generic chatbot advice. `flow-check` finds what is mechanically wrong; the skill
-is for what is *designed* wrong, which is the part no linter reaches.
-
-`flows/foro_nacional_datos_source.json` is committed for exactly this: a real
-flow, kept because it still fails its checks. Run `just flow-check` against it to
-see what a review turns up before you point either at your own.
-
-## Documentation
-
-| | |
-| --- | --- |
-| [START-HERE.md](START-HERE.md) | Zero to a launched round, in order, with the lead times |
-| [docs/setup.md](docs/setup.md) | Every configuration value and where it comes from |
-| [docs/justfile-recipes.md](docs/justfile-recipes.md) | Every `just` recipe, grouped by when you reach for it |
-| [docs/running-a-round.md](docs/running-a-round.md) | Every command of a round in order, and what each check blocks on |
-| [docs/publishing.md](docs/publishing.md) | Where the data and the delivery tracking go, and how to choose |
-| [docs/writing-a-survey.md](docs/writing-a-survey.md) | Writing an instrument as a spreadsheet — start here to build one |
-| [docs/flow-design.md](docs/flow-design.md) | The survey-research conventions behind that format |
-| [docs/writing-templates.md](docs/writing-templates.md) | Template copy, categories, and Meta review |
-| [docs/encryption.md](docs/encryption.md) | The threat model, and IRB-ready wording |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Error codes, and the failures that look like success |
-| [docs/portability.md](docs/portability.md) | What is Twilio-specific if you ever move providers |
-| [docs/upgrading-from-1.x.md](docs/upgrading-from-1.x.md) | For existing 1.x projects |
-| [.claude/skills/studio-flow/](.claude/skills/studio-flow/SKILL.md) | What an agent reviewing a flow is told to look for |
-| [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) | |
-
-`just --list` is the command index.
+`flows/data_use_demo_en.json` is a real instrument you can deploy and receive on
+your own phone, generated by `scripts/build_data_use_demo.py` in English and
+Spanish from one structure. It randomises two arms over the same six questions to
+show the difference format makes — ours, not a template you are meant to keep.
+[docs/demo-instrument.md](docs/demo-instrument.md) describes it.
 
 ## Why there is a checks layer
 
@@ -160,12 +119,8 @@ failed**. A single live test once found nine, and not one was visible offline:
 | Warehouse schema drift | HTTP 200, columns silently dropped |
 | Publish failure routed to the closing message | Respondent thanked, row never written |
 
-So `just flow-check` runs before a round and **blocks**, because refusing to
-deploy costs only a fix. `just data-check` runs during one and **warns**, because
-by then there is nothing left to prevent. Where a check can *execute* the thing
-it is checking rather than inspect it, it does: split conditions are evaluated
-against every option, including junk, because a pattern loose enough to accept
-anything stores junk as a real answer.
+So `just flow-check` runs before a round and **blocks**; `just data-check` runs
+during one and **warns**, because by then there is nothing left to prevent.
 
 ## Development
 
@@ -176,16 +131,12 @@ just fmt-all       # ruff + markdownlint
 just scan-secrets
 ```
 
-The suite includes a cross-language check: it encrypts with the **real
-JavaScript that runs inside Twilio** and decrypts in Python. That is what catches
-the two halves drifting apart — a mismatch would otherwise surface only as
-unreadable production data, after collection. CI runs it on Ubuntu and Windows.
-
-Pre-commit runs `ruff`, `codespell`, `markdownlint` and `detect-private-key`.
-Broader secret scanning with `gitleaks` runs in CI rather than locally, because
-IPA-managed Windows machines block the gitleaks binary under Application Control.
-None of this is decorative: an earlier version of this repository shipped a live
-Google service-account key in its source.
+The suite encrypts with the **real JavaScript that runs inside Twilio** and
+decrypts in Python, because a mismatch would otherwise surface as unreadable
+production data after collection. Secret scanning runs in CI rather than
+locally — IPA-managed Windows blocks the gitleaks binary. Not decorative: this
+project has shipped a credential in source before.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
 ## Security notes
 
