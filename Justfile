@@ -390,7 +390,15 @@ data-check FILE *ARGS:
 # The first and last are final and stop being polled, so the loop ends by itself
 # once every number has settled rather than spending rate limit on a done round.
 #
+# --sheet mirrors each poll into a spreadsheet tab and --table into a MotherDuck
+# table, so a round is visible to people who are not at this terminal. Pick the
+# one the round publishes to; they are independent of each other and of
+# --publish-target. The table is REPLACED on every poll, so it must not be the
+# table the flow publishes to - which the command refuses rather than trusts you
+# to remember.
+#
 #   just monitor "--tracker sample_output.csv --hours 4"
+#   just monitor "--tracker sample_output.csv --hours 4 --table tracking"
 [doc("Watch a round land, one row per number")]
 monitor *ARGS:
     uv run rtt monitor {{ ARGS }}

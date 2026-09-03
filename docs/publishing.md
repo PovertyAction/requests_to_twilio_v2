@@ -25,7 +25,7 @@ Each stream can go to a spreadsheet or to a warehouse, independently:
 
                  ┌─────────────┐
    rtt monitor ─►│  your PC    │──► tracking  →  Google Sheets  or  MotherDuck
-                 │  (polling)  │                 --sheet         or  rtt push
+                 │  (polling)  │                 --sheet         or  --table
                  └─────────────┘
 ```
 
@@ -52,8 +52,19 @@ just monitor "--tracker my_round_output.csv --sample my_round.xlsx --sheet"
 ```
 
 **Both → MotherDuck.** For a long instrument, or when the sheet's 172-column
-ceiling is genuinely in the way. Push the delivery log with `rtt push` rather
-than `--sheet`.
+ceiling is genuinely in the way. `--table` is the counterpart of `--sheet`: the
+delivery state is replaced in that table after every poll, so the round is
+watchable in SQL while it runs rather than pushed once it is over.
+
+```powershell
+just build-demo-flow "--lang en --publish-target motherduck"
+just monitor "--tracker my_round_output.csv --sample my_round.xlsx --table tracking"
+```
+
+The table is rewritten with `CREATE OR REPLACE TABLE`, because what it holds is
+the current state of every number rather than a log. Naming the table the flow
+publishes to would therefore drop the round's submissions on the first poll, so
+`--table` refuses when it matches `MOTHERDUCK_TABLE`.
 
 **Tracking → MotherDuck, data → Sheets** is the combination with no audience:
 it puts the operational view somewhere operators cannot look and the analytic
@@ -108,7 +119,8 @@ whichever is now first, against whatever header row it happens to have. Rows
 keep arriving and the Function keeps returning 200.
 
 `rtt monitor --sheet` writes to `--sheet-tab`, default `tracking`. Both tabs
-must already exist; neither writer creates one.
+must already exist; neither writer creates one. `--table` has no such
+requirement - it creates or replaces the table it is given.
 
 ## No phone numbers leave the master list
 

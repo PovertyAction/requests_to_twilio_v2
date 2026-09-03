@@ -97,7 +97,13 @@ from .templates import (
 from .templates import (
     submit as submit_template,
 )
-from .warehouse import WarehouseError, push_dataframe, push_file, resolve_database
+from .warehouse import (
+    ENV_PUBLISH_TABLE,
+    WarehouseError,
+    push_dataframe,
+    push_file,
+    resolve_database,
+)
 
 app = typer.Typer(
     add_completion=False,
@@ -660,6 +666,29 @@ def fetch(
             _fail(str(exc))
 
 
+def _same_table(candidate: str, published: str) -> bool:
+    """Whether two table names refer to the same table.
+
+    `MOTHERDUCK_TABLE` is fully qualified (`db.main.round`) while `--table` is
+    usually bare, so comparing the strings would miss the collision this exists
+    to catch. The final segment is what identifies the table within a database,
+    and a bare name is matched against it.
+
+    Args:
+        candidate: The name passed on the command line.
+        published: The publish target, from the environment.
+
+    Returns:
+        True when writing to `candidate` would overwrite `published`.
+
+    """
+
+    def leaf(name: str) -> str:
+        return name.strip().strip('"').split(".")[-1].strip('"').casefold()
+
+    return leaf(candidate) == leaf(published)
+
+
 @app.command("monitor")
 def monitor(
     output: Annotated[
@@ -721,6 +750,19 @@ def monitor(
         str,
         typer.Option("--sheet-tab", help="Which tab to rewrite."),
     ] = "tracking",
+    table: Annotated[
+        str | None,
+        typer.Option(
+            "--table",
+            help="Also replace a MotherDuck table after every poll, e.g. tracking.",
+        ),
+    ] = None,
+    database: Annotated[
+        str | None,
+        typer.Option(
+            "--database", help="MotherDuck database. Defaults to MOTHERDUCK_DATABASE."
+        ),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Watch a round land: one row per number, polled until it settles.
@@ -753,6 +795,18 @@ def monitor(
     Pass `--tracker` to scope to one round. A date is the wrong unit: on the
     first live round of this instrument `--since` at day resolution returned 91
     messages for a round of 4.
+
+    `--sheet` mirrors each poll into a spreadsheet tab and `--table` into a
+    MotherDuck table. Neither is the record - the CSV at `--output` is, and it
+    is written first - so a destination that will not accept a write reports it
+    and the round keeps being watched. Both are independent of where the flow
+    publishes: this command reads the Messages API, so a round publishing to
+    Sheets can be tracked in MotherDuck and the other way round.
+
+    `--table` is REPLACED on every poll, because one row per number is a
+    current state rather than a log. Pointed at the table the flow publishes to
+    it would drop the round's submissions and report success, so a `--table`
+    matching `MOTHERDUCK_TABLE` is refused.
     """
     configure(verbose=verbose)
     cfg.load_env()
@@ -800,6 +854,28 @@ def monitor(
                 "an `unknown-` key. Pass --sample to see caseids.",
                 fg=typer.colors.YELLOW,
             )
+
+        warehouse_db = None
+        if table is not None:
+            try:
+                warehouse_db = resolve_database(database)
+            except WarehouseError as exc:
+                _fail(str(exc))
+            # Every poll issues CREATE OR REPLACE TABLE, because what this
+            # mirrors is the current state rather than a log. Pointed at the
+            # table the flow publishes to, that drops the round's submissions on
+            # the first poll and again every two minutes, and the terminal would
+            # report each one as a successful update. The publish target is
+            # named in the environment, so this is checkable rather than a
+            # matter of remembering.
+            published = cfg.optional(ENV_PUBLISH_TABLE) or ""
+            if published and _same_table(table, published):
+                _fail(
+                    f"--table {table} is where the flow publishes ({published}). "
+                    "Each poll would replace the round's data. Use a separate "
+                    "table, e.g. --table tracking."
+                )
+            typer.echo(f"Publishing each poll to {warehouse_db}.{table}")
 
         token = None
         minted_at = 0.0
@@ -884,6 +960,25 @@ def monitor(
                         typer.secho(
                             f"    sheet not updated: {exc}", fg=typer.colors.YELLOW
                         )
+
+            if warehouse_db is not None:
+                # The MotherDuck counterpart of the sheet write above, without
+                # its failure mode: the token is read from the environment on
+                # each connection rather than minted for ten minutes, so there
+                # is nothing here that goes stale part-way through a window.
+                try:
+                    written = push_dataframe(
+                        frame=log,
+                        table=table,
+                        database=warehouse_db,
+                        mode="replace",
+                    )
+                    typer.echo(f"    table updated: {written} row(s) in {table}")
+                except WarehouseError as exc:
+                    # Same rule as the sheet: the CSV is the record and the
+                    # table is a view of it, so a failed write reports itself
+                    # and the round keeps being watched.
+                    typer.secho(f"    table not updated: {exc}", fg=typer.colors.YELLOW)
 
             settled_message = "\nEvery number has settled - nothing left to watch."
 
