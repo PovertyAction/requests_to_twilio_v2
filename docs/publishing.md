@@ -9,11 +9,9 @@ and nowhere else.
 | **Data** | what did they answer? | the Twilio Function, from inside the flow | once per respondent, when the flow reaches its publish widget |
 | **Tracking** | did it arrive, and did they reply? | your machine, polling the Messages API | every poll, rewritten in place |
 
-Twilio writes the data because only Twilio is there when it happens — the row
-has to be appended the moment a submission completes, not exported afterwards.
-Your machine writes the tracking because delivery status is a question you ask
-*about* Twilio, from outside: a message Meta rejected never became an execution,
-so nothing inside the flow can report it.
+Twilio writes the data: the row is appended the moment a submission completes.
+Your machine writes the tracking: a message Meta rejected never became an
+execution, so nothing inside the flow can report it.
 
 Each stream can go to a spreadsheet or to a warehouse, independently:
 
@@ -31,44 +29,31 @@ Each stream can go to a spreadsheet or to a warehouse, independently:
 
 ## Picking a combination
 
-Four are possible and three are sensible.
+Data and tracking are chosen independently. Three of the four combinations are
+sensible.
 
-**Tracking → Sheets, data → MotherDuck.** The one to reach for once a study is
-real. Field staff and PIs watch delivery land in a spreadsheet they already know
-how to open; the answers go where analysis happens and stay there. Nobody needs
-a warehouse account to see whether the round is working.
+| Data | Tracking | |
+| --- | --- | --- |
+| MotherDuck | Sheets | Field staff and PIs watch delivery in a spreadsheet; answers go where analysis happens. Nobody needs a warehouse account to see the round working |
+| Sheets | Sheets | The default. One credential, one workbook, two tabs |
+| MotherDuck | MotherDuck | A long instrument, or the 172-column ceiling in the way |
+| Sheets | MotherDuck | No audience: the operational view where operators cannot look, the analytic data where analysts cannot query |
 
 ```powershell
+# data -> MotherDuck, tracking -> Sheets
 just build-demo-flow "--lang en --publish-target motherduck"
 just monitor "--tracker my_round_output.csv --sample my_round.xlsx --sheet"
-```
 
-**Both → Sheets.** The default, and the right first round. One credential, one
-workbook, two tabs, nothing else to obtain. This is what RST Jaipur 2026 runs.
-
-```powershell
-just build-demo-flow "--lang en"
-just monitor "--tracker my_round_output.csv --sample my_round.xlsx --sheet"
-```
-
-**Both → MotherDuck.** For a long instrument, or when the sheet's 172-column
-ceiling is genuinely in the way. `--table` is the counterpart of `--sheet`: the
-delivery state is replaced in that table after every poll, so the round is
-watchable in SQL while it runs rather than pushed once it is over.
-
-```powershell
+# both -> MotherDuck
 just build-demo-flow "--lang en --publish-target motherduck"
 just monitor "--tracker my_round_output.csv --sample my_round.xlsx --table tracking"
 ```
 
-The table is rewritten with `CREATE OR REPLACE TABLE`, because what it holds is
-the current state of every number rather than a log. Naming the table the flow
-publishes to would therefore drop the round's submissions on the first poll, so
-`--table` refuses when it matches `MOTHERDUCK_TABLE`.
-
-**Tracking → MotherDuck, data → Sheets** is the combination with no audience:
-it puts the operational view somewhere operators cannot look and the analytic
-data somewhere analysts cannot query.
+`--table` is the counterpart of `--sheet`: the delivery state is replaced in that
+table after every poll. It is rewritten with `CREATE OR REPLACE TABLE`, holding
+the current state of every number rather than a log, so naming the table the flow
+publishes to would drop the round's submissions — `--table` refuses when it
+matches `MOTHERDUCK_TABLE`.
 
 ## The two destinations
 
@@ -80,9 +65,8 @@ data somewhere analysts cannot query.
 | Rate limits | the Sheets API quota, and it throttles | none in practice |
 | Row arrives | append to the next free row | `INSERT` over the Postgres wire protocol |
 
-Both are set up in [setup.md](setup.md). Neither is the right answer for
-everybody, which is why the target is a flag rather than a decision this repo
-made for you. What a default settles is only which one you get by not deciding.
+Both are set up in [setup.md](setup.md). The target is a flag; the default only
+settles which one you get by not choosing.
 
 ## Both destinations have the same silent failure
 
@@ -120,7 +104,7 @@ keep arriving and the Function keeps returning 200.
 
 `rtt monitor --sheet` writes to `--sheet-tab`, default `tracking`. Both tabs
 must already exist; neither writer creates one. `--table` has no such
-requirement - it creates or replaces the table it is given.
+requirement — it creates or replaces the table it is given.
 
 ## No phone numbers leave the master list
 
@@ -152,27 +136,9 @@ just launch my_round.xlsx --columns "caseid,name,arm"
 just monitor "--tracker my_round_output.csv --sample my_round.xlsx --sheet --every 1 --hours 2"
 ```
 
-`monitor` polls every `--every` minutes and rewrites the tracking tab each time.
-Each respondent holds one state:
-
-```text
-failed          the opener did not go out, or came back undelivered
-sent            accepted by Twilio, not yet confirmed on the handset
-delivered       it arrived
-answered_back   they replied, so the flow has taken over
-```
-
-**`failed` and `answered_back` are final and stop being polled**, and the loop
-ends by itself once every respondent has settled rather than spending rate limit
-on a finished round.
-
-That last part has a consequence worth knowing in advance: on a small round the
-monitor can exit within a minute, because everyone replied and delivery has
-nothing further to say. **This is not the survey finishing.** A respondent who
-has `answered_back` is still working through the questions, and their data row
-only appears when the flow reaches its publish widget at the very end. For where
-they are mid-survey, use `rtt fetch`, which reads execution state; for what they
-have answered, read the data tab.
+Each poll rewrites the tracking destination in place. The states, the flags and
+what "settled" does not mean are in
+[running a round](running-a-round.md#rtt-monitor--did-the-round-actually-land).
 
 ## After the round
 

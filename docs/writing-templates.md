@@ -106,6 +106,27 @@ Keep one file per template in `templates/`. The generated in-session ones live i
 `templates/generated/` and are rebuilt by `just build-demo-flow`, so edit the
 builder rather than those files.
 
+## Templates are immutable
+
+`demo-templates-create` uses
+`--skip-existing`, which leaves an existing template alone rather than making a
+duplicate. That is what you want when re-running a build — and exactly what you
+do **not** want after changing a question's wording or options, because the
+flow resolves templates *by friendly name* and then references them *by SID*.
+
+How that fails depends on what you changed, and the quieter case is the
+dangerous one. Change an **option** and the new split refuses every answer, so
+you find out immediately. Change only the **wording** and nothing objects at
+all: the flow is correct, `flow-check` passes, the linter is clean, the tests
+are green, and respondents are read the old text. That happened — six questions
+went out numbered "of 5" after a sixth was added, and only a respondent's
+transcript revealed it.
+
+`just build-demo-flow` now blocks on this, comparing each stored template
+against the definition it just wrote and naming what drifted. The fix is
+`just demo-templates-sync`, which replaces only what actually differs. Do not
+rely on remembering to `template-delete` by hand.
+
 ## Before you submit
 
 Read it aloud as though you received it from a number you do not recognise. Then
