@@ -136,6 +136,19 @@ keygen *ARGS:
 launch *ARGS:
     uv run rtt launch {{ ARGS }}
 
+# Where `just send` mirrors the round while it watches. Sheets is the default
+# because that is what almost every round uses, and `--table` needs a warehouse
+# account that a first round should not have to obtain.
+#
+#   just send my_round caseid                    # watched in a spreadsheet tab
+#   just watch=motherduck send my_round caseid   # watched in a MotherDuck table
+#
+# A value that is neither stops the run rather than falling back to Sheets: a
+# round watched in the wrong place looks exactly like a round watched in the
+# right one.
+watch := "sheet"
+watch_flag := if watch == "sheet" { "--sheet" } else { if watch == "motherduck" { "--table tracking" } else { error("watch must be sheet or motherduck, got: " + watch) } }
+
 # ---------------------------------------------------------------------------
 # Running a round. Three recipes, and between them they are the whole path from
 # a sign-up to a sent message. There is deliberately no second way in:
@@ -187,11 +200,12 @@ intake BUILDER *ARGS:
 # sent to and retries only the failures. On a first run there is no tracker, so
 # it sends to everybody.
 #
-# The tracker then polls for an hour and rewrites the `tracking` tab every 2
-# minutes, so the round is visible to people who are not at a terminal. It needs
-# --full-window: `answered_back` counts as settled, so without it the loop exits
-# as soon as everybody has replied to the opener - a minute or two in, while the
-# survey has barely started - and the tab stops moving mid-session.
+# The tracker then polls for an hour and mirrors the round every 2 minutes, so it
+# is visible to people who are not at a terminal - into a spreadsheet tab by
+# default, or a MotherDuck table with `watch=motherduck` (see the toggle above).
+# It needs --full-window: `answered_back` counts as settled, so without it the
+# loop exits as soon as everybody has replied to the opener - a minute or two in,
+# while the survey has barely started - and the view stops moving mid-session.
 #
 # --every 2 rather than 1 because polling earns a 429 eventually, and a rate
 # limit in front of a room is worse than a two-minute refresh. Raise it if the
@@ -213,10 +227,11 @@ intake BUILDER *ARGS:
 #   just send rst2026_sample caseid,name,arm "--dry-run"   # checks, sends nothing
 #   just send rst2026_sample caseid,name,arm
 #   just send panel_wave3 caseid                           # no greeting, no arms
+#   just watch=motherduck send panel_wave3 caseid          # watched in the warehouse
 [doc("Send a round, then watch it land for an hour")]
 send SAMPLE COLUMNS *ARGS:
     uv run rtt launch {{ SAMPLE }}.xlsx --columns {{ COLUMNS }} --resume {{ ARGS }}
-    {{ if ARGS =~ "dry-run" { "echo 'dry run, so no tracker started'" } else { "uv run rtt monitor --tracker " + SAMPLE + "_output.csv --sample " + SAMPLE + ".xlsx --sheet --every 2 --hours 1 --full-window" } }}
+    {{ if ARGS =~ "dry-run" { "echo 'dry run, so no tracker started'" } else { "uv run rtt monitor --tracker " + SAMPLE + "_output.csv --sample " + SAMPLE + ".xlsx " + watch_flag + " --every 2 --hours 1 --full-window" } }}
 
 # Clear a round's collected rows, keeping a copy as a dashboard template. A dry
 # run unless you pass --yes, because each operation destroys something on a live
@@ -390,7 +405,15 @@ data-check FILE *ARGS:
 # The first and last are final and stop being polled, so the loop ends by itself
 # once every number has settled rather than spending rate limit on a done round.
 #
+# --sheet mirrors each poll into a spreadsheet tab and --table into a MotherDuck
+# table, so a round is visible to people who are not at this terminal. Pick the
+# one the round publishes to; they are independent of each other and of
+# --publish-target. The table is REPLACED on every poll, so it must not be the
+# table the flow publishes to - which the command refuses rather than trusts you
+# to remember.
+#
 #   just monitor "--tracker sample_output.csv --hours 4"
+#   just monitor "--tracker sample_output.csv --hours 4 --table tracking"
 [doc("Watch a round land, one row per number")]
 monitor *ARGS:
     uv run rtt monitor {{ ARGS }}

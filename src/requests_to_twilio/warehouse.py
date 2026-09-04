@@ -25,6 +25,9 @@ from .log import get_logger
 
 ENV_TOKEN = "MOTHERDUCK_TOKEN"  # noqa: S105 - a variable name, not a secret
 ENV_DATABASE = "MOTHERDUCK_DATABASE"
+#: The table the publish Function writes a submission to. Named here so the
+#: tools that write elsewhere in the same database can refuse to overwrite it.
+ENV_PUBLISH_TABLE = "MOTHERDUCK_TABLE"
 
 #: Set in `.env` for the publish Function, which reaches MotherDuck over the
 #: Postgres wire protocol from inside Twilio and needs the `pg.` endpoint. The
