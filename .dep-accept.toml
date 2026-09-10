@@ -1,0 +1,11 @@
+# .dep-accept.toml -- overrides for the dep-accept harness.
+# Full schema: references/config-schema.md in the dep-accept skill.
+
+[checks]
+# Drop the harness's own `-q`. `pyproject.toml` already sets `addopts = "-q"`,
+# so the two combine into `-qq`, at which verbosity pytest omits the
+# "645 passed in 17s" summary line entirely. The harness parses that line to
+# compare test counts across candidates, so with both flags every PR reports
+# 0 passed / 0 failed and the check for tests that silently stopped running
+# never fires.
+test_command = ["pytest", "-p", "no:cacheprovider"]
