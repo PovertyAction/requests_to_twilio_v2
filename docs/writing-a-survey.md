@@ -88,10 +88,11 @@ inside the file, so it is there when you need it rather than in a wiki.
 | `name` | the variable name, and the warehouse column |
 | `label:<lang>` | the message the respondent receives |
 | `role` | **blank** for an ordinary question; a spine position otherwise |
-| `relevance` | when the row applies, e.g. `${arm}='2'` |
+| `relevance` | when the row applies, e.g. `${arm}='2'`, `${Q2}>0 and ${arm}!='1'` (see below) |
 | `retries` | how many times to re-ask a reply that does not validate |
 | `constraint` | the regex a reply must match, for `integer` / `decimal` |
 | `constraint_message` | which nudge to send when it does not |
+| `minimum` / `maximum` | the smallest and largest number an `integer` / `decimal` takes, both included |
 | `timeout` | seconds to wait for a reply (after the reminder, when there is one) |
 | `timeout_reminder` | default yes: send the no-reply reminder with the question again |
 | `timeout_message` | this question's own reminder text, a key in `messages`; blank uses `timeout_nudge` |
@@ -107,7 +108,7 @@ The types, and what each becomes:
 | `select_button <list>` | up to 3 tappable buttons | 8 |
 | `template` | an approved template, and waits for a reply | 1 |
 | `note` | a message expecting no reply | 1 |
-| `begin group` / `end group` | a branch; the condition goes in `relevance` | 1 |
+| `begin group` / `end group` | a branch; the condition goes in `relevance` | 1 per comparison |
 
 `text` and `integer` look identical to a respondent and differ entirely in the
 data. `text` stores whatever arrives, including `about 5`. Use `integer` whenever
@@ -188,6 +189,28 @@ This is not hypothetical. In a live Spanish round, `p2_1` — whose label is
 `1 proyecto` but which sits at position 2 — was stored as code **2**. Had the
 digit been accepted, every respondent who typed `1` would have been recorded one
 option off, and nothing would have reported a problem.
+
+## Conditions and ranges
+
+A condition decides who gets a question or a section. Each comparison is one of:
+
+| Written | Means | Works on |
+| --- | --- | --- |
+| `${Q1}='2'` | is | anything; on a choice, one of its codes |
+| `${Q1}!='2'` | is not | the same |
+| `${Q2}>0` | is more than | a number question or a preload |
+| `${Q2}<5` | is less than | the same |
+
+Join comparisons with `and` (all must hold) or with `or` (any one), not both:
+`${Q2}>0 and ${arm}='2'`. For a mix, put one part on a section around the
+question and the other on the question. The builder writes these from pickers,
+and each comparison becomes one split in the flow.
+
+A number question can take a `minimum` and a `maximum`, both included: 0 and 7
+for days a week. A reply outside them is asked again with the `error_range`
+reply, "Please reply with a number {range}.", where `{range}` reads "from 0 to
+7". A decimal is stored with a point whichever mark was typed, so `3,5` and
+`3.5` are the same answer.
 
 ## The builder
 
@@ -290,6 +313,8 @@ same evaluator Studio uses, and checks where every possible reply lands:
 - junk (`banana`, `""`, an out-of-range number) must not match
 - whatever the split accepts, the code mapping must code as that option and not
   as `other`
+- a condition compares only what it can: `>` and `<` need a number question or
+  a preload and a number, `=` on a choice needs one of its codes
 - a `constraint` you wrote is run against replies people actually send — `0`,
   `12`, ` 7 ` must pass; `about 5`, `tres`, `3.5` must not
 

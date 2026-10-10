@@ -263,6 +263,7 @@
   ],
   "universal_stop_word": "stop",
   "reminder_message": "timeout_nudge",
+  "range_message": "error_range",
   "default_reminder_after": 84600,
   "session_window": 86400,
   "emoji_ranges": [
@@ -509,6 +510,12 @@
         }
       },
       {
+        "key": "error_range",
+        "text": {
+          "en": "Please reply with a number {range}."
+        }
+      },
+      {
         "key": "list_button",
         "text": {
           "en": "Choose an answer"
@@ -589,6 +596,14 @@ function variablesOf(v) {
     .sort(([a], [b]) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0)));
 }
 
+// spec.py's _number: a limit is a number or nothing, and "3,5" is 3.5.
+function numberOf(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(String(v).replace(",", "."));
+  if (Number.isNaN(n)) throw new Error(`minimum and maximum must be numbers, got ${JSON.stringify(v)}`);
+  return n;
+}
+
 function normalise(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("A survey spec must be a JSON object.");
@@ -614,6 +629,7 @@ function normalise(payload) {
       type: r.type ?? "", name: r.name ?? "", label: text(r.label), role: r.role ?? "",
       relevance: r.relevance ?? "", retries: r.retries ?? null, timeout: r.timeout ?? null,
       constraint: r.constraint ?? "", constraint_message: r.constraint_message ?? "",
+      minimum: numberOf(r.minimum), maximum: numberOf(r.maximum),
       timeout_message: r.timeout_message ?? "",
       list_button: text(r.list_button), template: text(r.template),
       variables: variablesOf(r.variables),
@@ -654,7 +670,8 @@ function canonical(spec) {
     survey: spec.survey.map((r) => clean({
       type: r.type, name: r.name, role: r.role, label: r.label, relevance: r.relevance,
       retries: r.retries, timeout: r.timeout, constraint: r.constraint,
-      constraint_message: r.constraint_message, timeout_message: r.timeout_message,
+      constraint_message: r.constraint_message, minimum: r.minimum, maximum: r.maximum,
+      timeout_message: r.timeout_message,
       list_button: r.list_button, template: r.template, variables: r.variables,
       timeout_reminder: r.timeout_reminder ? null : false, publish: r.publish ? null : false,
       encrypt: r.encrypt ? true : null,
@@ -1032,7 +1049,7 @@ function newRows(key) {
 }
 function blankRow(type, name) {
   return { type, name, label: {}, role: "", relevance: "", retries: null, timeout: null, constraint: "",
-    constraint_message: "", timeout_message: "", list_button: {}, template: {}, variables: {}, timeout_reminder: true,
+    constraint_message: "", minimum: null, maximum: null, timeout_message: "", list_button: {}, template: {}, variables: {}, timeout_reminder: true,
     publish: true, encrypt: false };
 }
 function blankChoice(ln, value, label, typed) {
@@ -1389,6 +1406,7 @@ function rowBody(row, i) {
     grid.append(numberField("Wait for a reply (seconds)", row, "timeout", st.default_timeout,
       "After this, the person is marked as not replying. 3600 is one hour."));
     body.append(grid);
+    if (CONSTRAINED.has(kind)) body.append(rangeFields(row, kind));
     if (isValidated(row)) body.append(nudgeField(row));
     if (CONSTRAINED.has(kind)) {
       body.append(h("details", { class: "more", open: row.constraint ? true : null }, h("summary", null, "Advanced"),
@@ -1474,14 +1492,37 @@ function reminderField(row) {
   return box;
 }
 
+/** The smallest and largest number a question takes, both included. */
+function rangeFields(row, kind) {
+  const field = (label, key) => {
+    const input = h("input", { value: row[key] ?? "", placeholder: "any", inputmode: "decimal", class: "mono" });
+    input.addEventListener("change", () => {
+      const text = input.value.trim();
+      const n = text === "" ? null : Number(text.replace(",", "."));
+      const ok = n === null || (!Number.isNaN(n) && (kind !== "integer" || Number.isInteger(n)));
+      input.classList.toggle("invalid", !ok);
+      if (!ok) return toast(kind === "integer" ? "Use a whole number, or leave it blank." : "Use a number, or leave it blank.", "error");
+      structural(() => { row[key] = n; });
+    });
+    return h("div", { class: "fld" }, h("label", null, h("span", null, label)), input);
+  };
+  return h("div", null,
+    h("div", { class: "grid2" }, field("Smallest number accepted", "minimum"), field("Largest number accepted", "maximum")),
+    h("div", { class: "hint", style: "margin-top:4px" },
+      "Both included: 0 and 7 for days a week. Anything outside is asked again, with the standard reply for numbers out of range."));
+}
+
 /** The text sent before a question is asked again. Kept as a message, so the spec format does not change. */
 function nudgeField(row) {
   const lang = S.lang;
-  const auto = isSelect(row) ? "error_option" : "error_numeric";
-  const standard = message(auto, lang);
+  // A standard reply named on the row shows in grey like the automatic one:
+  // it is edited under Standard replies, not here.
+  const named = row.constraint_message.startsWith("error_") ? row.constraint_message : "";
+  const auto = saysItsRange(row) ? C.range_message : named || (isSelect(row) ? "error_option" : "error_numeric");
+  const standard = message(auto, lang).replaceAll("{range}", hasRange(row) ? rangeText(row) : "");
   const ownKey = (k) => k && !k.startsWith("error_") &&
     S.spec.survey.filter((r) => r.constraint_message === k).length === 1;
-  const current = row.constraint_message ? message(row.constraint_message, lang) : "";
+  const current = row.constraint_message && !named ? message(row.constraint_message, lang) : "";
   const input = h("textarea", { value: current, placeholder: standard, rows: 3 });
   input.addEventListener("input", () => {
     let msg = ownKey(row.constraint_message) ? S.spec.messages.find((m) => m.key === row.constraint_message) : null;
@@ -1509,11 +1550,50 @@ function nudgeField(row) {
     kindOf(row) === "select_list" ? h("div", { class: "hint", style: "margin-top:4px" }, "{button} is replaced with the list button text.") : null);
 }
 
-// A condition the builder can edit: one value compared with another.
-const COND = /^\$\{(\w+)\}\s*(!=|=)\s*'([^']*)'$/;
+// A condition the builder can edit: comparisons joined by and, or by or.
+// Mirrors spec.py's parse_relevance.
+const CLAUSE = /\$\{(\w+)\}\s*(!=|=|>|<)\s*(?:'([^']*)'|(-?\d+(?:[.,]\d+)?))/y;
+const JOINER = /\s+(and|or)\s+/iy;
+const OP_WORDS = { "=": "is", "!=": "is not", ">": "is more than", "<": "is less than" };
+function parseRelevance(text) {
+  text = (text || "").trim();
+  const clauses = [];
+  const joiners = [];
+  let pos = 0;
+  for (;;) {
+    CLAUSE.lastIndex = pos;
+    const m = CLAUSE.exec(text);
+    if (!m) return null;
+    clauses.push({ name: m[1], op: m[2], value: m[3] ?? m[4] });
+    pos = CLAUSE.lastIndex;
+    if (pos === text.length) break;
+    JOINER.lastIndex = pos;
+    const j = JOINER.exec(text);
+    if (!j) return null;
+    joiners.push(j[1].toLowerCase());
+    pos = JOINER.lastIndex;
+  }
+  if (new Set(joiners).size > 1) return null;
+  return { joiner: joiners[0] || "and", clauses };
+}
+function writeRelevance(joiner, clauses) {
+  return clauses.map((c) => (c.op === ">" || c.op === "<") && /^-?\d+(?:[.,]\d+)?$/.test(c.value)
+    ? `\${${c.name}}${c.op}${c.value}`
+    : `\${${c.name}}${c.op}'${c.value}'`).join(` ${joiner} `);
+}
 function conditionText(rel) {
-  const m = COND.exec((rel || "").trim());
-  return m ? `${m[1]} ${m[2] === "=" ? "is" : "is not"} ${m[3]}` : rel;
+  const parsed = parseRelevance(rel);
+  if (!parsed) return rel;
+  return parsed.clauses.map((c) => `${c.name} ${OP_WORDS[c.op]} ${c.value}`).join(` ${parsed.joiner} `);
+}
+const takesNumbers = (v) => v.row === null || CONSTRAINED.has(kindOf(v.row));
+const hasRange = (row) => CONSTRAINED.has(kindOf(row)) && (row.minimum !== null || row.maximum !== null);
+// spec.py's says_its_range: the range reply replaces the standard number reply.
+const saysItsRange = (row) => hasRange(row) && ["", "error_numeric"].includes(row.constraint_message);
+function rangeText(row) {
+  if (row.minimum !== null && row.maximum !== null) return `from ${row.minimum} to ${row.maximum}`;
+  if (row.minimum !== null) return `of ${row.minimum} or more`;
+  return `of ${row.maximum} or less`;
 }
 function variablesBefore(i) {
   const preloads = S.spec.settings.preloads.filter((p) => !["caseid", "sent_at"].includes(p))
@@ -1532,51 +1612,72 @@ function conditionEditor(row, i, isSection) {
   const title = isSection ? "Show this section only if" : "Ask only if";
   const effect = isSection ? "People who do not match skip every step in this section." : "People who do not match skip this question.";
   const box = h("div", { class: `cond${row.relevance ? " on" : ""}` });
+  const vars = variablesBefore(i);
+  const firstClause = () => {
+    const first = vars[0];
+    const codes = first.row && isSelect(first.row) ? choicesOf(listOf(first.row)) : [];
+    return { name: first.name, op: "=", value: codes[0] ? codes[0].value : "" };
+  };
   if (!row.relevance) {
     box.append(h("button", { onclick: () => {
-      const vars = variablesBefore(i);
       if (!vars.length) return toast("There is nothing to compare yet. Add a column under Preloads in Survey settings, or a question before this one.");
-      const first = vars[0];
-      const codes = first.row && isSelect(first.row) ? choicesOf(listOf(first.row)) : [];
-      structural(() => { row.relevance = `\${${first.name}}='${codes[0] ? codes[0].value : ""}'`; S.open.add(i); });
+      structural(() => { row.relevance = writeRelevance("and", [firstClause()]); S.open.add(i); });
     } }, `+ ${title}...`),
     h("span", { class: "hint" }, isSection ? "  Without a condition, everyone gets this section." : "  Without a condition, everyone gets this question."));
     return box;
   }
-  const remove = h("button", { class: "ghost", onclick: () => structural(() => { row.relevance = ""; }) }, "Remove condition");
-  const m = COND.exec(row.relevance.trim());
-  if (!m) {
+  const removeAll = h("button", { class: "ghost", onclick: () => structural(() => { row.relevance = ""; }) }, "Remove condition");
+  const parsed = parseRelevance(row.relevance);
+  if (!parsed) {
     box.append(textField(`${title} (written by hand)`, row, "relevance", { mono: true,
-      hint: "This condition is too complex for the pickers. Edit the text, or remove it." }), remove);
+      hint: "The pickers cannot show this one. A condition uses only and, or only or. Edit the text, or remove it." }), removeAll);
     return box;
   }
-  const [, name, op, value] = m;
-  const vars = variablesBefore(i);
-  if (!vars.some((v) => v.name === name)) vars.unshift({ name, label: `${name} (not found before this step)`, row: null });
-  const write = (n, o, v) => structural(() => { row.relevance = `\${${n}}${o}'${v}'`; });
-  const varSel = h("select", null, vars.map((v) => h("option", { value: v.name }, v.label)));
-  varSel.value = name;
-  varSel.addEventListener("change", () => {
-    const picked = vars.find((v) => v.name === varSel.value);
-    const codes = picked && picked.row && isSelect(picked.row) ? choicesOf(listOf(picked.row)) : [];
-    write(varSel.value, op, codes[0] ? codes[0].value : "");
-  });
-  const opSel = h("select", null, h("option", { value: "=" }, "is"), h("option", { value: "!=" }, "is not"));
-  opSel.value = op;
-  opSel.addEventListener("change", () => write(name, opSel.value, value));
-  const source = vars.find((v) => v.name === name);
-  const codes = source && source.row && isSelect(source.row) ? choicesOf(listOf(source.row)) : [];
-  let valueEl;
-  if (codes.length) {
-    valueEl = h("select", null, codes.map((c) => h("option", { value: c.value }, `${c.label[S.lang] || c.value} (code ${c.value})`)));
-    valueEl.value = value;
-    valueEl.addEventListener("change", () => write(name, op, valueEl.value));
-  } else {
-    valueEl = h("input", { value, placeholder: "value", class: "mono" });
-    valueEl.addEventListener("change", () => write(name, op, valueEl.value));
+  const { joiner, clauses } = parsed;
+  const write = (j, cs) => structural(() => { row.relevance = cs.length ? writeRelevance(j, cs) : ""; });
+  for (const c of clauses) {
+    if (!vars.some((v) => v.name === c.name)) vars.unshift({ name: c.name, label: `${c.name} (not found before this step)`, row: null });
   }
-  box.append(h("div", { class: "fld-label" }, h("span", null, title)),
-    h("div", { style: "display:grid;grid-template-columns:1.4fr .6fr 1.4fr auto;gap:8px;align-items:center" }, varSel, opSel, valueEl, remove),
+  box.append(h("div", { class: "fld-label" }, h("span", null, title)));
+  if (clauses.length > 1) {
+    const joinSel = h("select", null, h("option", { value: "and" }, "all of these are true"), h("option", { value: "or" }, "any of these is true"));
+    joinSel.value = joiner;
+    joinSel.addEventListener("change", () => write(joinSel.value, clauses));
+    box.append(h("div", { style: "margin:4px 0 6px" }, joinSel));
+  }
+  clauses.forEach((c, n) => {
+    const update = (patch) => write(joiner, clauses.map((x, k) => (k === n ? { ...x, ...patch } : x)));
+    const source = vars.find((v) => v.name === c.name);
+    const varSel = h("select", null, vars.map((v) => h("option", { value: v.name }, v.label)));
+    varSel.value = c.name;
+    varSel.addEventListener("change", () => {
+      const picked = vars.find((v) => v.name === varSel.value);
+      const codes = picked && picked.row && isSelect(picked.row) ? choicesOf(listOf(picked.row)) : [];
+      const op = (c.op === ">" || c.op === "<") && !(picked && takesNumbers(picked)) ? "=" : c.op;
+      update({ name: varSel.value, op, value: codes[0] ? codes[0].value : "" });
+    });
+    const ops = [["=", "is"], ["!=", "is not"]];
+    if (source && takesNumbers(source)) ops.push([">", "is more than"], ["<", "is less than"]);
+    const opSel = h("select", null, ops.map(([v, t]) => h("option", { value: v }, t)));
+    opSel.value = c.op;
+    opSel.addEventListener("change", () => update({ op: opSel.value }));
+    const codes = source && source.row && isSelect(source.row) ? choicesOf(listOf(source.row)) : [];
+    let valueEl;
+    if (codes.length && (c.op === "=" || c.op === "!=")) {
+      valueEl = h("select", null, codes.map((x) => h("option", { value: x.value }, `${x.label[S.lang] || x.value} (code ${x.value})`)));
+      valueEl.value = c.value;
+    } else {
+      valueEl = h("input", { value: c.value, placeholder: c.op === ">" || c.op === "<" ? "a number" : "value", class: "mono" });
+    }
+    valueEl.addEventListener("change", () => update({ value: valueEl.value }));
+    const remove = h("button", { class: "ghost", title: "Remove this comparison",
+      onclick: () => write(joiner, clauses.filter((_, k) => k !== n)) }, "✕");
+    box.append(h("div", { style: "display:grid;grid-template-columns:1.4fr .8fr 1.2fr auto;gap:8px;align-items:center;margin-top:4px" },
+      varSel, opSel, valueEl, remove));
+  });
+  box.append(h("div", { style: "display:flex;gap:8px;align-items:center;margin-top:6px" },
+    h("button", { onclick: () => write(joiner, [...clauses, firstClause()]) }, "+ another condition"),
+    removeAll),
     h("div", { class: "hint", style: "margin-top:4px" }, effect));
   return box;
 }
@@ -1731,6 +1832,7 @@ const STANDARD_REPLIES = [
   ["error_option", "When a choice does not fit", "Sent before asking a buttons or list question again. {button} becomes the list button text.", true],
   ["error_option_labels", "When a typed number could mean two options", "Used instead of the one above when the options are themselves numbers.", true],
   ["error_numeric", "When a number does not fit", "Sent before asking a number question again.", true],
+  [C.range_message, "When a number is out of range", "Sent instead for a number question with a smallest or largest number. {range} becomes, for example, from 0 to 7.", true],
   [C.reminder_message, "Reminder", "Sent with the question again when nobody replies. Say they can reply STOP. Empty means no standard reminder.", true],
   ["stop_words", "Stop words", `Separated by commas. ${C.universal_stop_word.toUpperCase()} always counts, in any capitals.`, false],
   ["list_button", "Button that opens a list", `Up to ${L.list_button} characters, for lists that do not set their own.`, false],
@@ -1871,6 +1973,20 @@ function computeIssues() {
     }
   }
   rows.forEach((r, i) => { if (isSelect(r) && !choicesOf(listOf(r)).length && !listOf(r)) add("error", [i], `${r.name} has no options.`); });
+  rows.forEach((r, i) => {
+    if (!hasRange(r)) return;
+    if (r.minimum !== null && r.maximum !== null && r.minimum > r.maximum) add("error", [i], `${r.name}: the smallest number is above the largest.`);
+    if (r.minimum !== null && r.minimum < 0 && !r.constraint) add("error", [i], `${r.name}: the standard number check refuses a minus sign, so a negative smallest number needs an Accepted reply pattern that takes one.`);
+    if (saysItsRange(r) && !message(C.range_message, S.lang).trim()) add("error", [i], `${r.name} has a range, so it needs the standard reply for numbers out of range (Survey settings).`);
+  });
+  rows.forEach((r, i) => {
+    if (!r.relevance || r.role === "close") return;
+    const parsed = parseRelevance(r.relevance);
+    if (!parsed) { add("error", [i], `${r.name}: the condition cannot be read. Use only and, or only or.`); return; }
+    for (const c of parsed.clauses) {
+      if ((c.op === ">" || c.op === "<") && !/^-?\d+(?:[.,]\d+)?$/.test(c.value)) add("error", [i], `${r.name}: ${c.name} ${OP_WORDS[c.op]} needs a number.`);
+    }
+  });
   const st = S.spec.settings;
   if (!(st.reminder_after > 0 && st.reminder_after < C.session_window)) {
     add("error", [], "The reminder has to go out within 24 hours. After that, WhatsApp allows only approved templates.");
@@ -2003,10 +2119,11 @@ function facts(row) {
     const tries = row.retries ?? st.default_retries;
     // Blank picks error_option or error_option_labels from whether a typed
     // digit would be ambiguous - the check decides, so say which is a guess.
-    const key = row.constraint_message || (isSelect(row) ? "error_option" : "error_numeric");
+    const key = saysItsRange(row) ? C.range_message : row.constraint_message || (isSelect(row) ? "error_option" : "error_numeric");
+    if (hasRange(row)) add("Takes", `numbers ${rangeText(row)}`);
     add("If the reply does not fit", `asked again up to ${tries} time${tries === 1 ? "" : "s"}, then the answer is marked as an error`);
     const button = row.list_button[lang] || message("list_button", lang) || "Choose";
-    const nudge = message(key, lang).replaceAll("{button}", button);
+    const nudge = message(key, lang).replaceAll("{button}", button).replaceAll("{range}", hasRange(row) ? rangeText(row) : "");
     if (nudge) {
       dl.append(h("dd", null, bubble(nudge)));
     }
