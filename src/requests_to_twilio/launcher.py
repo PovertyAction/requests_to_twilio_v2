@@ -306,6 +306,7 @@ def launch(
     sec_between_batches: float,
     resume: bool = False,
     dry_run: bool = False,
+    required_columns: frozenset[str] = frozenset(),
 ) -> Path:
     """Send a Studio flow execution to every number in the sample file.
 
@@ -319,12 +320,26 @@ def launch(
         sec_between_batches: How long to pause between batches.
         resume: Skip numbers already recorded as sent in the tracker.
         dry_run: Validate and report without sending anything.
+        required_columns: Columns no row may leave blank, because they fill an
+            approved message's placeholders.
 
     Returns:
         The path to the delivery tracker.
 
     """
     frame = read_input(input_file, columns_to_send)
+    # An approved message's placeholder filled from a blank cell fails the whole
+    # send (error 21656), so the respondent is never reached at all. Refuse here
+    # rather than discover it one undelivered row at a time.
+    for column in sorted(set(required_columns) & set(frame.columns)):
+        blank = frame[column].isna() | (frame[column].astype(str).str.strip() == "")
+        if blank.any():
+            rows = ", ".join(str(i + 2) for i in frame.index[blank][:10])
+            raise LaunchError(
+                f"{column} is blank in row(s) {rows} of {input_file.name}, and it "
+                "fills a placeholder of an approved message: Twilio refuses that "
+                "send outright. Fill those cells, or take the rows out."
+            )
     tracker = tracker_path(input_file)
 
     # A tracker with content in it means this sample was launched before. The

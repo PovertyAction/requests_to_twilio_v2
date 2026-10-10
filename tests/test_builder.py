@@ -24,8 +24,10 @@ from typer.testing import CliRunner
 from requests_to_twilio import cli
 from requests_to_twilio.builder import (
     BUILDER_HTML,
+    embedded_approved,
     embedded_contract,
     render_contract,
+    session_page,
 )
 from requests_to_twilio.spec import (
     ChoiceRow,
@@ -113,6 +115,7 @@ def every_field_spec() -> Spec:
                 timeout_message="late_q1",
                 list_button={"en": "Choose"},
                 template={"es": "tpl_es"},
+                variables={"2": "arm", "1": "name"},
                 timeout_reminder=False,
                 publish=False,
                 encrypt=True,
@@ -250,12 +253,58 @@ def test_save_writes_every_settings_field():
 # -- the command ---------------------------------------------------------------
 
 
-def test_survey_builder_opens_the_page(monkeypatch):
+APPROVED = [
+    {
+        "name": "rst2026_intro",
+        "language": "en",
+        "body": "Hi {{1}}, welcome. </script> is only text here.",
+        "buttons": ["Start"],
+        "placeholders": ["1"],
+        "samples": {"1": "Priya"},
+    }
+]
+
+
+def test_survey_builder_opens_a_copy_carrying_the_approved_messages(
+    monkeypatch, tmp_path
+):
     opened = []
     monkeypatch.setattr(cli.webbrowser, "open", lambda uri: opened.append(uri) or True)
+    monkeypatch.setattr(cli.cfg, "load_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "_client", lambda: (object(), None))
+    monkeypatch.setattr(cli, "approved_messages", lambda client: APPROVED)
+    monkeypatch.setattr(cli.tempfile, "gettempdir", lambda: str(tmp_path))
     result = CliRunner().invoke(cli.app, ["survey", "builder"])
     assert result.exit_code == 0, result.output
-    assert opened == [BUILDER_HTML.as_uri()]
+    page = tmp_path / "rtt-survey-builder" / BUILDER_HTML.name
+    assert opened == [page.as_uri()]
+    assert embedded_approved(page.read_text(encoding="utf-8")) == APPROVED
+    assert BUILDER_HTML.read_text(encoding="utf-8") == HTML, "the package page changed"
+
+
+def test_survey_builder_stops_before_opening_without_credentials(monkeypatch):
+    opened = []
+    monkeypatch.setattr(cli.webbrowser, "open", lambda uri: opened.append(uri) or True)
+    monkeypatch.setattr(cli.cfg, "load_env", lambda *a, **k: None)
+    for name in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    result = CliRunner().invoke(cli.app, ["survey", "builder"])
+    assert result.exit_code == 1
+    assert "TWILIO_" in result.output
+    assert opened == []
+
+
+def test_the_package_page_carries_no_account():
+    """Approved messages belong to one account; only the opened copy has them."""
+    assert embedded_approved(HTML) is None
+
+
+def test_a_snapshot_cannot_end_its_script_block(tmp_path):
+    page = session_page(APPROVED, tmp_path)
+    html = page.read_text(encoding="utf-8")
+    block = html.split('id="rtt-approved">', 1)[1].split("\n</script>", 1)[0]
+    assert "</script" not in block
+    assert embedded_approved(html)[0]["body"].endswith("</script> is only text here.")
 
 
 def test_builder_ships_inside_the_package():

@@ -38,6 +38,11 @@ class TestPreloadedKeys:
     def test_tolerates_whitespace(self):
         assert preloaded_keys(flow_with("{{ flow.data.name }}")) == {"name"}
 
+    def test_reads_a_reference_with_a_filter(self):
+        """The compiled opener used one, and the launch called `name` unused."""
+        definition = flow_with("Hi {{flow.data.name | default: 'there'}}")
+        assert preloaded_keys(definition) == {"name"}
+
     def test_ignores_widget_and_variable_references(self):
         """Only flow.data is preloaded; widgets and variables come from the run."""
         definition = flow_with(

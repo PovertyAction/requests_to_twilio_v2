@@ -54,6 +54,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from .spec import (
     CONSTRAINED_TYPES,
     DEFAULT_REMINDER_AFTER,
+    FUNCTIONS_SERVICE,
     QUESTION_TYPES,
     ROLES,
     SCOPE_NOTE,
@@ -88,6 +89,7 @@ _SURVEY_TAIL = (
     "constraint",
     "constraint_message",
     "timeout_message",
+    "variables",
     "timeout_reminder",
     "publish",
     "encrypt",
@@ -156,6 +158,30 @@ def _parse_bool(value: str, default: bool) -> bool:
     if text in ("no", "n", "false", "0"):
         return False
     return default
+
+
+def _variables_cell(variables: dict[str, str]) -> str:
+    """Render a placeholder mapping as one cell: ``1=name; 2=district``."""
+    return "; ".join(f"{k}={v}" for k, v in variables.items())
+
+
+def _parse_variables(value: Any) -> dict[str, str]:
+    """Read ``1=name; 2=district`` back into a placeholder mapping.
+
+    Raises:
+        SpecError: If a part is not ``placeholder=column``.
+
+    """
+    text = _clean_cell(value)
+    variables: dict[str, str] = {}
+    for part in filter(None, (p.strip() for p in text.split(";"))):
+        placeholder, sep, column = (x.strip() for x in part.partition("="))
+        if not sep or not placeholder or not column:
+            raise SpecError(
+                f"variables: {part!r} should be placeholder=column, e.g. 1=name"
+            )
+        variables[placeholder] = column
+    return variables
 
 
 def _parse_int(value: str) -> int | None:
@@ -233,6 +259,7 @@ def _survey_values(spec: Spec, row: SurveyRow, headers: list[str]) -> list[str]:
         "constraint": row.constraint,
         "constraint_message": row.constraint_message,
         "timeout_message": row.timeout_message,
+        "variables": _variables_cell(row.variables),
         _WIDGETS_COLUMN: spec.widget_count(row),
     }
 
@@ -361,7 +388,6 @@ def _write_settings(workbook: Workbook, spec: Spec) -> None:
         ("form_title", settings.form_title),
         ("languages", ", ".join(settings.languages)),
         ("default_language", settings.default_language),
-        ("functions_service", settings.functions_service),
         ("default_timeout", str(settings.default_timeout)),
         ("default_retries", str(settings.default_retries)),
         ("stop_words", settings.stop_words),
@@ -652,6 +678,11 @@ def _help_survey(spec: Spec) -> list[str]:
         "Then the usual timeout runs; if there is still nothing, they are marked "
         "as not replying.",
         "",
+        "variables - what fills each {{n}} of the approved message in template",
+        "  placeholder=column pairs from the preloads, separated by ;, e.g. "
+        "1=name. Every placeholder the message has must be filled: an empty one "
+        "fails the send. The builder lists them when you pick the message.",
+        "",
         "timeout_message - this question's own reminder text",
         "  A key from the messages sheet. Blank uses timeout_nudge. A reminder "
         "goes to somebody who has gone quiet, so say they can reply STOP.",
@@ -842,7 +873,12 @@ def _read_settings(frame: pd.DataFrame | None) -> Settings:
     settings.default_language = values.get("default_language", "") or (
         settings.languages[0] if settings.languages else "en"
     )
-    settings.functions_service = values.get("functions_service", "") or "rtt-survey"
+    # Not written any more: every survey runs on the one service `just
+    # deploy-functions` creates. A workbook from before still names it, and the
+    # check refuses any other name.
+    settings.functions_service = (
+        values.get("functions_service", "") or FUNCTIONS_SERVICE
+    )
     settings.default_timeout = _parse_int(values.get("default_timeout", "")) or 3600
     retries = _parse_int(values.get("default_retries", ""))
     settings.default_retries = 2 if retries is None else retries
@@ -893,6 +929,7 @@ def _read_survey(frame: pd.DataFrame, languages: list[str]) -> list[SurveyRow]:
                 constraint=_clean_cell(row.get("constraint")),
                 constraint_message=_clean_cell(row.get("constraint_message")),
                 timeout_message=_clean_cell(row.get("timeout_message")),
+                variables=_parse_variables(row.get("variables")),
                 timeout_reminder=_parse_bool(row.get("timeout_reminder"), True),
                 publish=_parse_bool(row.get("publish"), True),
                 encrypt=_parse_bool(row.get("encrypt"), False),

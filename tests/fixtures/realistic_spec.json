@@ -35,6 +35,9 @@
         "en": "rst2026_intro",
         "es": "data_use_demo_intro_es"
       },
+      "variables": {
+        "1": "name"
+      },
       "stop_check": false,
       "publish": false
     },
@@ -215,6 +218,9 @@
       "template": {
         "en": "rst2026_close",
         "es": "data_use_demo_close_es"
+      },
+      "variables": {
+        "1": "name"
       },
       "publish": false
     },

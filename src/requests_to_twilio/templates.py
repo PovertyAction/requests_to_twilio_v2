@@ -55,7 +55,10 @@ UNSUBMITTABLE_TYPES = {
 }
 
 #: Keys in a definition file that are documentation, not payload.
-_COMMENT_KEYS = ("_comment", "_comments", "_note")
+#: Which spec a generated definition came from; see `rtt survey content`.
+GENERATED_FROM = "_generated_from"
+
+_COMMENT_KEYS = ("_comment", "_comments", "_note", GENERATED_FROM)
 
 
 class TemplateError(Exception):
@@ -434,3 +437,69 @@ def list_templates(
             }
         )
     return rows
+
+
+def content_placeholders(types: dict[str, Any]) -> list[str]:
+    """Return the ``{{n}}`` placeholders a content resource's text uses, sorted.
+
+    Every type is read, because a template's fallback can use a placeholder its
+    rich type does not, and either one left empty fails the send.
+    """
+    found: set[str] = set()
+    for body in (types or {}).values():
+        if not isinstance(body, dict):
+            continue
+        for text in (body.get("body"), body.get("title")):
+            found.update(_placeholders(text or ""))
+    return sorted(found, key=lambda p: (len(p), p))
+
+
+def approved_messages(client: Client) -> list[dict[str, Any]]:
+    """List the WhatsApp-approved templates a survey can open or close with.
+
+    What the survey builder shows in its picker: the name, the text and the
+    buttons a respondent would see, and the placeholders the survey has to
+    fill. Only approved ones, because nothing else can reach somebody who has
+    not written to you.
+
+    Raises:
+        TemplateError: If the templates cannot be read.
+
+    """
+    try:
+        items = client.content.v1.content_and_approvals.list(limit=1000)
+    except TwilioRestException as exc:
+        raise TemplateError(
+            f"Could not list templates: HTTP {exc.status} (code {exc.code}): {exc.msg}"
+        ) from exc
+
+    messages = []
+    for item in items:
+        if (item.approval_requests or {}).get("status") != "approved":
+            continue
+        types = item.types or {}
+        body = next(
+            (
+                t.get("body")
+                for t in types.values()
+                if isinstance(t, dict) and t.get("body")
+            ),
+            "",
+        )
+        buttons = [
+            action.get("title", "")
+            for t in types.values()
+            if isinstance(t, dict)
+            for action in t.get("actions") or []
+        ]
+        messages.append(
+            {
+                "name": item.friendly_name,
+                "language": item.language,
+                "body": body,
+                "buttons": buttons,
+                "placeholders": content_placeholders(types),
+                "samples": dict(item.variables or {}),
+            }
+        )
+    return sorted(messages, key=lambda m: (m["language"], m["name"]))

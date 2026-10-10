@@ -195,8 +195,10 @@ option off, and nothing would have reported a problem.
 just survey-builder                            # opens it in your browser
 ```
 
-One HTML page, opened from disk: no install, no server, and no Twilio
-credentials, because it never talks to Twilio. It shows three things at once:
+One HTML page, opened from disk: no install and no server. Before opening it,
+the command reads your account's approved messages, so it needs a working `.env`
+and stops with the setup error if there is none. The page gets a copy of that
+list and holds no credentials. It shows three things at once:
 
 - **Cards**, one per step, in order. Sections indent their steps; drag a card by
   its handle, or use the arrows, to move it. Delete is undoable.
@@ -206,8 +208,15 @@ credentials, because it never talks to Twilio. It shows three things at once:
 - **A phone preview** of the selected step in each language, with its buttons
   or list as WhatsApp renders them, the codes it stores and the nudge it sends.
 
-Limits show while you type: 24 characters for an option, 72 for a description,
-3 buttons, 10 list rows, 1024 for a message with options. Those numbers come
+The opener and the never-replied closing are picked from the approved messages,
+with their text and buttons shown, and a column chosen for each `{{1}}`.
+**Insert a column** in any message adds `${name}`, which each person reads as
+their own value from the sample file; **Emoji** inserts one. The texts every
+question shares, such as the reminder and the stop words, are under **Standard
+replies** in the survey settings.
+
+Limits show while you type: 20 characters for a button, 24 for a list option, 72
+for a description, 3 buttons, 10 list rows, 1024 for a message with options. Those numbers come
 from the same code `just survey-check` uses, and a test fails if the page's copy
 drifts.
 
@@ -232,16 +241,23 @@ git add my_survey.json
 Then, to put it on Twilio:
 
 ```powershell
-just survey-templates my_survey.json           # the buttons and lists it sends
+just survey-content my_survey.json             # the buttons and lists it sends
 just survey-build my_survey.json "--lang en"   # -> flows/<flow_name>.json, checked
 just flow-schema flows/my_survey.json --format header   # the sheet's first row
 just flow-deploy flows/my_survey.json          # a draft; nothing is sent yet
 ```
 
-The opener and the closing for people who never replied are approved templates:
-create and submit those yourself (see `docs/writing-templates.md`), under the
-names the spec gives them. `survey-templates` reports whether they exist, and
-`survey-build` refuses to compile until they do.
+Two kinds of message reach the phone, and only one needs Meta:
+
+- **Approved messages**: the opener, and the closing for people who never
+  replied. They reach someone who has not written to you, so Meta reviews them.
+  Create and submit them yourself (see `docs/writing-templates.md`); the builder
+  then lists the approved ones to pick from, with their text, and asks which
+  sample column fills each `{{1}}`. `survey-build` refuses to compile until each
+  one exists and every placeholder is filled.
+- **Twilio content**: the buttons and lists of your questions. They are sent
+  after the person has replied, so Meta never sees them. `survey-content`
+  creates them; nothing to approve.
 
 With Excel:
 

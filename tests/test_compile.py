@@ -299,7 +299,7 @@ class TestTemplates:
         titles = [
             a["title"] for a in definition["types"]["twilio/quick-reply"]["actions"]
         ]
-        assert titles == ["Yes, I will take part", "No, thanks"]
+        assert titles == ["Yes, I'll take part", "No, thanks"]
 
     def test_the_approved_templates_are_required_by_their_own_names(self):
         names = required_templates(starter_spec("en"), "en")

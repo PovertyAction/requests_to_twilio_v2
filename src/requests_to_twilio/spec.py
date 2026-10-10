@@ -80,12 +80,14 @@ from .answers import (
     word_pattern,
 )
 from .flows import (
+    BUTTON_TITLE_CHARS,
     LIST_BUTTON_CHARS,
     MAX_LIST_ITEMS,
     MAX_SESSION_BUTTONS,
     TEXT_LIMITS,
     evaluate_condition,
 )
+from .widgets import FUNCTIONS_SERVICE_NAME as FUNCTIONS_SERVICE
 
 #: A translatable string: language code to text. Rendered in the workbook as
 #: ``label:en`` / ``label:es`` columns, matching SurveyCTO's ``label:English``.
@@ -242,6 +244,11 @@ _RESERVED_NAMES = frozenset(
 _SPINE_ROLES = ("intro", "consent", "close", "unsolicited")
 
 
+#: A sample-file column written into a message, in the condition syntax:
+#: ``Hi ${name}``. The compiler fills it from the sample file at send time.
+COLUMN_REFERENCE = re.compile(r"\$\{(\w+)\}")
+
+
 def parse_condition(text: str) -> tuple[str, str, str] | None:
     """Split ``${x}='v'`` into ``(x, "=", "v")``, or None if it is not that shape."""
     match = _CONDITION.match((text or "").strip())
@@ -280,6 +287,11 @@ class SurveyRow:
     #: reviews have different names in each language, so this cannot live in the
     #: type string.
     template: Text = field(default_factory=dict)
+    #: What fills each ``{{n}}`` of the approved message in ``template``: the
+    #: placeholder number to a preload column, such as ``{"1": "name"}``. Meta
+    #: approved the placeholders with the text, so the survey has to say what
+    #: goes in each, and an empty one fails the whole send (error 21656).
+    variables: dict[str, str] = field(default_factory=dict)
     #: A key into ``messages``: this question's own no-reply reminder. Blank uses
     #: :data:`REMINDER_MESSAGE` when the spec carries one.
     timeout_message: str = ""
@@ -393,7 +405,7 @@ class Settings:
     form_title: str = ""
     languages: list[str] = field(default_factory=lambda: ["en"])
     default_language: str = "en"
-    functions_service: str = "rtt-survey"
+    functions_service: str = FUNCTIONS_SERVICE
     default_timeout: int = 3600
     default_retries: int = 2
     #: Where a stop word ends the survey: one of :data:`STOP_WORD_SCOPES`.
@@ -663,6 +675,7 @@ def spec_to_dict(spec: Spec) -> dict[str, Any]:
                     "timeout_message": r.timeout_message,
                     "list_button": r.list_button,
                     "template": r.template,
+                    "variables": _placeholder_order(r.variables),
                     # Booleans are written only when they differ from the
                     # default, so the JSON says what is unusual about a row
                     # rather than restating the obvious on every line.
@@ -688,6 +701,17 @@ def spec_to_dict(spec: Spec) -> dict[str, Any]:
         ],
         "messages": [_clean({"key": m.key, "text": m.text}) for m in spec.messages],
     }
+
+
+def _placeholder_order(variables: dict[Any, Any]) -> dict[str, str]:
+    """Return a placeholder mapping as strings, in placeholder order.
+
+    The order the builder writes too: JavaScript keeps integer-like keys in
+    ascending order whatever order they were set in, so the two agree only if
+    both sort.
+    """
+    pairs = [(str(k), str(v)) for k, v in variables.items()]
+    return dict(sorted(pairs, key=lambda kv: (len(kv[0]), kv[0])))
 
 
 def spec_from_dict(payload: dict[str, Any]) -> Spec:
@@ -725,6 +749,7 @@ def spec_from_dict(payload: dict[str, Any]) -> Spec:
             timeout=r.get("timeout"),
             list_button=dict(r.get("list_button") or {}),
             template=dict(r.get("template") or {}),
+            variables=_placeholder_order(r.get("variables") or {}),
             timeout_reminder=r.get("timeout_reminder", True),
             publish=r.get("publish", True),
             encrypt=r.get("encrypt", False),
@@ -810,6 +835,8 @@ def check_spec(spec: Spec) -> list[str]:
     problems: list[str] = []
     problems.extend(_check_settings(spec))
     problems.extend(_check_structure(spec))
+    problems.extend(_check_variables(spec))
+    problems.extend(_check_column_references(spec))
     problems.extend(_check_text_limits(spec))
     problems.extend(_check_constraints(spec))
     problems.extend(_check_options_are_matchable(spec))
@@ -833,6 +860,67 @@ def _check_settings(spec: Spec) -> list[str]:
             f"to be under {SESSION_WINDOW_SECONDS} (24 hours): after that WhatsApp "
             "allows only approved templates, so the reminder would not be delivered"
         )
+    if settings.functions_service != FUNCTIONS_SERVICE:
+        problems.append(
+            f"settings: functions_service is {settings.functions_service!r}. Every "
+            f"survey runs on the {FUNCTIONS_SERVICE!r} service that `just "
+            "deploy-functions` creates; remove the setting"
+        )
+    return problems
+
+
+def _check_column_references(spec: Spec) -> list[str]:
+    """Check each ``${column}`` in a message names a preload.
+
+    A column the launch does not send fills in as nothing, so the person reads
+    "Hi ," - and a misspelt name is exactly that.
+    """
+    problems: list[str] = []
+    preloads = set(spec.settings.preloads)
+    texts = [(row.name, row.label) for row in spec.survey] + [
+        (f"message {m.key}", m.text) for m in spec.messages
+    ]
+    for owner, text in texts:
+        for lang, value in text.items():
+            for column in COLUMN_REFERENCE.findall(value or ""):
+                if column not in preloads:
+                    problems.append(
+                        f"{lang}: {owner} writes ${{{column}}}, which is not a "
+                        "preload. Add it under settings: preloads, or fix the name"
+                    )
+    return problems
+
+
+def _check_variables(spec: Spec) -> list[str]:
+    """Check what fills each placeholder of an approved message.
+
+    Only whether each mapping can be filled: which placeholders a message has is
+    known only to the account, so ``rtt survey build`` checks that every one of
+    them is mapped.
+    """
+    problems: list[str] = []
+    preloads = set(spec.settings.preloads)
+    for row in spec.survey:
+        if not row.variables:
+            continue
+        if not row.sends_template:
+            problems.append(
+                f"{row.name}: variables fill an approved message's placeholders, "
+                "and this row sends none"
+            )
+            continue
+        for placeholder, column in row.variables.items():
+            if not placeholder.isdigit():
+                problems.append(
+                    f"{row.name}: variable {placeholder!r} is not a placeholder "
+                    "number; approved messages number them {{1}}, {{2}}..."
+                )
+            if column not in preloads:
+                problems.append(
+                    f"{row.name}: {{{{{placeholder}}}}} is filled from {column!r}, "
+                    "which is not a preload. Add it under settings: preloads, so "
+                    "the sample file has to carry it"
+                )
     return problems
 
 
@@ -1073,15 +1161,20 @@ def _check_text_limits(spec: Spec) -> list[str]:
                     f"{MAX_SESSION_BUTTONS} buttons and the send fails past that"
                 )
 
+        # A list shared by a buttons question is held to the button's cap too:
+        # one label, two renderings, and the shorter one is what people read.
+        as_buttons = {r.list_name for r in spec.survey if r.content_type == BUTTONS}
         for choice in spec.choices:
             label = choice.label.get(lang, "")
             description = choice.description.get(lang, "")
             named = f"{choice.list_name}/{choice.value}"
 
-            # A label is compared literally against the reply body, so which cap
-            # applies depends on how the list is rendered. Taking the stricter of
-            # the two costs nothing and a list is the default rendering here.
-            if len(label) > _LIMIT[(LIST, "item")]:
+            if choice.list_name in as_buttons and len(label) > BUTTON_TITLE_CHARS:
+                problems.append(
+                    f"{lang}: {named} label is {len(label)} chars, and it is a "
+                    f"button: WhatsApp shows {BUTTON_TITLE_CHARS} of it: {label!r}"
+                )
+            elif len(label) > _LIMIT[(LIST, "item")]:
                 problems.append(
                     f"{lang}: {named} label is {len(label)} chars, cap is "
                     f"{_LIMIT[(LIST, 'item')]}: {label!r}"
@@ -1474,6 +1567,7 @@ def starter_spec(language: str = "en") -> Spec:
                 # before the respondent has said anything. Its copy lives in
                 # templates/<name>.json, not here.
                 template={text: "my_survey_intro"},
+                variables={"1": "name"},
                 retries=0,
                 publish=False,
             ),
@@ -1576,6 +1670,7 @@ def starter_spec(language: str = "en") -> Spec:
                 # approved template can reach them. The second bookend.
                 relevance="${outcome}='unreachable'",
                 template={text: "my_survey_close"},
+                variables={"1": "name"},
                 publish=False,
             ),
             SurveyRow(
@@ -1594,7 +1689,7 @@ def starter_spec(language: str = "en") -> Spec:
                 list_name="consent",
                 value="yes",
                 option_id="consent_yes",
-                label={text: "Yes, I will take part"},
+                label={text: "Yes, I'll take part"},
                 typed={text: "1|yes|y"},
             ),
             ChoiceRow(
