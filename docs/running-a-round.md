@@ -3,10 +3,10 @@
 Every command, and what each one refuses to do. `just <recipe>` wraps `rtt`;
 `just --list` is the index, and `uv run rtt` shows the CLI's own help.
 
-Arguments pass through `just` unchanged, quoted or not. Quoting the whole
-argument string — `just round launch "sample.xlsx --dry-run"` — is a habit worth
-keeping anyway, because it makes clear which flags belong to `rtt` rather than to
-`just`, and `--dry-run` and `--verbose` exist on both.
+Flags after a recipe go to `rtt` as typed, with no quotes:
+`just round launch sample.xlsx --dry-run`. The one exception is `just round send`,
+which has its own `--dry-run` and `--watch`; give it any other `rtt launch` flag
+after `--`, as in `just round send my_sample caseid -- --batch-size 50`.
 
 ## Once, before anything else
 
@@ -64,16 +64,21 @@ one is there:
 **† needs the account.** Four checks read each template's *content type*, which
 only Twilio can answer, so they are **silently skipped when the target is a local
 file**. `just flow check flows/my_round.json` reporting "all checks passed" means
-17 of 21 passed and four did not run; the command now says so. Run it against
+18 of 22 passed and four did not run; the command now says so. Run it against
 the deployed flow by name — `just flow check my_round` — before a round, because
 a list-picker opener passes on disk and cannot open a conversation.
 
-### `rtt flow schema` — the shape the destination needs
+### `rtt flow table` / `rtt flow schema` — the shape the destination needs
 
 ```powershell
-uv run rtt flow schema flows/data_use_demo_en.json --table my_db.main.round1  # MotherDuck
-just flow header flows/data_use_demo_en.json                            # Google Sheets
+just flow table flows/my_survey.json                     # MotherDuck: create or extend the table
+just flow header flows/my_survey.json                    # Google Sheets: the header row
+uv run rtt flow schema flows/my_survey.json              # MotherDuck: print the DDL only
 ```
+
+`flow table` asks before changing anything and never drops a column. A flow from
+`just survey build` names its own table; for one that does not, such as the demo,
+pass `--table`.
 
 Derived from the publish widget's parameters, so the destination is a function of
 the instrument rather than something maintained alongside it. **Run it after
@@ -108,7 +113,7 @@ just flow pull my_endline --out /tmp/snapshots --allow-secrets
 `pull` scans what it saves and refuses to write a definition containing
 credentials unless you insist.
 
-### `rtt template` — WhatsApp content templates
+### `rtt template` — approved messages
 
 ```powershell
 just approved list --filter rst
@@ -139,8 +144,8 @@ is neither blank nor duplicated. It does **not** validate the value in `Number`.
 
 ```powershell
 just round intake scripts/build_rst2026_sample.py                          # export -> sample
-just round intake scripts/build_rst2026_sample.py "--prefix RST2026-TEST"  # a rehearsal, kept apart
-just round send rst2026_sample caseid,name,arm "--dry-run"   # checks, sends nothing
+just round intake scripts/build_rst2026_sample.py --prefix RST2026-TEST  # a rehearsal, kept apart
+just round send rst2026_sample caseid,name,arm --dry-run   # checks, sends nothing
 just round send rst2026_sample caseid,name,arm               # sends, then watches for an hour
 ```
 
@@ -155,8 +160,8 @@ its extension; the tracker is always `<sample>_output.csv`. COLUMNS is what the
 flow receives per respondent.
 
 `just round send` launches and then watches for an hour, mirroring the round every two
-minutes into the `tracking` tab — or into a MotherDuck table with
-`just round send ...`. Ctrl-C --watch motherduck ends the watch without affecting
+minutes into the `tracking` tab, or into a MotherDuck table with
+`--watch motherduck`. Ctrl-C ends the watch without affecting
 anything already sent; the tracker on disk is the record, and `just round send` again
 picks up whoever signed up meanwhile. It polls `--every 2` minutes, and
 `--full-window` keeps the view moving after every number has settled.
@@ -254,9 +259,9 @@ encrypted name cannot greet somebody and an encrypted `arm` cannot branch.
 ### `rtt launch` — the general case
 
 ```powershell
-just round launch "sample.xlsx --columns caseid,name,arm --dry-run"
-just round launch "sample.xlsx --columns caseid,name,arm --batch-size 50 --sleep 5"
-just round launch "sample.xlsx --columns caseid,name,arm --resume"
+just round launch sample.xlsx --columns caseid,name,arm --dry-run
+just round launch sample.xlsx --columns caseid,name,arm --batch-size 50 --sleep 5
+just round launch sample.xlsx --columns caseid,name,arm --resume
 ```
 
 | Flag | |
@@ -312,10 +317,10 @@ Only `rtt monitor` can tell you which.
 ### `rtt monitor` — did the round actually land?
 
 ```powershell
-just round watch "--tracker sample_output.csv --sample sample.xlsx"
-just round watch "--tracker sample_output.csv --sample sample.xlsx --hours 4"
-just round watch "--tracker sample_output.csv --sample sample.xlsx --sheet --every 1"
-just round watch "--tracker sample_output.csv --sample sample.xlsx --table tracking"
+just round watch --tracker sample_output.csv --sample sample.xlsx
+just round watch --tracker sample_output.csv --sample sample.xlsx --hours 4
+just round watch --tracker sample_output.csv --sample sample.xlsx --sheet --every 1
+just round watch --tracker sample_output.csv --sample sample.xlsx --table tracking
 ```
 
 One row per **respondent**, not per message. Each holds one state:
@@ -353,8 +358,8 @@ A rate limit is reported as a rate limit, never as an empty round.
 ### `rtt data-check` — high-frequency checks for the data
 
 ```powershell
-just data check "responses.csv"
-just data check "responses.csv --key caseid"
+just data check responses.csv
+just data check responses.csv --key caseid
 ```
 
 The data-side twin of `just flow check`. Findings are **warnings, not errors** — by
@@ -411,9 +416,9 @@ state a column cannot express. `rtt monitor --tracker` is what surfaces them.
 ### `rtt fetch` — what does Twilio think happened?
 
 ```powershell
-just data fetch "--since 2026-08-01"
-just data fetch "--against responses.csv --output missing.csv"
-just data fetch "--no-answers"
+just data fetch --since 2026-08-01
+just data fetch --against responses.csv --output missing.csv
+just data fetch --no-answers
 ```
 
 Pulls executions from the Studio API and, with `--against`, reports the ones with
@@ -434,10 +439,10 @@ rather than reporting a short file as finished.
 ### `rtt decrypt`
 
 ```powershell
-just data decrypt "responses.csv"
-just data decrypt "responses.csv --output clean.csv"
-just data decrypt "old.csv --columns name,phone --legacy-secret KEY"
-just data decrypt "responses.csv --to-motherduck round1_clean --warehouse-columns caseid,answer"
+just data decrypt responses.csv
+just data decrypt responses.csv --output clean.csv
+just data decrypt old.csv --columns name,phone --legacy-secret KEY
+just data decrypt responses.csv --to-motherduck round1_clean --warehouse-columns caseid,answer
 ```
 
 Encrypted columns are detected by their `v2:` marker, so there is no list of
@@ -451,9 +456,9 @@ Writing over the input is refused: the ciphertext is the only copy.
 
 ```powershell
 just round reset rst2026_sample.xlsx                             # report only, changes nothing
-just round reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run of the real thing
-just round reset rst2026_sample.xlsx "--snapshot --truncate --yes"
-just round reset rst2026_sample.xlsx "--local old_output.csv --yes"  # named leftovers
+just round reset rst2026_sample.xlsx --snapshot --truncate     # dry run of the real thing
+just round reset rst2026_sample.xlsx --snapshot --truncate --yes
+just round reset rst2026_sample.xlsx --local old_output.csv --yes  # named leftovers
 ```
 
 The sample is required rather than defaulted, and `--round` derives the other
@@ -496,9 +501,9 @@ in the same workbook cannot be caught by this.
 ### `rtt push`
 
 ```powershell
-just data push "clean.csv --table round1"
-just data push "clean.csv --table round1 --columns caseid,city,answer"
-just data push "clean.csv --table round1 --mode replace"
+just data push clean.csv --table round1
+just data push clean.csv --table round1 --columns caseid,city,answer
+just data push clean.csv --table round1 --mode replace
 ```
 
 Appends by default. **`--mode replace` issues `CREATE OR REPLACE TABLE`** and

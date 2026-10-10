@@ -74,8 +74,8 @@ Two causes, both now caught by `just flow check`:
 ### A question is missing from the warehouse
 
 The publish Function inserts only into columns that already exist and returns
-**HTTP 200** either way. Re-run `uv run rtt flow schema` after any instrument change
-and apply the difference.
+**HTTP 200** either way. Re-run `just flow table` (MotherDuck) or `just flow
+header` (Sheets) after any instrument change.
 
 ### Every tap fell through to the retry nudge
 
@@ -120,7 +120,7 @@ recent it was.
 | --- | --- | --- |
 | `63016` | free-form message outside the 24-hour window | the opener must be an approved template; the window opens only when they reply |
 | `63027` | template not approved **for this WhatsApp Business Account** | it was approved under a different WABA. Being listed by the Content API says nothing about whether your sender can send it. Recreate it under yours |
-| `21656` | a template variable resolved to empty | Meta rejects the whole send. Give variables a Liquid default: `{{flow.data.name \| default: 'there'}}` |
+| `21656` | a template variable resolved to empty | Meta rejects the whole send. For a survey built here, `rtt launch` refuses a blank cell in a column that fills a placeholder. In a flow written by hand, give the variable a Liquid default: `{{flow.data.name \| default: 'there'}}` |
 | `20001` | malformed API request | often a `limit` above the endpoint's page-size cap |
 | `403` from a Function | the Function is deployed `private` | redeploy as `protected` |
 | `Error downloading invalid media URL` | Meta could not fetch template media | Meta fetches from outside, so anything gated or on a private domain is unreachable |
@@ -146,7 +146,7 @@ perfectly fine. That one is fixed: an empty value is treated as absent.
 
 ### `just demo build` says the templates do not exist
 
-It resolves content templates by name on your account. Run
+It looks up the demo's buttons and lists by name on your account. Run
 `just demo content` first. It will name what is missing.
 
 ### `just demo build` says there is no `rtt-survey` service

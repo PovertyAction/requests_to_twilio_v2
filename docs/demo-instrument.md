@@ -31,13 +31,13 @@ the graph lands in both and neither can quietly drift from the other. Both flows
 are committed - `flows/data_use_demo_en.json` and `_es.json` - and both build
 from the same code.
 
-The builder resolves your Twilio Functions service and content templates **by
+The builder looks up your Twilio Functions and the buttons and lists **by
 name**, so `just demo build` produces a flow that points at your account
 rather than at ours. Either language needs its two bookend templates to exist on
 your account first; the build stops and names them if they do not.
 
 ```powershell
-just demo content        # the in-session templates the questions need
+just demo content        # the buttons and lists the questions show
 just demo build --lang en    # writes flows/data_use_demo_en.json
 just flow deploy flows/data_use_demo_en.json --publish
 ```

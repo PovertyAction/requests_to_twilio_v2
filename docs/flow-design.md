@@ -81,6 +81,7 @@ The limits that shape question design rather than just implementation:
 | List item text | **24 characters** | `Neither agree nor disagree` is 26. The neutral midpoint of a standard Likert does not fit, in English or Spanish |
 | List body | 1024 characters | never come close; measured p90 is 356 |
 | Quick-reply buttons in session | 3 | use a list instead; it needs no approval either |
+| Button text | **20 characters** | shorter than a list row, so a label that fits a list may not fit a button |
 
 An 0–10 NPS item is eleven points, so it does not fit a list picker at all.
 
@@ -173,7 +174,7 @@ anything.
 
 ```powershell
 just flow check flows/my_flow.json
-uv run rtt flow schema flows/my_flow.json --table my_db.main.my_round
+just flow table flows/my_flow.json --table my_round     # or `just flow header` for a sheet
 just flow deploy flows/my_flow.json --publish
 ```
 

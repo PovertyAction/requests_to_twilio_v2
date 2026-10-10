@@ -48,10 +48,11 @@ so the category you request is not merely a hint.
   reasonable prior.
 - **Say why you have their number.** "You took part in X and agreed we could
   contact you again" does more for response rate than any incentive.
-- **Give every variable a default.** An empty variable fails the send with error
-  `21656` — the *whole message*, not just the placeholder. Use
-  `{{flow.data.name | default: 'there'}}`. A blank name should cost you a
-  slightly impersonal greeting, not a respondent.
+- **Never send an empty variable.** It fails the send with error `21656`: the
+  *whole message*, not just the placeholder. For a survey built here,
+  `rtt launch` refuses a sample with a blank cell in a column that fills a
+  placeholder. In a flow written by hand, use
+  `{{flow.data.name | default: 'there'}}`.
 - **Keep the opener short.** Across 392 question bodies in IPA's own WhatsApp
   instruments (2022-2026) the median is 227 characters and 7 lines, and the
   longest in four years is 895 — against an API limit of 1024. The limit was
