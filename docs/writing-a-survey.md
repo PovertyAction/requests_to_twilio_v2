@@ -6,15 +6,15 @@ turns those rows into a Studio flow.
 ```text
    survey builder  ⇄ ┐
                      ├   my_survey.json   →   flows/my_survey.json   →   Studio
-   my_survey.xlsx  ⇄ ┘   (git carries this)   (just survey-build)        (just flow-deploy)
+   my_survey.xlsx  ⇄ ┘   (git carries this)   (just survey build)        (just flow deploy)
 ```
 
 Edit the JSON in either surface: the **survey builder**, a visual editor with a
 card per step, or the **workbook** in Excel. Both read and write the same file,
 so a team can mix them.
 
-`just survey-build` compiles a spec that passes `just survey-check` into a
-Studio flow, and `just flow-deploy` puts it on your account as a draft. The demo
+`just survey build` compiles a spec that passes `just survey check` into a
+Studio flow, and `just flow deploy` puts it on your account as a draft. The demo
 instrument is still built by `scripts/build_data_use_demo.py`, from its own
 tables; it shares its widgets with the compiler.
 
@@ -56,7 +56,7 @@ expects a dataset out.
 ## Start from the sample, not from an existing survey
 
 ```powershell
-just survey-template --output my_survey.xlsx
+just survey new --output my_survey.xlsx
 ```
 
 `sample_template.xlsx` in the repository root is the same thing, committed so you
@@ -215,7 +215,7 @@ reply, "Please reply with a number {range}.", where `{range}` reads "from 0 to
 ## The builder
 
 ```powershell
-just survey-builder                            # opens it in your browser
+just survey builder                            # opens it in your browser
 ```
 
 One HTML page, opened from disk: no install and no server. Before opening it,
@@ -240,7 +240,7 @@ replies** in the survey settings.
 
 Limits show while you type: 20 characters for a button, 24 for a list option, 72
 for a description, 3 buttons, 10 list rows, 1024 for a message with options. Those numbers come
-from the same code `just survey-check` uses, and a test fails if the page's copy
+from the same code `just survey check` uses, and a test fails if the page's copy
 drifts.
 
 **Open** reads a spec's JSON; **New** starts from the documented example.
@@ -248,7 +248,7 @@ drifts.
 copy in other browsers. An open-and-save with no edits leaves the file
 byte-identical, so the diff a reviewer reads is only what you changed.
 
-The builder shows limits, not everything: `just survey-check` stays the check
+The builder shows limits, not everything: `just survey check` stays the check
 that counts, because it runs every option pattern and the consent rules.
 
 ## The cycle
@@ -256,19 +256,19 @@ that counts, because it runs every option pattern and the consent rules.
 With the builder:
 
 ```powershell
-just survey-builder                            # Open... my_survey.json, edit, Save
-just survey-check my_survey.json               # must pass
+just survey builder                            # Open... my_survey.json, edit, Save
+just survey check my_survey.json               # must pass
 git add my_survey.json
 ```
 
 Then, to put it on Twilio:
 
 ```powershell
-just survey-content my_survey.json             # the buttons and lists it sends
-just survey-build my_survey.json "--lang en"   # -> flows/<flow_name>.json, checked
-just flow-schema flows/my_survey.json --format header   # the sheet's first row
-just flow-table flows/my_survey.json           # or, for MotherDuck, its table
-just flow-deploy flows/my_survey.json          # a draft; nothing is sent yet
+just survey content my_survey.json             # the buttons and lists it sends
+just survey build my_survey.json "--lang en"   # -> flows/<flow_name>.json, checked
+uv run rtt flow schema flows/my_survey.json --format header   # the sheet's first row
+just flow table flows/my_survey.json           # or, for MotherDuck, its table
+just flow deploy flows/my_survey.json          # a draft; nothing is sent yet
 ```
 
 Two kinds of message reach the phone, and only one needs Meta:
@@ -277,25 +277,25 @@ Two kinds of message reach the phone, and only one needs Meta:
   replied. They reach someone who has not written to you, so Meta reviews them.
   Create and submit them yourself (see `docs/writing-templates.md`); the builder
   then lists the approved ones to pick from, with their text, and asks which
-  sample column fills each `{{1}}`. `survey-build` refuses to compile until each
+  sample column fills each `{{1}}`. `just survey build` refuses to compile until each
   one exists and every placeholder is filled.
 - **Twilio content**: the buttons and lists of your questions. They are sent
-  after the person has replied, so Meta never sees them. `survey-content`
+  after the person has replied, so Meta never sees them. `just survey content`
   creates them; nothing to approve.
 
 With Excel:
 
 ```powershell
-just survey-template --output my_survey.xlsx   # once
+just survey new --output my_survey.xlsx   # once
 # ...edit in Excel...
-just survey-json my_survey.xlsx                # → my_survey.json
-just survey-check my_survey.json               # must pass
-just survey-rows my_survey.json                # read the whole thing at a glance
+just survey json my_survey.xlsx                # → my_survey.json
+just survey check my_survey.json               # must pass
+just survey rows my_survey.json                # read the whole thing at a glance
 git add my_survey.json                         # commit the JSON, not the workbook
 ```
 
 **The JSON is what git carries.** The workbook is a build product: regenerate it
-with `just survey-xlsx my_survey.json` whenever you want to read or edit the
+with `just survey excel my_survey.json` whenever you want to read or edit the
 instrument. It stays gitignored on purpose — a workbook in a pull request is a
 binary blob nobody can review, whereas a JSON diff is the change to the
 instrument in words.

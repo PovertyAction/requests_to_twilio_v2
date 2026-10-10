@@ -6,7 +6,7 @@
  * and read it without being taught a query language. Its sibling,
  * publish_motherduck.js, occupies the same position in the graph and writes the
  * same payload to a warehouse instead. Pick between them at build time with
- * `just build-demo-flow --publish-target gsheets|motherduck`.
+ * `just demo build --publish-target gsheets|motherduck`.
  *
  * Deploy this as a Twilio Function and call it from a Function widget placed at
  * the end of your Studio flow. Every terminal path must route through it, or a
@@ -29,7 +29,7 @@
  *      ...                   below for why it cannot be one.
  *      GOOGLE_SHEET_ID       The target spreadsheet's ID, from its URL.
  *
- *    `just deploy-functions` sets all of these from the service-account JSON
+ *    `just setup functions` sets all of these from the service-account JSON
  *    named by GOOGLE_SERVICE_ACCOUNT_FILE in .env, including the splitting.
  *
  * 3. Share the sheet with GOOGLE_CLIENT_EMAIL as an Editor. A service account

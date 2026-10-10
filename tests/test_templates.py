@@ -44,7 +44,7 @@ class TestDriftedTypes:
 
     This is the one failure in the pipeline that no other check can see. The
     flow references a template by SID, so wording that changed in the repo but
-    not on the account leaves the flow correct, `flow-check` passing, the linter
+    not on the account leaves the flow correct, `just flow check` passing, the linter
     clean and the tests green - while the respondent is read the old text.
 
     It has happened. A sixth question renumbered every body to "of 6"; four

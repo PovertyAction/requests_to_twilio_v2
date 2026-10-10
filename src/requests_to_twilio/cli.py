@@ -189,7 +189,7 @@ def _check_preloaded_data(
                 "cannot run.\n"
                 "Studio executes the latest published revision, and this flow "
                 "has only a draft.\n\n"
-                "  just flow-deploy <definition.json> --publish\n",
+                "  just flow deploy <definition.json> --publish\n",
                 fg=typer.colors.RED,
                 bold=True,
             )
@@ -381,7 +381,7 @@ def _private_key():
     if not path.is_file():
         _fail(
             f"No private key. Set ENCRYPTION_PRIVATE_KEY in .env, or place the "
-            f"key file at {path}. Generate a keypair with `just keygen`."
+            f"key file at {path}. Generate a keypair with `just setup key`."
         )
     return load_private_key(path.read_text(encoding="utf-8"))
 
@@ -1740,7 +1740,7 @@ def _create_one(
             _fail(str(exc))
         typer.secho(
             f"Submitted to Meta as {category}. Check with:\n"
-            f"  just template-status {name}",
+            f"  just approved status {name}",
             fg=typer.colors.GREEN,
         )
     elif in_session:
@@ -1749,7 +1749,7 @@ def _create_one(
         typer.echo(
             f"\nNot yet submitted to Meta - it exists only in Twilio, so it can\n"
             f"still be deleted and redone. When the wording is final:\n"
-            f"  just template-submit {name}"
+            f"  just approved submit {name}"
         )
 
 
@@ -1890,7 +1890,7 @@ def template_delete(
     typer.secho(f"Deleted {content.sid}", fg=typer.colors.GREEN, bold=True)
     typer.echo(
         "\nThe name is free again. Recreate it with:\n"
-        f"  just template-create templates/{content.friendly_name}.json"
+        f"  just approved create templates/{content.friendly_name}.json"
     )
 
 
@@ -1941,7 +1941,7 @@ def template_submit(
     typer.secho("Submitted.", fg=typer.colors.GREEN, bold=True)
     typer.echo(
         "Most templates are reviewed within minutes. Check with:\n"
-        f"  just template-status {content.friendly_name}"
+        f"  just approved status {content.friendly_name}"
     )
 
 
@@ -2393,8 +2393,8 @@ def survey_content(
             if existing is None:
                 typer.secho(
                     f"missing  {name}  - an approved template the survey sends. "
-                    "Create and submit it: just template-create, then "
-                    "just template-submit",
+                    "Create and submit it: just approved create, then "
+                    "just approved submit",
                     fg=typer.colors.YELLOW,
                 )
             else:

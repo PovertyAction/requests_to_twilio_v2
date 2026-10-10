@@ -69,7 +69,7 @@ def _connect(database: str):
     token = require(ENV_TOKEN)
 
     # Hidden from the extension for the length of the connect call only - see
-    # ENV_FUNCTION_HOST. Restored afterwards because `rtt deploy-functions`
+    # ENV_FUNCTION_HOST. Restored afterwards because `just setup functions`
     # reads it from this same process to configure the Function.
     stashed = os.environ.pop(ENV_FUNCTION_HOST, None)
     try:

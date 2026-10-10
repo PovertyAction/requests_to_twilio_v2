@@ -103,7 +103,9 @@ def _decode_key(encoded: str, label: str) -> bytes:
     """Decode a base64 key and check its length."""
     text = encoded.strip()
     if not text:
-        raise CryptoError(f"{label} is empty. Generate a keypair with `just keygen`.")
+        raise CryptoError(
+            f"{label} is empty. Generate a keypair with `just setup key`."
+        )
 
     try:
         # validate=True so that a typo is reported as a malformed key rather
@@ -113,13 +115,13 @@ def _decode_key(encoded: str, label: str) -> bytes:
         )
     except (ValueError, binascii.Error) as exc:
         raise CryptoError(
-            f"{label} is not valid urlsafe base64. Generate one with `just keygen`."
+            f"{label} is not valid urlsafe base64. Generate one with `just setup key`."
         ) from exc
 
     if len(raw) != PUBLIC_KEY_SIZE:
         raise CryptoError(
             f"{label} must decode to {PUBLIC_KEY_SIZE} bytes, got {len(raw)}. "
-            "Generate a keypair with `just keygen`; passphrases are not accepted."
+            "Generate a keypair with `just setup key`; passphrases are not accepted."
         )
     return raw
 

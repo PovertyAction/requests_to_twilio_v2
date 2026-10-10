@@ -67,7 +67,7 @@ class TestTheFunctionHostDoesNotReachTheLocalClient:
         assert fake_duckdb["host_visible"] is None
 
     def test_it_is_restored_afterwards(self, fake_duckdb, monkeypatch):
-        """`rtt deploy-functions` reads it from this same process."""
+        """`just setup functions` reads it from this same process."""
         monkeypatch.setenv(ENV_FUNCTION_HOST, "pg.us-east-1-aws.motherduck.com")
         warehouse._connect("db")
         assert os.environ[ENV_FUNCTION_HOST] == "pg.us-east-1-aws.motherduck.com"

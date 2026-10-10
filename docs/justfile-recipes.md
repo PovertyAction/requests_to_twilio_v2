@@ -1,130 +1,140 @@
-# Every recipe in the Justfile
+# The recipes
 
-`just` is the entry point to this repo. `just --list` prints the recipes; this
-page says what each one is for and when you would reach for it.
+A recipe is a short command you type in a terminal, such as `just survey check
+my_survey.json`. Typing `just` on its own lists the eight groups of recipes,
+called modules, in the order you need them. Typing `just survey` (or any other
+module name) lists that module's recipes.
 
-Recipes are grouped by the order you meet them, not alphabetically. If you are
-new here, read [START-HERE.md](../START-HERE.md) first — it walks a round end to
-end, and this page is the reference you come back to.
+| Module | For | Page |
+|---|---|---|
+| `just setup` | getting a laptop and a Twilio account ready, once | [setup](recipes/setup.md) |
+| `just approved` | the opening and closing messages Meta has to approve | [approved](recipes/approved.md) |
+| `just survey` | writing a survey and turning it into a flow | [survey](recipes/survey.md) |
+| `just flow` | putting the flow on Twilio | [flow](recipes/flow.md) |
+| `just round` | sending the survey to people | [round](recipes/round.md) |
+| `just data` | the answers that came back | [data](recipes/data.md) |
+| `just demo` | a ready-made example survey | [demo](recipes/demo.md) |
+| `just dev` | tests and formatting, for people changing this code | [dev](recipes/dev.md) |
 
-**There is no recipe that turns a survey spec into a Studio flow.** `rtt survey`
-reads, checks and converts an instrument between JSON and Excel; the only thing
-that emits a flow definition is `just build-demo-flow`, from its own Python
-tables in `scripts/build_data_use_demo.py`. Changing the demo's questions means
-editing that script - it is the only description of that instrument.
+## Words you will meet
 
-Each recipe's *reasoning* lives in the Justfile comment above it, which
-`just --show RECIPE` prints. This page is the index; [running a
-round](running-a-round.md) is the walkthrough.
+- **Twilio** is the service that sends and receives the WhatsApp messages. Your
+  team has an account with it, and `.env` holds that account's keys.
+- **The sender** is the WhatsApp number your messages come from.
+- **A flow** is the survey as Twilio runs it: every message, every wait for a
+  reply, every check on an answer. It lives in Twilio Studio, and you never
+  have to edit it by hand; `just survey build` writes it.
+- **Meta** owns WhatsApp. It reviews any message sent to someone who has not
+  written to you first. Those are the **approved messages**.
+- **Twilio content** is the buttons and lists your questions show. It needs no
+  approval, because it is sent after the person has replied.
+- **The Functions** are two small programs on your Twilio account. One encrypts
+  phone numbers and private answers; the other saves each person's answers.
+- **The sample** is the spreadsheet of people to send to, one row each.
 
-## Setting up
+## Step by step: from a new laptop to your data
 
-Run these once, when you clone the repo or when the toolchain changes.
+Steps marked "once" are done once per laptop or account. [START-HERE](../START-HERE.md)
+explains every step in more detail, including the waits on Meta; this is the
+checklist.
 
-| Recipe | What it does |
-|---|---|
-| `just` | Lists every recipe. The default when you type `just` with no arguments. |
-| `just pre-install` | Installs uv, gh, Node and markdownlint. Node is not optional — the interop test runs real Twilio JavaScript. |
-| `just get-started` | `pre-install` then `venv`. The one command for a fresh machine. |
-| `just venv` | Syncs dependencies with uv and installs the pre-commit hooks. |
-| `just clean` | Deletes `.venv`. |
-| `just update-reqs` | Upgrades the lockfile, re-syncs, and updates pre-commit hooks. |
-| `just system-info` | Prints CPU, OS family and OS. Useful when a bug looks platform-specific. |
-| `just mcp-setup` | Writes Twilio MCP credentials from `.env` into gitignored `.claude/settings.local.json`. Restart Claude Code, then `/mcp` to confirm. |
-| `just mcp-list` | Shows which MCP servers the project defines and whether each is ready. |
+### 1. Set up (once)
 
-## Writing an instrument
-
-A Studio flow is 97 widgets for 6 questions and nobody can review that. The spec
-is the same instrument as ~20 rows, in the shape SurveyCTO users already know.
-
-**The JSON is canonical** — it is what git carries and what a reviewer diffs. The
-workbook is a generated view, gitignored, and it is what you edit.
-
-| Recipe | What it does |
-|---|---|
-| `just survey-template` | Writes a documented starter workbook to fill in — a small working instrument with one row of every type, not an empty sheet. Refuses to overwrite. |
-| `just survey-xlsx FILE` | Regenerates the editable workbook from canonical JSON. Overwrites: the workbook is a view, not a document with a history. |
-| `just survey-json FILE` | Reads an RA's workbook edits back into the tracked JSON. **The load-bearing direction** — whatever does not survive this trip is silently lost. |
-| `just survey-rows FILE` | Prints the whole instrument in the terminal, without opening Excel. |
-| `just survey-check FILE` | *Runs* the option patterns and constraints rather than reading them, and reports where each possible reply lands. Exits non-zero. |
-| `just survey-content FILE` | Creates the buttons and lists a survey sends, its Twilio content: one per buttons or list question. Reports whether the approved opener and closing exist. Nothing here goes to Meta. |
-| `just survey-build FILE` | Compiles a checked spec into a Studio flow against your account (content SIDs, Functions), runs every flow check, and writes `flows/<flow_name>.json`. `--offline` builds with placeholder SIDs for reading only. |
-| `just survey-builder` | Opens the visual survey builder: one HTML page with a card per step, a map of the flow's shape and a WhatsApp preview. Reads your account's approved messages first (so it needs `.env`), then opens a copy of the page that carries them; the page itself never talks to Twilio. Reads and writes the same JSON as the workbook. |
-| `just survey-builder-sync` | Rewrites the builder's embedded limits, vocabularies and starter from the Python side. Only needed when those change; a test fails when they have drifted. |
-| `just survey-sample` | Regenerates the committed `sample_template.xlsx`. Only needed when the schema or starter content changes — a test fails when it has drifted. |
-
-The editing loop:
-
-```sh
-just survey-template                  # start from the documented example
-just survey-xlsx my_survey.json       # make the workbook
-# ...edit it in Excel...
-just survey-json my_survey.xlsx       # bring the edits back
-just survey-check my_survey.json      # then commit the JSON
+```powershell
+just setup install          # the tools this project needs, and the project
 ```
 
-## WhatsApp templates
+Copy `.env.example` to `.env` and fill in your Twilio account SID, auth token and
+sender number. Then:
 
-Every message sent **before** the respondent replies must come from a
-Meta-approved template. Once they reply, a 24-hour window opens and the rest of
-the questionnaire runs free-form with no approval at all. In practice that means
-only the two bookends — the opener and the closing message to people who never
-answered — ever go to Meta.
+```powershell
+just setup key              # makes the encryption keys
+just setup functions        # puts the two Functions on your Twilio account
+just setup mcp              # optional: lets Claude Code read your Twilio account
+```
 
-| Recipe | What it does |
-|---|---|
-| `just template-list` | Lists templates and their Meta approval status. |
-| `just template-create FILE` | Creates the template in Twilio but does **not** submit it, so the wording can still change. |
-| `just template-submit NAME` | **Irreversible.** Submits to Meta. A submitted template can never be edited — only deleted and recreated under a new name. Review the wording first. |
-| `just template-delete NAME` | Deletes an unsubmitted template so its wording can be redone. Twilio has no update operation for content, so this is how a draft gets revised. Refuses anything already submitted. |
-| `just template-status NAME` | Shows one template's approval status. |
-| `just demo-templates-create` | Creates the demo flow's in-session content templates from `templates/generated/`. None is ever submitted to Meta. |
-| `just demo-templates-sync` | Makes Twilio match the repo: deletes and recreates any template whose wording has drifted. Refuses on anything submitted to Meta. **Run this after changing a question.** |
+### 2. Get the opening and closing messages approved (once per wording)
 
-Content templates are **immutable**, and changing only a question's wording
-fails silently - see [writing templates](writing-templates.md#templates-are-immutable).
+Write each message in `templates/<name>.json` ([how](writing-templates.md)).
+Then create it on Twilio, send it to Meta, and check back:
 
-## Building and shipping a flow
+```powershell
+just approved create templates/my_intro_en.json
+just approved submit my_intro_en --category UTILITY     # cannot be undone
+just approved status my_intro_en                        # repeat until "approved"
+```
 
-| Recipe | What it does |
-|---|---|
-| `just build-demo-flow` | Builds both languages from one structure. `--lang en` for one; `--publish-target gsheets` or `motherduck` picks the destination, gsheets if unnamed. Needs live credentials — templates resolve by name. |
-| `just flow-check [FILE]` | The instrument-side equivalent of high-frequency checks: verifies the survey was coded correctly. Omit the file to check every flow on the account. Exits non-zero on an error. |
-| `just flow-schema FILE` | Prints `CREATE TABLE` DDL matching what the flow publishes. **Run this after changing the instrument** — the publish Function only inserts into columns that already exist, so a new question with no column is dropped silently behind a 200. |
-| `just flow-header FILE` | The Google Sheets counterpart: prints the header row for row 1 of the target sheet. Same reason, same failure — `publish_gsheets` matches parameters to columns by header name. |
-| `just flow-table FILE` | Creates the MotherDuck table a flow names for itself, or adds the columns it is missing; never drops one. Each survey gets its own table (the Survey ID, or `publish_table`). Connects over the Postgres endpoint the Function uses, so it works from an IPA laptop. |
-| `just flow-deploy FILE` | Deploys a definition. Refuses to ship one that fails the checks. |
-| `just flow-list` | Lists the Studio flows on the account. |
-| `just flow-pull NAME` | Saves a flow definition into `flows/` (gitignored) to review, diff, or hand to an agent. Refuses to write one containing credentials. |
-| `just deploy-functions` | Deploys `encrypt_fields.js` and **both** publish Functions — a deployment is the whole set, so a subset removes the rest. Missing credentials for one target are fine; none is an error. |
+Approval takes minutes, sometimes a day. If messages you can use are already
+approved, skip this step: the builder lists them for you.
 
-## Running a round
+### 3. Write the survey
 
-| Recipe | What it does |
-|---|---|
-| `just keygen` | Generates the X25519 keypair. The public key goes to Twilio; the private key stays on your machine and is gitignored. |
-| `just intake BUILDER` | Turns an external export into a validated launch sample: E.164 against the country collected, consent gate, no landlines, `caseid`/`arm` frozen across re-runs. Unresolvable rows go to `<out>_needs_human_review.csv`. |
-| `just send SAMPLE COLUMNS` | Sends, **then watches for an hour**, mirroring every two minutes into the `tracking` tab — or a MotherDuck table with `just watch=motherduck send ...`. `--resume` is baked in, so re-running sends only to new sign-ups. A dry run starts no tracker. |
-| `just round-reset SAMPLE` | Clears the `data` and `tracking` tabs, `--snapshot` keeping template copies. Dry run unless `--yes`. Never deletes a header row — `publish_gsheets` reads row 1 to map columns. |
-| `just launch` | Sends a flow execution to every number in a sample file. Credentials come from `.env` — never pass them on the command line, where they leak into shell history and the process table. |
-| `just fetch` | Pulls executions from Twilio to reconcile against the published table. The warehouse is the database of record and can silently miss rows if publishing fails. |
-| `just data-check FILE` | One observation per respondent, every row joinable to the frame, outcomes recorded. Warnings only — by the time data exists there is nothing left to prevent. |
-| `just monitor --tracker FILE --hours N` | One row per number: `failed`, `sent`, `delivered`, `answered_back`. Stops once all settle — `--full-window` keeps a live view moving. `--sheet` or `--table` mirrors each poll. Reads the layer `fetch` and `data-check` cannot. |
-| `just decrypt` | Decrypts the encrypted columns of a collected dataset. |
-| `just push` | Loads a dataset into MotherDuck. Appends by default; `--mode replace` **drops** the table. |
-| `just cli ...` | Passes straight through to `rtt`, for anything without its own recipe. |
+```powershell
+just survey builder
+```
 
-## Quality
+The builder opens in your browser. Start a new survey or open one, pick the
+approved opening and closing messages, choose which sample column fills each
+`{{1}}` (usually the person's name), write your questions, and save the file as
+`my_survey.json`. If you prefer Excel, run `just survey new --output
+my_survey.xlsx`, fill it in, and convert it with `just survey json
+my_survey.xlsx`.
 
-| Recipe | What it does |
-|---|---|
-| `just test` | Runs the test suite. |
-| `just test-cov` | Runs it with a coverage report. |
-| `just lint-py` | `ruff check`. |
-| `just fmt-python` / `just fmt-py FILE` | `ruff format`, everything or one file. |
-| `just fmt-markdown` / `just fmt-md FILE` | markdownlint with `--fix`. |
-| `just fmt-check-markdown` | markdownlint without fixing — what CI runs. |
-| `just fmt-all` | `lint-py`, then `fmt-python`, then `fmt-markdown`. |
-| `just pre-commit-run` | Runs the pre-commit hooks. |
-| `just scan-secrets` | Scans tracked files for private keys only. Full gitleaks runs in CI — Application Control blocks the binary on IPA Windows. |
+Then check it:
+
+```powershell
+just survey check my_survey.json      # fix anything it reports
+```
+
+### 4. Build the flow
+
+```powershell
+just survey content my_survey.json                     # creates the buttons and lists
+just survey build my_survey.json --lang en             # writes flows/<name>.json
+```
+
+To save the answers in MotherDuck rather than a Google Sheet, add
+`--publish-target motherduck` to the build.
+
+### 5. Get the place the answers go ready
+
+```powershell
+just flow table flows/my_survey.json      # MotherDuck: creates the table
+just flow header flows/my_survey.json     # Google Sheet: paste this into row 1
+```
+
+### 6. Put the flow on Twilio
+
+```powershell
+just flow deploy flows/my_survey.json --publish
+```
+
+Then, in the Twilio console, set your sender's incoming-message webhook to the
+flow, so that replies reach it. The flow's address ends in its ID, which starts
+with `FW`. Do this a few minutes before you send: for a short while after the
+change, some replies can still go to the flow the sender used before.
+
+### 7. Send the survey
+
+```powershell
+just round intake scripts/build_my_sample.py            # turns your list into a sample
+just round send my_sample caseid,name --dry-run         # runs every check, sends nothing
+just round send my_sample caseid,name                   # sends, then watches for an hour
+```
+
+Send it to yourself first, with a one-row sample holding your own number.
+
+### 8. Get the answers back
+
+```powershell
+just data decrypt responses.csv
+just data check responses_decrypted.csv
+```
+
+If someone's answers seem to be missing, `just data fetch --since 2026-08-01`
+shows what Twilio recorded.
+
+### After a rehearsal
+
+Before the real round, clear the rehearsal's files with `just round reset
+my_sample.xlsx --round --yes`. Otherwise the test numbers and rows carry over.

@@ -41,7 +41,7 @@ undeliverable — all of them route through the encrypt-then-publish pair, so a 
 exists whatever happened. A path that skips it produces no row at all, and a
 respondent who broke off becomes indistinguishable from one who was never
 contacted. That is the difference between measured attrition and missing data,
-and `just flow-check` reports any path that misses it.
+and `just flow check` reports any path that misses it.
 
 **The trigger routes two events, not one.** `rtt launch` creates executions over
 the REST API, which fires `incomingRequest`. A flow wired only for
@@ -131,7 +131,7 @@ are not checked. STOP is understood in every language and in any capitals.
 
 The demo flow puts a split ahead of every store widget, in both arms, routing to
 `mark_optout` → `finish`, so a row still exists with `outcome=optout` and the
-answers already given are kept. `flow-check` warns (`no-optout-path`) if a flow
+answers already given are kept. `just flow check` warns (`no-optout-path`) if a flow
 never looks for a stop word — in any wording, since your list is your business.
 
 **Retry limits are ethical, not just technical.** Re-asking someone who cannot
@@ -140,7 +140,7 @@ answer is badgering a volunteer. Two nudges, then move on.
 ## Timeouts and delivery failures
 
 Every `send-and-wait-for-reply` needs both a `timeout` and a `deliveryFailure`
-transition. `flow-check` errors without them.
+transition. `just flow check` errors without them.
 
 They mean different things and deserve different outcomes:
 
@@ -172,13 +172,13 @@ anything.
 ## Before you deploy
 
 ```powershell
-just flow-check flows/my_flow.json
-just flow-schema flows/my_flow.json --table my_db.main.my_round
-just flow-deploy flows/my_flow.json --publish
+just flow check flows/my_flow.json
+uv run rtt flow schema flows/my_flow.json --table my_db.main.my_round
+just flow deploy flows/my_flow.json --publish
 ```
 
 And then test it against a real number. Nine defects once survived a full test
-suite, a passing `flow-check` and a clean dry run — every one of them found by
+suite, a passing `just flow check` and a clean dry run — every one of them found by
 live traffic. Offline confidence is not evidence.
 
 ---

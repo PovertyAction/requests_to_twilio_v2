@@ -15,9 +15,9 @@ widgets in a finished flow.
 Pull any flow to read its real shape:
 
 ```bash
-just flow-list
-just flow-pull <name>          # writes flows/<name>.json, gitignored
-just flow-check <name>         # what it gets wrong
+just flow list
+just flow pull <name>          # writes flows/<name>.json, gitignored
+just flow check <name>         # what it gets wrong
 ```
 
 ## One question, nine widgets

@@ -1,6 +1,6 @@
 ---
 name: studio-flow
-description: Use when designing, reviewing, auditing or modifying a Twilio Studio flow for an IPA survey - adding questions, wiring error and timeout handling, deciding what to encrypt, publishing to Google Sheets or MotherDuck, or checking an existing flow before a round. Applies IPA's survey-research conventions (consent, paradata, error aggregation, PII encryption) rather than generic Twilio chatbot practice. Uses the twilio-docs and twilio MCP servers and this repo's `just flow-*` recipes.
+description: Use when designing, reviewing, auditing or modifying a Twilio Studio flow for an IPA survey - adding questions, wiring error and timeout handling, deciding what to encrypt, publishing to Google Sheets or MotherDuck, or checking an existing flow before a round. Applies IPA's survey-research conventions (consent, paradata, error aggregation, PII encryption) rather than generic Twilio chatbot practice. Uses the twilio-docs and twilio MCP servers and this repo's `just survey` and `just flow` recipes.
 ---
 
 # Studio flows for IPA surveys
@@ -29,18 +29,18 @@ The instrument is described as rows; the eight-widget per-question subgraph, the
 consent gate, the publish convergence and the closings are meant to be generated
 from them, so they cannot be got subtly wrong one question at a time.
 
-`just survey-build` compiles a checked spec into a flow (`compile.py`), and
-`just flow-deploy` puts it on the account as a draft. Run `just survey-content`
+`just survey build` compiles a checked spec into a flow (`compile.py`), and
+`just flow deploy` puts it on the account as a draft. Run `just survey content`
 first: it creates the buttons and lists the survey sends (its Twilio content,
 which Meta never reviews; only the opener and the never-replied closing are
 approved messages).
 
 ```bash
-just survey-builder                            # visual editor: cards, map, preview
-just survey-template --output my_survey.xlsx   # or a documented starter workbook
-just survey-json my_survey.xlsx                # -> my_survey.json, the tracked copy
-just survey-check my_survey.json               # runs every generated condition
-just survey-rows my_survey.json                # read the whole instrument at once
+just survey builder                            # visual editor: cards, map, preview
+just survey new --output my_survey.xlsx   # or a documented starter workbook
+just survey json my_survey.xlsx                # -> my_survey.json, the tracked copy
+just survey check my_survey.json               # runs every generated condition
+just survey rows my_survey.json                # read the whole instrument at once
 ```
 
 `sample_template.xlsx` at the repo root is a committed, filled-in example. A test
@@ -118,7 +118,7 @@ verifying that it *is* pointed where you think, every time, because nothing
 downstream will tell you otherwise.
 
 ```bash
-just launch "sample.xlsx --columns caseid,name --dry-run"
+just round launch "sample.xlsx --columns caseid,name --dry-run"
 #   inbound routing OK: replies to this number reach this flow
 ```
 
@@ -230,7 +230,7 @@ the survey runs to completion, and the damage is only visible in the output
 after the round. So the launcher cross-checks before sending:
 
 ```bash
-just launch "sample_input.xlsx --columns caseid,name,treatment --dry-run"
+just round launch "sample_input.xlsx --columns caseid,name,treatment --dry-run"
 ```
 
 It fetches the flow, extracts every `flow.data.*` reference, compares against
@@ -593,7 +593,7 @@ approval to be used as a reply*:
 So only the **opening message** ever goes to Meta. Everything after the
 respondent's first reply - consent, every question, every nudge - can be a
 button or a list created this afternoon and used immediately. Create the
-template with `just template-create` and simply never submit it.
+template with `just approved create` and simply never submit it.
 
 Two consequences worth internalising:
 
@@ -924,7 +924,7 @@ Two records together account for everyone:
 
 A respondent in the tracker with no row in the sheet is the case to hunt: either
 a break-off path that misses the publish widget, or a Sheets write that failed
-after its retries. `just fetch --against` distinguishes them.
+after its retries. `just data fetch --against` distinguishes them.
 
 **Refusal and break-off are findings, not gaps.** A survey that only records
 completions cannot report its own response rate, and cannot tell a reviewer
@@ -947,7 +947,7 @@ Publishing from a Function widget at the end of the flow is a retrofit. Twilio
 Event Streams can emit each execution step as a webhook, which would give
 genuinely per-answer streaming, survive a flow that never reaches its end, and
 remove the single point of failure that a Sheets API error currently represents.
-Worth doing; not done here. Until then, reconcile with `just fetch --against`.
+Worth doing; not done here. Until then, reconcile with `just data fetch --against`.
 
 ### The payload
 
@@ -970,13 +970,13 @@ Publishing can fail. `publish_gsheets.js` retries once, then drops the row
 silently. Reconcile after each round:
 
 ```bash
-just fetch "--against responses.csv --output missing.csv"
+just data fetch "--against responses.csv --output missing.csv"
 ```
 
 Then load the analysis copy:
 
 ```bash
-just decrypt "responses.csv --to-motherduck survey_round_1"
+just data decrypt "responses.csv --to-motherduck survey_round_1"
 ```
 
 ## Stage 6 - finalize
@@ -1015,18 +1015,18 @@ Nothing in this repo depends on the MCP - `rtt` talks to the API directly.
 
 ## Checking a flow - the HFC equivalent
 
-`just flow-check` is to a Studio flow what
+`just flow check` is to a Studio flow what
 [high-frequency checks](https://github.com/PovertyAction/high-frequency-checks)
 are to a SurveyCTO round. It does not look at collected data; it verifies the
 **instrument was coded correctly**, so that the data it produces will be
 analysable. Run it before a round starts and after any edit.
 
 ```bash
-just flow-check                       # every flow on the account
-just flow-check "my_endline"          # one flow
-just flow-check "--errors-only"       # suppress warnings
-just flow-list                        # what exists, status, revision
-just flow-pull <name>                 # into flows/ (gitignored) for review
+just flow check                       # every flow on the account
+just flow check "my_endline"          # one flow
+just flow check "--errors-only"       # suppress warnings
+just flow list                        # what exists, status, revision
+just flow pull <name>                 # into flows/ (gitignored) for review
 ```
 
 It exits non-zero on any error, so it can gate a deployment.

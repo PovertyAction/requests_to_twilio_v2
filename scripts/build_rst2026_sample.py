@@ -41,7 +41,7 @@ pasted into a chat window.
 
 Run with:
 
-    just intake scripts/build_rst2026_sample.py
+    just round intake scripts/build_rst2026_sample.py
     uv run python scripts/build_rst2026_sample.py
     uv run python scripts/build_rst2026_sample.py signups.xlsx --prefix RST2026-TEST
 """
@@ -774,7 +774,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"Not found: {args.signups}\n\n"
             f"Put the sign-up export there, or name one:\n"
-            f'  just intake {Path(__file__).as_posix()} "path/to/export.xlsx"',
+            f'  just round intake {Path(__file__).as_posix()} "path/to/export.xlsx"',
             file=sys.stderr,
         )
         return 1
@@ -834,8 +834,8 @@ def main(argv: list[str] | None = None) -> int:
     stem = args.out.stem
     print(
         "\nNext:\n"
-        f'  just send {stem} caseid,name,arm "--dry-run"   # checks, sends nothing\n'
-        f"  just send {stem} caseid,name,arm   # sends to whoever is left"
+        f"  just round send {stem} caseid,name,arm --dry-run   # checks, sends nothing\n"
+        f"  just round send {stem} caseid,name,arm   # sends to whoever is left"
     )
     return 0
 

@@ -7,7 +7,7 @@ publishing it is that the next round should not be rebuilt from scratch.
 ## Getting set up
 
 ```powershell
-just get-started    # uv sync, pre-commit hooks, toolchain
+just setup install    # uv sync, pre-commit hooks, toolchain
 cp .env.example .env
 ```
 
@@ -17,13 +17,13 @@ Twilio account to a launched round.
 ## Before you open a PR
 
 ```powershell
-just test        # the suite must be green
-just fmt-all     # ruff + markdownlint
-just flow-check  # if you touched a flow or the builder
+just dev test        # the suite must be green
+just dev fmt     # ruff + markdownlint
+just flow check  # if you touched a flow or the builder
 ```
 
 CI runs the test suite on Ubuntu and Windows, the lint hooks on Ubuntu, and a
-gitleaks scan. `just flow-check` is not in CI and cannot be — checking a flow on
+gitleaks scan. `just flow check` is not in CI and cannot be — checking a flow on
 the account needs live Twilio credentials — so run it yourself, or point it at a
 local definition file, which needs neither credentials nor network.
 
@@ -49,7 +49,7 @@ is "an error", the check is probably not the one worth writing.
 Two corollaries, both learned the hard way:
 
 - **Offline confidence is not evidence.** Nine defects once survived a full test
-  suite, a passing `flow-check` and a clean dry run. If a change touches the
+  suite, a passing `just flow check` and a clean dry run. If a change touches the
   live path, test it against a real Twilio account before believing it.
 - **A check that answers the wrong question is worse than no check**, because it
   is trusted. Two of ours reported green on a genuinely broken round. When you

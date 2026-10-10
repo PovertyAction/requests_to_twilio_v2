@@ -988,7 +988,7 @@ def _check_settings(spec: Spec) -> list[str]:
         problems.append(
             f"settings: functions_service is {settings.functions_service!r}. Every "
             f"survey runs on the {FUNCTIONS_SERVICE!r} service that `just "
-            "deploy-functions` creates; remove the setting"
+            "setup functions` creates; remove the setting"
         )
     return problems
 

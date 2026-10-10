@@ -18,7 +18,7 @@
  * Environment Variables):
  *
  *   ENCRYPTION_PUBLIC_KEY   The urlsafe-base64 X25519 *public* key printed by
- *                           `just keygen`.
+ *                           `just setup key`.
  *
  * This is a public key: it can only encrypt. Leaking it exposes nothing, and
  * nobody with Twilio Console access can read the responses this function
@@ -63,7 +63,7 @@ function loadPublicKey(context) {
   if (!encoded) {
     throw new Error(
       "ENCRYPTION_PUBLIC_KEY is not set. Add it to the Function Service's " +
-        "environment variables. Use the PUBLIC key from `just keygen` - " +
+        "environment variables. Use the PUBLIC key from `just setup key` - " +
         "never put the private key here.",
     );
   }
@@ -72,7 +72,7 @@ function loadPublicKey(context) {
   if (raw.length !== PUBLIC_KEY_SIZE) {
     throw new Error(
       `ENCRYPTION_PUBLIC_KEY must decode to ${PUBLIC_KEY_SIZE} bytes, got ${raw.length}. ` +
-        "Generate a keypair with `just keygen`; passphrases are not accepted.",
+        "Generate a keypair with `just setup key`; passphrases are not accepted.",
     );
   }
 

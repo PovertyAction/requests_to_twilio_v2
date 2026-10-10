@@ -32,12 +32,12 @@ an unknown `{{flow.data.x}}` to an empty string rather than erroring.
 You reworded a question, rebuilt, redeployed, and the old text still goes out.
 
 Twilio has **no update operation for content**. `rtt template create` refuses to
-overwrite a template that already exists, and `just demo-templates-create` passes
+overwrite a template that already exists, and `just demo content` passes
 `--skip-existing`, so a rebuild regenerates the definition file on disk and
 leaves the template on the account exactly as it was.
 
 Nothing downstream can see it. The flow references the template **by SID**, and
-the SID is still valid — so the flow JSON is correct, `just flow-check` passes,
+the SID is still valid — so the flow JSON is correct, `just flow check` passes,
 the linter is clean and the tests are green, while the respondent reads the
 previous wording.
 
@@ -46,12 +46,12 @@ body to "of 6". Four templates already existed and kept saying "of 5". A live
 respondent was asked six questions numbered out of five, and the only thing that
 caught it was reading her transcript afterwards.
 
-`just build-demo-flow` now **blocks** on this: it compares each stored template
+`just demo build` now **blocks** on this: it compares each stored template
 against the definition it just wrote and refuses to build, naming what drifted.
 To fix:
 
 ```powershell
-just demo-templates-sync
+just demo content-sync
 ```
 
 That deletes and recreates only what actually differs. It **refuses on anything
@@ -62,26 +62,26 @@ name, and pointing the flow at that.
 
 ### The survey completed but there is no row
 
-Two causes, both now caught by `just flow-check`:
+Two causes, both now caught by `just flow check`:
 
 - The publish widget's `fail` transition led to the closing message, so the
   respondent was thanked and the row never existed.
 - The Functions were deployed **`private`**. A private Function is not callable
   over HTTP at all — only from another Function in the same service — so Studio
   gets `403 Unauthorized`, which reads like a credentials problem and is not.
-  `protected` is what Studio needs. `just deploy-functions` sets it.
+  `protected` is what Studio needs. `just setup functions` sets it.
 
 ### A question is missing from the warehouse
 
 The publish Function inserts only into columns that already exist and returns
-**HTTP 200** either way. Re-run `just flow-schema` after any instrument change
+**HTTP 200** either way. Re-run `uv run rtt flow schema` after any instrument change
 and apply the difference.
 
 ### Every tap fell through to the retry nudge
 
 A tapped **list row returns its `id`**, not its label. A tapped **quick-reply
 button returns its title**. The two interactive types disagree and the docs do
-not say so. `just flow-check` evaluates every option against the split and
+not say so. `just flow check` evaluates every option against the split and
 reports any that can never match.
 
 ### A number typed on a numeric scale coded as the wrong option
@@ -102,7 +102,7 @@ as a suspiciously balanced result.
 
 Politeness restarts flows: an inbound message from someone who just finished
 creates a fresh execution. The demo flow answers cold inbound once and ends.
-`flow-check`'s `respondent-initiated-start` reports flows that do not.
+`just flow check`'s `respondent-initiated-start` reports flows that do not.
 
 ### One reply went to the wrong survey, just after a launch
 
@@ -127,11 +127,11 @@ recent it was.
 
 ## Setup problems
 
-### `just mcp-list` says the Twilio server is not ready
+### `just setup mcp-check` says the Twilio server is not ready
 
 It needs a **Standard API key**, which is a different credential from the auth
 token `rtt` uses. Console → Account → API keys & tokens → Create API key. The
-secret is shown once. Put it in `.env`, run `just mcp-setup`, then **restart
+secret is shown once. Put it in `.env`, run `just setup mcp`, then **restart
 Claude Code**.
 
 ### `.env` looks right but the wrong credentials are used
@@ -144,14 +144,14 @@ A *blank* exported variable used to win too, which meant a stray empty
 `TWILIO_ACCOUNT_SID` made every credential read as unset while `.env` was
 perfectly fine. That one is fixed: an empty value is treated as absent.
 
-### `just build-demo-flow` says the templates do not exist
+### `just demo build` says the templates do not exist
 
 It resolves content templates by name on your account. Run
-`just demo-templates-create` first. It will name what is missing.
+`just demo content` first. It will name what is missing.
 
-### `just build-demo-flow` says there is no `rtt-survey` service
+### `just demo build` says there is no `rtt-survey` service
 
-Run `just deploy-functions`. The builder looks the Functions service up by name
+Run `just setup functions`. The builder looks the Functions service up by name
 rather than using pasted SIDs, which is what lets the same repository build a
 working flow on any account.
 
@@ -167,7 +167,7 @@ invocation, set `PYTHONUTF8=1`.
 
 ## When a check disagrees with you
 
-`flow-check` errors block a deploy; `data-check` findings are warnings. If a
+`just flow check` errors block a deploy; `just data check` findings are warnings. If a
 finding is wrong, that is worth reporting rather than working around: two of
 these checks were wrong on their first attempt and reported green on a genuinely
 broken round. A check that answers the wrong question is worse than no check,

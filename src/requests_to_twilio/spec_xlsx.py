@@ -902,7 +902,7 @@ def _read_settings(frame: pd.DataFrame | None) -> Settings:
         settings.languages[0] if settings.languages else "en"
     )
     # Not written any more: every survey runs on the one service `just
-    # deploy-functions` creates. A workbook from before still names it, and the
+    # setup functions` creates. A workbook from before still names it, and the
     # check refuses any other name.
     settings.functions_service = (
         values.get("functions_service", "") or FUNCTIONS_SERVICE

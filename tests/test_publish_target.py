@@ -188,7 +188,7 @@ class TestThePublishTargetPicksTheRightFunction:
 
     def test_a_missing_publish_function_names_the_target_that_needed_it(self, demo):
         # The realistic failure: a service deployed before this repo grew a
-        # second destination. "Re-run deploy-functions" alone would not say why.
+        # second destination. "Re-run just setup functions" alone would not say why.
         client = _FakeTwilioClient(functions=["encrypt_fields", "publish_motherduck"])
         with pytest.raises(demo.BuildError, match="publish_gsheets.*'gsheets'"):
             demo.resolve_functions(client, "gsheets")

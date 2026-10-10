@@ -42,7 +42,7 @@ Old data still decrypts. It carries no `v2:` marker, so name the columns and
 supply the old secret:
 
 ```powershell
-just decrypt "old_responses.csv --columns name,phone --legacy-secret your_old_key"
+just data decrypt "old_responses.csv --columns name,phone --legacy-secret your_old_key"
 ```
 
 Treat anything encrypted by 1.x as weakly protected, and prefer to re-store the
@@ -53,8 +53,8 @@ though it were protection.
 
 Existing flows keep working until you redeploy the Function. When you do:
 
-1. `just keygen` — generate a keypair
-2. `just deploy-functions` — deploys the new Function and sets
+1. `just setup key` — generate a keypair
+2. `just setup functions` — deploys the new Function and sets
    `ENCRYPTION_PUBLIC_KEY` from your private key
 3. Responses collected after that point are v2; earlier ones stay v1
 

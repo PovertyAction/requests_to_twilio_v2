@@ -1,10 +1,10 @@
 # Running a round
 
 Every command, and what each one refuses to do. `just <recipe>` wraps `rtt`;
-`just --list` is the index, and `just cli` shows the CLI's own help.
+`just --list` is the index, and `uv run rtt` shows the CLI's own help.
 
 Arguments pass through `just` unchanged, quoted or not. Quoting the whole
-argument string — `just launch "sample.xlsx --dry-run"` — is a habit worth
+argument string — `just round launch "sample.xlsx --dry-run"` — is a habit worth
 keeping anyway, because it makes clear which flags belong to `rtt` rather than to
 `just`, and `--dry-run` and `--verbose` exist on both.
 
@@ -13,13 +13,13 @@ keeping anyway, because it makes clear which flags belong to `rtt` rather than t
 ### `rtt keygen` — the encryption keypair
 
 ```powershell
-just keygen
-just keygen --out /secure/rtt_key.txt
-just keygen --force        # overwrite an existing key file
+just setup key
+just setup key --out /secure/rtt_key.txt
+just setup key --force        # overwrite an existing key file
 ```
 
 Writes an X25519 private key and prints the matching public key. The public key
-goes to Twilio (`just deploy-functions` handles it); the private key is the only
+goes to Twilio (`just setup functions` handles it); the private key is the only
 thing that can read collected identifiers back, and there is no reset.
 
 `--force` exists because overwriting a key file silently would destroy access to
@@ -30,10 +30,10 @@ every round it had ever encrypted, so the default is to refuse.
 ### `rtt flow check` — high-frequency checks for the instrument
 
 ```powershell
-just flow-check                                   # every flow on the account
-just flow-check data_use_demo_en                  # one, by name or SID
-just flow-check flows/data_use_demo_en.json       # or a local definition
-just flow-check --errors-only
+just flow check                                   # every flow on the account
+just flow check data_use_demo_en                  # one, by name or SID
+just flow check flows/data_use_demo_en.json       # or a local definition
+just flow check --errors-only
 ```
 
 Exits non-zero on an error, so it works in CI. What it looks for, and why each
@@ -63,16 +63,16 @@ one is there:
 
 **† needs the account.** Four checks read each template's *content type*, which
 only Twilio can answer, so they are **silently skipped when the target is a local
-file**. `just flow-check flows/my_round.json` reporting "all checks passed" means
+file**. `just flow check flows/my_round.json` reporting "all checks passed" means
 17 of 21 passed and four did not run; the command now says so. Run it against
-the deployed flow by name — `just flow-check my_round` — before a round, because
+the deployed flow by name — `just flow check my_round` — before a round, because
 a list-picker opener passes on disk and cannot open a conversation.
 
 ### `rtt flow schema` — the shape the destination needs
 
 ```powershell
-just flow-schema flows/data_use_demo_en.json --table my_db.main.round1  # MotherDuck
-just flow-header flows/data_use_demo_en.json                            # Google Sheets
+uv run rtt flow schema flows/data_use_demo_en.json --table my_db.main.round1  # MotherDuck
+just flow header flows/data_use_demo_en.json                            # Google Sheets
 ```
 
 Derived from the publish widget's parameters, so the destination is a function of
@@ -88,9 +88,9 @@ this happened. Nothing in the data does.
 ### `rtt flow deploy` — ship it
 
 ```powershell
-just flow-deploy flows/data_use_demo_en.json --publish
-just flow-deploy flows/data_use_demo_en.json --name my_round_v2
-just flow-deploy flows/data_use_demo_en.json --force     # ship despite findings
+just flow deploy flows/data_use_demo_en.json --publish
+just flow deploy flows/data_use_demo_en.json --name my_round_v2
+just flow deploy flows/data_use_demo_en.json --force     # ship despite findings
 ```
 
 Runs the checks first and refuses on an error. Without `--publish` the flow is
@@ -100,9 +100,9 @@ which `rtt launch` also checks.
 ### `rtt flow list` / `rtt flow pull`
 
 ```powershell
-just flow-list
-just flow-pull my_endline                      # writes flows/my_endline.json
-just flow-pull my_endline --out /tmp/snapshots --allow-secrets
+just flow list
+just flow pull my_endline                      # writes flows/my_endline.json
+just flow pull my_endline --out /tmp/snapshots --allow-secrets
 ```
 
 `pull` scans what it saves and refuses to write a definition containing
@@ -111,12 +111,12 @@ credentials unless you insist.
 ### `rtt template` — WhatsApp content templates
 
 ```powershell
-just template-list --filter rst
-just template-create templates/data_use_demo_intro_en.json
-just template-create templates/generated --skip-existing --yes
-just template-status data_use_demo_intro_en
-just template-submit data_use_demo_intro_en --category UTILITY   # IRREVERSIBLE
-just template-delete rst2026_draft --yes
+just approved list --filter rst
+just approved create templates/data_use_demo_intro_en.json
+just approved create templates/generated --skip-existing --yes
+just approved status data_use_demo_intro_en
+just approved submit data_use_demo_intro_en --category UTILITY   # IRREVERSIBLE
+just approved delete rst2026_draft --yes
 ```
 
 Only the **bookends** need Meta approval: the opener, and the closing message to
@@ -131,17 +131,17 @@ refuses anything already submitted.
 
 ## Launching
 
-### `just intake` / `just send` — one path in
+### `just round intake` / `just round send` — one path in
 
 `rtt launch` validates that `Number` and `caseid` are present, and that `caseid`
 is neither blank nor duplicated. It does **not** validate the value in `Number`.
 `intake` is where that check lives, so these two recipes are the route in:
 
 ```powershell
-just intake scripts/build_rst2026_sample.py                          # export -> sample
-just intake scripts/build_rst2026_sample.py "--prefix RST2026-TEST"  # a rehearsal, kept apart
-just send rst2026_sample caseid,name,arm "--dry-run"   # checks, sends nothing
-just send rst2026_sample caseid,name,arm               # sends, then watches for an hour
+just round intake scripts/build_rst2026_sample.py                          # export -> sample
+just round intake scripts/build_rst2026_sample.py "--prefix RST2026-TEST"  # a rehearsal, kept apart
+just round send rst2026_sample caseid,name,arm "--dry-run"   # checks, sends nothing
+just round send rst2026_sample caseid,name,arm               # sends, then watches for an hour
 ```
 
 Rows that do not resolve are written to `<out>_needs_human_review.csv` with a
@@ -150,14 +150,14 @@ already assigned. The loop is: export, intake, read the review file, fix at the
 source, intake again.
 
 BUILDER is the script that knows one source's shape — which column holds the
-number, which is the consent tick. `just send` takes the sample's name without
+number, which is the consent tick. `just round send` takes the sample's name without
 its extension; the tracker is always `<sample>_output.csv`. COLUMNS is what the
 flow receives per respondent.
 
-`just send` launches and then watches for an hour, mirroring the round every two
+`just round send` launches and then watches for an hour, mirroring the round every two
 minutes into the `tracking` tab — or into a MotherDuck table with
-`just watch=motherduck send ...`. Ctrl-C ends the watch without affecting
-anything already sent; the tracker on disk is the record, and `just send` again
+`just round send ...`. Ctrl-C --watch motherduck ends the watch without affecting
+anything already sent; the tracker on disk is the record, and `just round send` again
 picks up whoever signed up meanwhile. It polls `--every 2` minutes, and
 `--full-window` keeps the view moving after every number has settled.
 
@@ -213,7 +213,7 @@ machine.
 
 ```powershell
 # sample on disk:  Number, caseid, name, student_id, site
-just send wave3 caseid,name        # only caseid and name become flow parameters
+just round send wave3 caseid,name        # only caseid and name become flow parameters
 ```
 
 `rtt launch` reads the whole file, checks that every requested column exists, and
@@ -229,7 +229,7 @@ the flow uses:
 ```python
 from requests_to_twilio import crypto
 
-pub = crypto.load_public_key(public_key_b64)  # the key `just keygen` printed
+pub = crypto.load_public_key(public_key_b64)  # the key `just setup key` printed
 frame["guardian_name"] = [crypto.encrypt(v, pub) for v in frame["guardian_name"]]
 ```
 
@@ -254,9 +254,9 @@ encrypted name cannot greet somebody and an encrypted `arm` cannot branch.
 ### `rtt launch` — the general case
 
 ```powershell
-just launch "sample.xlsx --columns caseid,name,arm --dry-run"
-just launch "sample.xlsx --columns caseid,name,arm --batch-size 50 --sleep 5"
-just launch "sample.xlsx --columns caseid,name,arm --resume"
+just round launch "sample.xlsx --columns caseid,name,arm --dry-run"
+just round launch "sample.xlsx --columns caseid,name,arm --batch-size 50 --sleep 5"
+just round launch "sample.xlsx --columns caseid,name,arm --resume"
 ```
 
 | Flag | |
@@ -312,10 +312,10 @@ Only `rtt monitor` can tell you which.
 ### `rtt monitor` — did the round actually land?
 
 ```powershell
-just monitor "--tracker sample_output.csv --sample sample.xlsx"
-just monitor "--tracker sample_output.csv --sample sample.xlsx --hours 4"
-just monitor "--tracker sample_output.csv --sample sample.xlsx --sheet --every 1"
-just monitor "--tracker sample_output.csv --sample sample.xlsx --table tracking"
+just round watch "--tracker sample_output.csv --sample sample.xlsx"
+just round watch "--tracker sample_output.csv --sample sample.xlsx --hours 4"
+just round watch "--tracker sample_output.csv --sample sample.xlsx --sheet --every 1"
+just round watch "--tracker sample_output.csv --sample sample.xlsx --table tracking"
 ```
 
 One row per **respondent**, not per message. Each holds one state:
@@ -338,7 +338,7 @@ For where a respondent is mid-survey, use `rtt fetch`.
 
 | Flag | |
 | --- | --- |
-| `--full-window` | keeps polling for the whole `--hours` window after every number has settled — what a tab somebody is watching needs. `just send` passes it |
+| `--full-window` | keeps polling for the whole `--hours` window after every number has settled — what a tab somebody is watching needs. `just round send` passes it |
 | `--tracker` | scopes the poll to one round using the launcher's `sent_at`, and is the only place a send that never left is recorded. Those are reported first. Prefer it to `--since`, which is day-resolution |
 | `--sample` | the master list, and the only file this command reads a number from. The mapping to `caseid` is built in memory and nothing written carries a number. Without it every respondent is filed under `unknown-<digest>` |
 | `--sheet` / `--table` | mirrors each poll into a spreadsheet tab or a MotherDuck table. `--sheet-tab` defaults to `tracking` and must already exist; `--table` creates or replaces |
@@ -353,11 +353,11 @@ A rate limit is reported as a rate limit, never as an empty round.
 ### `rtt data-check` — high-frequency checks for the data
 
 ```powershell
-just data-check "responses.csv"
-just data-check "responses.csv --key caseid"
+just data check "responses.csv"
+just data check "responses.csv --key caseid"
 ```
 
-The data-side twin of `flow-check`. Findings are **warnings, not errors** — by
+The data-side twin of `just flow check`. Findings are **warnings, not errors** — by
 the time data exists there is nothing left to prevent, and this is meant to run
 on a loop during collection.
 
@@ -411,9 +411,9 @@ state a column cannot express. `rtt monitor --tracker` is what surfaces them.
 ### `rtt fetch` — what does Twilio think happened?
 
 ```powershell
-just fetch "--since 2026-08-01"
-just fetch "--against responses.csv --output missing.csv"
-just fetch "--no-answers"
+just data fetch "--since 2026-08-01"
+just data fetch "--against responses.csv --output missing.csv"
+just data fetch "--no-answers"
 ```
 
 Pulls executions from the Studio API and, with `--against`, reports the ones with
@@ -434,10 +434,10 @@ rather than reporting a short file as finished.
 ### `rtt decrypt`
 
 ```powershell
-just decrypt "responses.csv"
-just decrypt "responses.csv --output clean.csv"
-just decrypt "old.csv --columns name,phone --legacy-secret KEY"
-just decrypt "responses.csv --to-motherduck round1_clean --warehouse-columns caseid,answer"
+just data decrypt "responses.csv"
+just data decrypt "responses.csv --output clean.csv"
+just data decrypt "old.csv --columns name,phone --legacy-secret KEY"
+just data decrypt "responses.csv --to-motherduck round1_clean --warehouse-columns caseid,answer"
 ```
 
 Encrypted columns are detected by their `v2:` marker, so there is no list of
@@ -447,13 +447,13 @@ partially-encrypted column is passed through untouched, not overwritten.
 
 Writing over the input is refused: the ciphertext is the only copy.
 
-### `just round-reset` — clearing a round, keeping a template
+### `just round reset` — clearing a round, keeping a template
 
 ```powershell
-just round-reset rst2026_sample.xlsx                             # report only, changes nothing
-just round-reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run of the real thing
-just round-reset rst2026_sample.xlsx "--snapshot --truncate --yes"
-just round-reset rst2026_sample.xlsx "--local old_output.csv --yes"  # named leftovers
+just round reset rst2026_sample.xlsx                             # report only, changes nothing
+just round reset rst2026_sample.xlsx "--snapshot --truncate"     # dry run of the real thing
+just round reset rst2026_sample.xlsx "--snapshot --truncate --yes"
+just round reset rst2026_sample.xlsx "--local old_output.csv --yes"  # named leftovers
 ```
 
 The sample is required rather than defaulted, and `--round` derives the other
@@ -496,9 +496,9 @@ in the same workbook cannot be caught by this.
 ### `rtt push`
 
 ```powershell
-just push "clean.csv --table round1"
-just push "clean.csv --table round1 --columns caseid,city,answer"
-just push "clean.csv --table round1 --mode replace"
+just data push "clean.csv --table round1"
+just data push "clean.csv --table round1 --columns caseid,city,answer"
+just data push "clean.csv --table round1 --mode replace"
 ```
 
 Appends by default. **`--mode replace` issues `CREATE OR REPLACE TABLE`** and
@@ -508,11 +508,11 @@ direct identifiers out of a shared warehouse.
 ## Housekeeping
 
 ```powershell
-just test              # the full suite, incl. the Node-to-Python interop check
-just test-cov
-just fmt-all           # ruff + markdownlint
-just scan-secrets      # private keys; gitleaks runs in CI
-just mcp-list          # are the Twilio MCP servers configured?
-just build-demo-flow   # regenerate the worked example
-just deploy-functions  # deploy the two Twilio Functions
+just dev test              # the full suite, incl. the Node-to-Python interop check
+just dev cov
+just dev fmt           # ruff + markdownlint
+just dev secrets      # private keys; gitleaks runs in CI
+just setup mcp-check          # are the Twilio MCP servers configured?
+just demo build   # regenerate the worked example
+just setup functions  # deploy the two Twilio Functions
 ```

@@ -1,6 +1,6 @@
 ---
 name: whatsapp-template
-description: Use when writing, reviewing, or submitting a WhatsApp message template for an IPA Twilio Studio survey - anything that has to reach a respondent before they have replied, or after the 24-hour window has closed. Runs a design discussion (purpose, category, language, content type, variables, research-ethics framing) before drafting, because a submitted template can never be edited. Knows this repo's `just template-*` recipes and src/requests_to_twilio/templates.py.
+description: Use when writing, reviewing, or submitting a WhatsApp message template for an IPA Twilio Studio survey - anything that has to reach a respondent before they have replied, or after the 24-hour window has closed. Runs a design discussion (purpose, category, language, content type, variables, research-ethics framing) before drafting, because a submitted template can never be edited. Knows this repo's `just approved` recipes and src/requests_to_twilio/templates.py.
 ---
 
 # WhatsApp templates for IPA surveys
@@ -71,8 +71,8 @@ than theoretical.
 Pull the live set any time:
 
 ```bash
-just template-list --filter intro
-just template-list --filter end
+just approved list --filter intro
+just approved list --filter end
 ```
 
 ## Step 1 - have the discussion
@@ -224,7 +224,7 @@ dominant tag, match it rather than starting a fifth.
 Check what already exists before creating anything:
 
 ```bash
-just template-list --filter rst
+just approved list --filter rst
 ```
 
 An approved template with year-agnostic wording can often be reused rather than
@@ -257,7 +257,7 @@ any number of unsubmitted ones behind it. In this repo:
 
 - `templates/*.json` - hand-written, reviewed word by word, submitted.
 - `templates/generated/*.json` - emitted by the flow builder, created with
-  `just template-create`, **never** submitted.
+  `just approved create`, **never** submitted.
 
 `rtt template submit` refuses a `twilio/list-picker` outright. WhatsApp does not
 reject that request - it never resolves, which is indistinguishable from a slow
@@ -424,27 +424,27 @@ Two separate steps, deliberately. `create` is reversible; `submit` is not.
 
 ```bash
 # 1. Create in Twilio only. Not yet sent to Meta - still deletable.
-just template-create templates/rst2026_wa_session_intro.json
+just approved create templates/rst2026_wa_session_intro.json
 
 # 2. Read the printed copy one more time. This is the last chance.
 
 # 3. Submit to Meta. Irreversible.
-just template-submit rst2026_wa_session_intro --category UTILITY
+just approved submit rst2026_wa_session_intro --category UTILITY
 
 # 4. Approval usually lands within minutes.
-just template-status rst2026_wa_session_intro
+just approved status rst2026_wa_session_intro
 ```
 
 Submit the bookends together so the round is not blocked half-approved.
 
-**Never run `template-create --submit` on a first draft.** The combined flag is
+**Never run `just approved create --submit` on a first draft.** The combined flag is
 for wording that has already been reviewed.
 
 **Never submit on the user's behalf without explicit confirmation in that
 turn.** Both commands prompt, but do not answer the prompt for them - the
 decision is theirs and it is permanent.
 
-If rejected, `just template-status` shows Meta's reason. The template cannot be
+If rejected, `just approved status` shows Meta's reason. The template cannot be
 fixed; write a new definition under a new name, and record what was rejected in
 the `_comment` of the replacement so the mistake is not repeated.
 
@@ -462,7 +462,7 @@ Once approved, the template is used by its `HX` SID:
 Then re-pull the flow so the repo reflects what is deployed:
 
 ```bash
-just flow-pull <flow-name>
+just flow pull <flow-name>
 ```
 
 ## The Python underneath
