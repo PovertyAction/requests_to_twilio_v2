@@ -25,12 +25,17 @@ encrypted, the publish payload shape.
 ## Do not hand-build a survey flow - write a spec
 
 **If the task is "build a survey", the answer is `rtt survey`, not Studio JSON.**
-The instrument is described as spreadsheet rows and compiled; the eight-widget
-per-question subgraph, the consent gate, the publish convergence and the closings
-are all generated, so they cannot be got subtly wrong one question at a time.
+The instrument is described as rows; the eight-widget per-question subgraph, the
+consent gate, the publish convergence and the closings are meant to be generated
+from them, so they cannot be got subtly wrong one question at a time.
+
+`just survey-build` compiles a checked spec into a flow (`compile.py`), and
+`just flow-deploy` puts it on the account as a draft. Run `just survey-templates`
+first: it creates the buttons and lists the survey sends.
 
 ```bash
-just survey-template --output my_survey.xlsx   # documented starter workbook
+just survey-builder                            # visual editor: cards, map, preview
+just survey-template --output my_survey.xlsx   # or a documented starter workbook
 just survey-json my_survey.xlsx                # -> my_survey.json, the tracked copy
 just survey-check my_survey.json               # runs every generated condition
 just survey-rows my_survey.json                # read the whole instrument at once
@@ -42,9 +47,11 @@ because a stale reference teaches the format it was generated from rather than t
 one the code reads. This document made exactly that mistake once: see the tap
 table under Stage 2.
 
-One row is one question **and** its whole subgraph - eight widgets for a closed
-question with retries, three for open text, and `rtt survey check` prints the
-count per row.
+One row is one question **and** its whole subgraph - seven widgets for a closed
+question with retries, two for open text, three more for the no-reply reminder
+(sent at 23h30, inside WhatsApp's 24-hour window), and `rtt survey check` prints
+the count per row. Stop words are listened for in the opening and in reply to a
+reminder, set by the spec's `stop_words` setting, not on every question.
 
 **The spec is for SURVEYS, and only surveys.** It assumes consent is asked before
 any question, that every terminal path publishes exactly one row per respondent,

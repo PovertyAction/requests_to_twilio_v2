@@ -257,7 +257,18 @@ refusing to deploy costs you a fix, whereas a defective flow costs you a round.
 ### Writing your own survey, rather than the demo
 
 The demo is a specimen. For your own instrument you do not edit Studio and you do
-not copy someone else's flow — you describe the survey as spreadsheet rows:
+not copy someone else's flow — you describe the survey as rows, either in the
+visual builder or in Excel:
+
+```powershell
+just survey-builder                            # cards, a flow map, a phone preview
+just survey-check my_survey.json               # must pass before you build
+just survey-templates my_survey.json           # its buttons and lists, on Twilio
+just survey-build my_survey.json               # -> flows/<flow_name>.json, checked
+just flow-deploy flows/my_survey.json          # a draft on your account
+```
+
+or
 
 ```powershell
 just survey-template --output my_survey.xlsx   # a documented starter workbook
@@ -266,8 +277,9 @@ just survey-json my_survey.xlsx                # → my_survey.json, the tracked
 just survey-check my_survey.json               # must pass before you build
 ```
 
-One row is one question *and* the whole subgraph it becomes — eight Studio widgets
-for a closed question with retries, three for open text. `sample_template.xlsx` in
+One row is one question *and* the whole subgraph it becomes — seven Studio widgets
+for a closed question with retries, two for open text, plus three for the no-reply
+reminder. `sample_template.xlsx` in
 the repository root is a filled-in example you can open right now, and its
 `help-survey` sheet documents every column.
 

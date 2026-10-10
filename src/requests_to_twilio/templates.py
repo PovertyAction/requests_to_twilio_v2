@@ -266,10 +266,14 @@ def create(client: Client, definition: dict[str, Any]) -> Any:
         TemplateError: If Twilio rejects the request.
 
     """
-    payload = dict(definition)
-    payload["types"] = _RawTypes(definition["types"])
-
-    request = ContentList.ContentCreateRequest(payload)
+    # From twilio 9.11.2 the request parses `types` into its own nested classes
+    # as it is constructed, which fails on anything but a plain dict and would
+    # drop keys it does not model. So it is built without them, and the raw
+    # types are set afterwards, where only `to_dict()` reads them.
+    request = ContentList.ContentCreateRequest(
+        {key: value for key, value in definition.items() if key != "types"}
+    )
+    request.types = _RawTypes(definition["types"])
 
     try:
         content = client.content.v1.contents.create(content_create_request=request)

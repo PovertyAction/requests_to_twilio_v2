@@ -120,10 +120,14 @@ consent at least one re-ask, and a third value for genuinely unclear. Note the
 asymmetry that hides this: every ARM 2 question gets two retries and the single
 most consequential question had none.
 
-**Handle STOP.** Twilio's own opt-out handling covers the carrier keywords for
-SMS, but mid-survey in WhatsApp a "STOP" arrives as an ordinary reply — stored as
-the answer to whatever was asked. A respondent who types it and is then asked
-three more questions is a research-ethics problem before it is a bug.
+**Handle STOP where people say it.** Twilio's own opt-out handling covers the
+carrier keywords for SMS, but in WhatsApp a "STOP" arrives as an ordinary reply.
+A spec listens for it in two places, set by `stop_words` in its settings: the
+opening (opener, consent, and each arm's first question) and the reply to a
+no-reply reminder, the message that reaches somebody who has gone quiet and
+tells them they can reply STOP. Mid-survey a person who has had enough stops
+answering, and declining consent is the explicit way out, so mid-survey answers
+are not checked. STOP is understood in every language and in any capitals.
 
 The demo flow puts a split ahead of every store widget, in both arms, routing to
 `mark_optout` → `finish`, so a row still exists with `outcome=optout` and the

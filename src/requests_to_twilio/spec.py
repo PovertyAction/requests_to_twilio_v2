@@ -1,14 +1,14 @@
 """The survey spec: an XLSForm-shaped description of a WhatsApp instrument.
 
 A Studio flow is not reviewable. The demo instrument is 73 widgets for 8
-questions, and the per-question pattern - ask, stop-check, validate, store,
-count the retry, decide, nudge, give up - is eight widgets repeated verbatim.
+questions, and the per-question pattern - ask, validate, store, count the
+retry, decide, nudge, give up, then the no-reply reminder - repeats verbatim.
 Nobody reads that canvas, which means nobody checks the instrument.
 
 So the instrument is described here instead, as rows, in the shape every RA at
 IPA already knows from SurveyCTO. One row is one question *including* its whole
-subgraph: ``select_list p1`` with ``retries: 2`` is those eight widgets, and a
-plain ``text`` question is three.
+subgraph: ``select_list p1`` with ``retries: 2`` is ten widgets once the
+no-reply reminder is counted, and a plain ``text`` question is six.
 
 This describes a SURVEY, and only a survey
 ------------------------------------------
@@ -66,6 +66,7 @@ Studio uses, and checks where each reply lands.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -183,6 +184,69 @@ _LIMIT = {(kind, field_name): cap for kind, field_name, cap in TEXT_LIMITS}
 LIST = "twilio/list-picker"
 BUTTONS = "twilio/quick-reply"
 
+#: Where the flow listens for a stop word. Not on every question: mid-survey a
+#: person who has had enough simply stops answering, and declining consent is
+#: the explicit way out. The two places a STOP is likely, and worth honouring,
+#: are the opening (opener, consent, first question) and the reply to a
+#: no-reply reminder - the message sent to somebody who has gone quiet.
+STOP_WORD_SCOPES = ("opening_and_reminders", "opening", "never")
+
+#: Understood in every language, whatever the stop_words message lists: people
+#: type STOP regardless of what they are answering in. Matching ignores case,
+#: so stop, Stop and STOP are the same reply.
+UNIVERSAL_STOP_WORD = "stop"
+
+#: The standard text of the no-reply reminder, a key in ``messages``. A question
+#: gets a reminder when this message exists or it names its own.
+REMINDER_MESSAGE = "timeout_nudge"
+
+#: WhatsApp allows free-form messages only within 24 hours of the person's last
+#: message. The reminder has to go out before that window closes, so it is sent
+#: at 23h30 by default and :func:`check_spec` refuses 24 hours or more.
+SESSION_WINDOW_SECONDS = 24 * 3600
+DEFAULT_REMINDER_AFTER = 23 * 3600 + 30 * 60
+
+
+#: The conditions the compiler can route on: one value compared with another,
+#: as the builder writes them - ``${arm}='2'`` or ``${P1}!='1'``.
+_CONDITION = re.compile(r"^\$\{(\w+)\}\s*(!=|=)\s*'([^']*)'$")
+
+#: Widget and variable names Studio accepts.
+_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+#: Names the survey spine already uses, so a row may not take them.
+_RESERVED_NAMES = frozenset(
+    {
+        "Trigger",
+        "intro",
+        "consent",
+        "finish",
+        "function_encrypt",
+        "split_closing",
+        "end_without_message",
+        "record_publish_failure",
+        "record_consent",
+        "record_declined",
+        "unsolicited_reply",
+        "mark_complete",
+        "mark_no_reply",
+        "mark_never_started",
+        "mark_delivery_failed",
+        "mark_optout",
+        "mark_encrypt_failed",
+    }
+)
+
+
+#: Rows the spine places itself; their names are the spine's to use.
+_SPINE_ROLES = ("intro", "consent", "close", "unsolicited")
+
+
+def parse_condition(text: str) -> tuple[str, str, str] | None:
+    """Split ``${x}='v'`` into ``(x, "=", "v")``, or None if it is not that shape."""
+    match = _CONDITION.match((text or "").strip())
+    return (match.group(1), match.group(2), match.group(3)) if match else None
+
 
 class SpecError(Exception):
     """Raised when a spec cannot be read or is structurally unusable."""
@@ -216,7 +280,11 @@ class SurveyRow:
     #: reviews have different names in each language, so this cannot live in the
     #: type string.
     template: Text = field(default_factory=dict)
-    stop_check: bool = True
+    #: A key into ``messages``: this question's own no-reply reminder. Blank uses
+    #: :data:`REMINDER_MESSAGE` when the spec carries one.
+    timeout_message: str = ""
+    #: Whether this question sends the no-reply reminder at all.
+    timeout_reminder: bool = True
     publish: bool = True
     encrypt: bool = False
 
@@ -328,6 +396,11 @@ class Settings:
     functions_service: str = "rtt-survey"
     default_timeout: int = 3600
     default_retries: int = 2
+    #: Where a stop word ends the survey: one of :data:`STOP_WORD_SCOPES`.
+    stop_words: str = "opening_and_reminders"
+    #: Seconds of silence before the no-reply reminder goes out. Under 24 hours,
+    #: because after that WhatsApp allows only approved templates.
+    reminder_after: int = DEFAULT_REMINDER_AFTER
     #: Columns the sample file must supply, checked by ``rtt launch --dry-run``.
     preloads: list[str] = field(default_factory=list)
     flow_name: Text = field(default_factory=dict)
@@ -360,6 +433,13 @@ class Spec:
         """Read a comma-delimited message back as a list, e.g. the stop words."""
         raw = self.message(key, lang)
         return [part.strip() for part in raw.split(",") if part.strip()]
+
+    def stop_word_list(self, lang: str) -> list[str]:
+        """Return the stop words for a language, always including STOP."""
+        words = self.message_list("stop_words", lang)
+        if not any(w.casefold() == UNIVERSAL_STOP_WORD for w in words):
+            words.insert(0, UNIVERSAL_STOP_WORD)
+        return words
 
     def options(self, list_name: str, lang: str) -> list[tuple[str, str, str, str]]:
         """Return a choice list in the shape :mod:`requests_to_twilio.answers` takes.
@@ -419,8 +499,63 @@ class Spec:
         return self.settings.default_retries
 
     def timeout_for(self, row: SurveyRow) -> int:
-        """Return a question's reply timeout in seconds, or the spec default."""
+        """Return a question's reply timeout in seconds, or the spec default.
+
+        With a reminder, this is the wait *after* the reminder: the question
+        waits :attr:`Settings.reminder_after` first, then this.
+        """
         return row.timeout if row.timeout is not None else self.settings.default_timeout
+
+    def opening_rows(self) -> list[SurveyRow]:
+        """Return the opener, the consent question and the first question after.
+
+        The stretch where somebody who did not want this survey says so. When
+        the instrument branches straight after consent - ARM1 or ARM2 - each
+        branch's first question is somebody's first question, so each counts.
+        """
+        opening = [r for r in self.survey if r.role in ("intro", "consent")]
+        firsts: list[SurveyRow] = []
+        branch: SurveyRow | None = None
+        taken = False
+        for row in self.survey:
+            if row.role in ("intro", "consent"):
+                continue
+            if row.type == "begin group":
+                branch, taken = (row if row.relevance else None), False
+                continue
+            if row.type == "end group":
+                branch = None
+                continue
+            if not row.is_question:
+                continue
+            if branch is not None:
+                if not taken:
+                    firsts.append(row)
+                    taken = True
+                continue
+            if not firsts:
+                firsts.append(row)
+            break
+        return opening + firsts
+
+    def listens_for_stop(self, row: SurveyRow) -> bool:
+        """Whether a stop word in reply to this row ends the survey."""
+        if self.settings.stop_words == "never" or not row.is_question:
+            return False
+        return any(row is r for r in self.opening_rows())
+
+    def reminder_key(self, row: SurveyRow) -> str:
+        """Return the message key of this row's no-reply reminder, or empty.
+
+        The opener has none: nobody has written yet, so only an approved
+        template could reach them.
+        """
+        if not row.is_question or row.kind == "template" or not row.timeout_reminder:
+            return ""
+        if row.timeout_message:
+            return row.timeout_message
+        has_standard = any(m.key == REMINDER_MESSAGE for m in self.messages)
+        return REMINDER_MESSAGE if has_standard else ""
 
     def widget_count(self, row: SurveyRow) -> int:
         """Return how many Studio widgets this one row becomes.
@@ -439,22 +574,36 @@ class Spec:
         """
         if row.type in ("begin group", "end group"):
             return 1 if row.relevance else 0
+        # A condition on a step is one split in front of it. A closing's
+        # condition is not: every closing shares the one split on the outcome.
+        conditional = 1 if row.relevance and row.role not in ("close", "intro") else 0
         if not row.is_question:
-            return 1
-        widgets = 1  # the ask itself
-        if row.stop_check:
+            return 1 + conditional
+        widgets = 1 + conditional  # the ask itself
+        if self.listens_for_stop(row):
             widgets += 1
         # The opener stores nothing. Any reply at all is the answer, because its
         # only job is to open the 24-hour window that makes every later message
         # free-form - so there is no variable to set and no validation to do.
         if row.kind == "template":
             return widgets
-        if row.is_validated:
-            widgets += 2  # validate, store
-            if self.retries_for(row) > 0:
-                widgets += 4  # count, decide, nudge, give up
+        if row.role == "consent":
+            widgets += 4  # validate, record yes, record no, give up
+        elif row.is_validated:
+            widgets += 3  # validate, store, give up
         else:
             widgets += 1  # store
+        if row.is_validated and self.retries_for(row) > 0:
+            widgets += 3  # count, decide, nudge
+        if self.reminder_key(row):
+            # keep the reply, check, note the reminder, send it, ask again, keep
+            # that reply
+            widgets += 6
+            if self.settings.stop_words != "never" and (
+                self.listens_for_stop(row)
+                or self.settings.stop_words == "opening_and_reminders"
+            ):
+                widgets += 1  # a stop word in reply to the reminder
         return widgets
 
     def total_widget_count(self) -> int:
@@ -493,6 +642,8 @@ def spec_to_dict(spec: Spec) -> dict[str, Any]:
             "functions_service": spec.settings.functions_service,
             "default_timeout": spec.settings.default_timeout,
             "default_retries": spec.settings.default_retries,
+            "stop_words": spec.settings.stop_words,
+            "reminder_after": spec.settings.reminder_after,
             "preloads": list(spec.settings.preloads),
             "flow_name": _clean(spec.settings.flow_name),
             "description": _clean(spec.settings.description),
@@ -509,12 +660,13 @@ def spec_to_dict(spec: Spec) -> dict[str, Any]:
                     "timeout": r.timeout,
                     "constraint": r.constraint,
                     "constraint_message": r.constraint_message,
+                    "timeout_message": r.timeout_message,
                     "list_button": r.list_button,
                     "template": r.template,
                     # Booleans are written only when they differ from the
                     # default, so the JSON says what is unusual about a row
                     # rather than restating the obvious on every line.
-                    "stop_check": None if r.stop_check else False,
+                    "timeout_reminder": None if r.timeout_reminder else False,
                     "publish": None if r.publish else False,
                     "encrypt": True if r.encrypt else None,
                 }
@@ -552,6 +704,8 @@ def spec_from_dict(payload: dict[str, Any]) -> Spec:
         functions_service=raw_settings.get("functions_service", "rtt-survey"),
         default_timeout=int(raw_settings.get("default_timeout", 3600)),
         default_retries=int(raw_settings.get("default_retries", 2)),
+        stop_words=raw_settings.get("stop_words", "opening_and_reminders"),
+        reminder_after=int(raw_settings.get("reminder_after", DEFAULT_REMINDER_AFTER)),
         preloads=list(raw_settings.get("preloads") or []),
         flow_name=dict(raw_settings.get("flow_name") or {}),
         description=dict(raw_settings.get("description") or {}),
@@ -565,12 +719,13 @@ def spec_from_dict(payload: dict[str, Any]) -> Spec:
             role=r.get("role", ""),
             constraint=r.get("constraint", ""),
             constraint_message=r.get("constraint_message", ""),
+            timeout_message=r.get("timeout_message", ""),
             relevance=r.get("relevance", ""),
             retries=r.get("retries"),
             timeout=r.get("timeout"),
             list_button=dict(r.get("list_button") or {}),
             template=dict(r.get("template") or {}),
-            stop_check=r.get("stop_check", True),
+            timeout_reminder=r.get("timeout_reminder", True),
             publish=r.get("publish", True),
             encrypt=r.get("encrypt", False),
         )
@@ -653,11 +808,31 @@ def check_spec(spec: Spec) -> list[str]:
 
     """
     problems: list[str] = []
+    problems.extend(_check_settings(spec))
     problems.extend(_check_structure(spec))
     problems.extend(_check_text_limits(spec))
     problems.extend(_check_constraints(spec))
     problems.extend(_check_options_are_matchable(spec))
     problems.extend(_check_consent(spec))
+    problems.extend(_check_routing(spec))
+    return problems
+
+
+def _check_settings(spec: Spec) -> list[str]:
+    """Check the settings that change how every question behaves."""
+    problems: list[str] = []
+    settings = spec.settings
+    if settings.stop_words not in STOP_WORD_SCOPES:
+        problems.append(
+            f"settings: stop_words is {settings.stop_words!r}; expected one of "
+            + ", ".join(STOP_WORD_SCOPES)
+        )
+    if not 0 < settings.reminder_after < SESSION_WINDOW_SECONDS:
+        problems.append(
+            f"settings: reminder_after is {settings.reminder_after} seconds. It has "
+            f"to be under {SESSION_WINDOW_SECONDS} (24 hours): after that WhatsApp "
+            "allows only approved templates, so the reminder would not be delivered"
+        )
     return problems
 
 
@@ -786,6 +961,18 @@ def _check_structure(spec: Spec) -> list[str]:
             problems.append(
                 f"{where}: constraint_message {row.constraint_message!r} is not "
                 "a key in the messages sheet"
+            )
+        if row.timeout_message and not spec.message(
+            row.timeout_message, spec.settings.default_language
+        ):
+            problems.append(
+                f"{where}: timeout_message {row.timeout_message!r} is not a key "
+                "in the messages sheet"
+            )
+        if row.timeout_message and row.kind == "template":
+            problems.append(
+                f"{where}: the opener cannot send a reminder. Nobody has written "
+                "yet, so only an approved template can reach them"
             )
         if row.retries and not row.is_validated:
             problems.append(
@@ -1075,6 +1262,93 @@ def _check_consent(spec: Spec) -> list[str]:
     return problems
 
 
+def _check_routing(spec: Spec) -> list[str]:
+    """Check what the compiler routes on: names, conditions, closings, consent."""
+    problems: list[str] = []
+    preloads = set(spec.settings.preloads)
+    seen: dict[str, SurveyRow] = {}
+    group = ""
+    for index, row in enumerate(spec.survey, start=2):
+        where = f"survey row {index} ({row.name or row.type})"
+        if row.type == "begin group":
+            group = row.name
+        elif row.type == "end group":
+            group = ""
+            continue
+        if row.name and not _NAME.match(row.name):
+            problems.append(
+                f"{where}: the name {row.name!r} has to start with a letter and "
+                "hold only letters, digits and underscores, because Studio names "
+                "its widgets after it"
+            )
+        if row.name in _RESERVED_NAMES and row.role not in _SPINE_ROLES:
+            problems.append(f"{where}: {row.name!r} is a name the survey spine uses")
+
+        if row.relevance and row.role != "close":
+            parsed = parse_condition(row.relevance)
+            if parsed is None:
+                problems.append(
+                    f"{where}: the condition {row.relevance!r} cannot be compiled. "
+                    "Write it as ${name}='value' or ${name}!='value'"
+                )
+            else:
+                variable, _, value = parsed
+                earlier = seen.get(f"{group}.{variable}") or seen.get(f".{variable}")
+                if earlier is None and variable not in preloads:
+                    problems.append(
+                        f"{where}: the condition reads {variable!r}, which is "
+                        "neither a preload nor a question before this one"
+                    )
+                elif earlier is not None and earlier.is_select:
+                    codes = [c.value for c in spec.choice_list(earlier.list_name)]
+                    if value not in codes:
+                        problems.append(
+                            f"{where}: {variable} is never {value!r}; its codes "
+                            f"are {', '.join(codes)}"
+                        )
+        if row.is_question and row.type != "begin group":
+            seen[f"{group}.{row.name}"] = row
+
+    closes = {}
+    for row in spec.survey:
+        if row.role == "close":
+            parsed = parse_condition(row.relevance)
+            if parsed is None or parsed[0] != "outcome" or parsed[1] != "=":
+                problems.append(
+                    f"closing {row.name!r}: say which ending it is for, as "
+                    "${outcome}='complete'"
+                )
+                continue
+            closes[parsed[2]] = row
+    unreachable = closes.get("unreachable")
+    if unreachable is not None:
+        for lang in spec.settings.languages:
+            if not unreachable.template.get(lang):
+                problems.append(
+                    f"{lang}: closing {unreachable.name!r} goes to people who never "
+                    "replied, so WhatsApp allows only an approved template. Name one"
+                )
+
+    intro = next((r for r in spec.survey if r.role == "intro"), None)
+    if intro is not None:
+        for lang in spec.settings.languages:
+            if not intro.template.get(lang):
+                problems.append(
+                    f"{lang}: the opener {intro.name!r} needs an approved template. "
+                    "It is the only message sent before the person has written"
+                )
+
+    consent = spec.consent_row()
+    if consent is not None:
+        values = {c.value for c in spec.choice_list(consent.list_name)}
+        if "yes" not in values:
+            problems.append(
+                f"consent: one option of {consent.list_name!r} has to have the code "
+                "'yes'. It is the only one that enrols the person"
+            )
+    return problems
+
+
 def review_notes(spec: Spec) -> list[str]:
     """Things a human must read, which no check can judge.
 
@@ -1085,6 +1359,36 @@ def review_notes(spec: Spec) -> list[str]:
     the time it is wrong somebody has already agreed to something.
     """
     notes: list[str] = []
+    ends = {
+        parsed[2]
+        for row in spec.survey
+        if row.role == "close" and (parsed := parse_condition(row.relevance))
+    }
+    if (
+        spec.questions()
+        and spec.settings.stop_words != "never"
+        and "optout" not in ends
+    ):
+        notes.append(
+            "stop words end the survey, but no closing is for ${outcome}='optout', "
+            "so somebody who says stop hears nothing back - which reads as not "
+            "being heard"
+        )
+    for key in sorted({spec.reminder_key(r) for r in spec.questions()} - {""}):
+        for lang in spec.settings.languages:
+            text = spec.message(key, lang)
+            if text and UNIVERSAL_STOP_WORD not in text.casefold():
+                notes.append(
+                    f"{lang}: the reminder {key!r} does not tell people they can "
+                    "reply STOP. It goes to somebody who has gone quiet, which is "
+                    "when the way out matters most"
+                )
+    reminded = any(spec.reminder_key(r) for r in spec.questions())
+    if reminded and spec.settings.stop_words != "opening_and_reminders":
+        notes.append(
+            "reminders go out, but stop words are not listened for in reply to "
+            "them. Make sure the reminder text does not tell people to reply STOP"
+        )
     consent = spec.consent_row()
     if consent is not None:
         for lang in spec.settings.languages:
@@ -1171,7 +1475,6 @@ def starter_spec(language: str = "en") -> Spec:
                 # templates/<name>.json, not here.
                 template={text: "my_survey_intro"},
                 retries=0,
-                stop_check=False,
                 publish=False,
             ),
             SurveyRow(
@@ -1187,7 +1490,6 @@ def starter_spec(language: str = "en") -> Spec:
                     )
                 },
                 retries=1,
-                stop_check=False,
             ),
             SurveyRow(
                 type="select_list frequency",
@@ -1354,6 +1656,19 @@ def starter_spec(language: str = "en") -> Spec:
                 },
             ),
             MessageRow(key="list_button", text={text: "Choose an answer"}),
+            MessageRow(
+                key=REMINDER_MESSAGE,
+                # Sent after 23h30 of silence, with the question again. It names
+                # the way out, because the reader is somebody who has gone quiet,
+                # and a STOP sent in reply to it is listened for.
+                text={
+                    text: (
+                        "Just checking in: here is the question again whenever "
+                        "you have a moment. If you would rather stop, reply STOP "
+                        "and we will not message you again."
+                    )
+                },
+            ),
             MessageRow(
                 key="stop_words",
                 # The English words belong here whatever the survey's language:

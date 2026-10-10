@@ -122,7 +122,7 @@ class TestJsonIsTheCanonicalForm:
         """The tracked JSON should say what is unusual, not restate the obvious."""
         payload = spec_to_dict(minimal_spec())
         consent = payload["survey"][0]
-        assert "stop_check" not in consent
+        assert "timeout_reminder" not in consent
         assert "publish" not in consent
         assert "encrypt" not in consent
 
@@ -158,19 +158,18 @@ class TestOneRowIsOneSubgraph:
     @pytest.mark.parametrize(
         ("row", "expected"),
         [
+            # A row on its own: not in the opening, and no reminder text.
             # The opener stores nothing: any reply opens the 24-hour window.
-            (SurveyRow(type="template", name="i", stop_check=False), 1),
-            # ask, stop-check, store.
-            (SurveyRow(type="text", name="q"), 3),
-            # No stop check is one widget fewer, and a bad idea.
-            (SurveyRow(type="text", name="q", stop_check=False), 2),
-            # ask, stop-check, validate, store, count, decide, nudge, give up.
-            (SurveyRow(type="select_list l", name="q", retries=2), 8),
+            (SurveyRow(type="template", name="i"), 1),
+            # ask, store.
+            (SurveyRow(type="text", name="q"), 2),
+            # ask, validate, store, count, decide, nudge, give up.
+            (SurveyRow(type="select_list l", name="q", retries=2), 7),
             # A validated number is the same shape as a select.
-            (SurveyRow(type="integer", name="q", retries=2), 8),
+            (SurveyRow(type="integer", name="q", retries=2), 7),
             # `numeric` is an alias, so it must count the same.
-            (SurveyRow(type="numeric", name="q", retries=2), 8),
-            # Zero retries drops the whole retry machinery.
+            (SurveyRow(type="numeric", name="q", retries=2), 7),
+            # Zero retries drops the retry machinery; giving up stays.
             (SurveyRow(type="select_list l", name="q", retries=0), 4),
             (SurveyRow(type="note", name="c"), 1),
             # A group is only a widget when it branches.
@@ -202,10 +201,13 @@ class TestOneRowIsOneSubgraph:
             for row in spec.survey
             if row.is_question
         }
-        assert counts[("intro", "template")] == 1
-        assert counts[("consent", "select_button consent")] == 7
+        # The fixture carries no reminder text, so only the opening listens
+        # for a stop word: opener, consent, and the first question of each arm.
+        assert counts[("intro", "template")] == 2
+        assert counts[("consent", "select_button consent")] == 9
         assert counts[("P1", "text")] == 3
         assert counts[("P1", "select_list p1")] == 8
+        assert counts[("P2", "select_list p2")] == 7
 
 
 class TestTheValidatorRefusesWhatItShould:
@@ -470,10 +472,15 @@ class TestConsentIsFlaggedForHumanReview:
     """The one string in the instrument that no check can judge."""
 
     def test_the_wording_is_surfaced(self):
-        notes = review_notes(minimal_spec())
+        notes = [n for n in review_notes(minimal_spec()) if "by hand" in n]
         assert len(notes) == 1
         assert "Take part?" in notes[0]
-        assert "by hand" in notes[0]
+
+    def test_a_missing_opt_out_closing_is_surfaced_not_refused(self):
+        """Saying stop and hearing nothing back reads as not being heard."""
+        spec = minimal_spec()
+        assert any("optout" in n for n in review_notes(spec))
+        assert check_spec(spec) == []
 
     def test_review_notes_are_not_failures(self):
         """They must not gate a build, or they become the thing to switch off."""
@@ -604,12 +611,16 @@ class TestExcelSpecificHazards:
 
     def test_a_yes_no_flag_round_trips(self, tmp_path):
         spec = minimal_spec()
-        spec.survey[1].stop_check = False
+        spec.survey[1].timeout_reminder = False
         spec.survey[1].publish = False
         spec.survey[1].encrypt = True
         write_xlsx(spec, tmp_path / "s.xlsx")
         back = read_xlsx(tmp_path / "s.xlsx").row("Q1")
-        assert (back.stop_check, back.publish, back.encrypt) == (False, False, True)
+        assert (back.timeout_reminder, back.publish, back.encrypt) == (
+            False,
+            False,
+            True,
+        )
 
     def test_a_retry_count_of_zero_is_not_read_as_blank(self, tmp_path):
         """Zero and unset mean different things: none, versus take the default."""
@@ -630,7 +641,7 @@ class TestExcelSpecificHazards:
         assert len(read_xlsx(tmp_path / "s.xlsx").survey) == 2
 
     def test_flags_are_blank_where_they_mean_nothing(self, tmp_path):
-        """A `stop_check: yes` on a group row is noise, not information."""
+        """A `timeout_reminder: yes` on a group row is noise, not information."""
         import openpyxl
 
         spec = load_spec(REALISTIC)
@@ -644,7 +655,7 @@ class TestExcelSpecificHazards:
 
         # openpyxl reads a genuinely empty cell as None rather than "".
         group = by_name[("begin group", "ARM1")]
-        for flag in ("stop_check", "publish", "encrypt"):
+        for flag in ("timeout_reminder", "publish", "encrypt"):
             assert group[head.index(flag)] in (None, ""), (
                 f"{flag} should be blank on a group row"
             )
@@ -653,11 +664,11 @@ class TestExcelSpecificHazards:
         # message publishes no column, and that is worth seeing.
         closing = by_name[("note", "close_complete")]
         assert closing[head.index("publish")] == "no"
-        assert closing[head.index("stop_check")] in (None, "")
+        assert closing[head.index("timeout_reminder")] in (None, "")
 
         # And a real question still says all three.
         question = by_name[("select_list p1", "P1")]
-        assert question[head.index("stop_check")] == "yes"
+        assert question[head.index("timeout_reminder")] == "yes"
         assert question[head.index("publish")] == "yes"
         assert question[head.index("encrypt")] == "no"
 

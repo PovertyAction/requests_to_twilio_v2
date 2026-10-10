@@ -12,6 +12,7 @@ import json
 import stat
 import sys
 import time
+import webbrowser
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -21,6 +22,13 @@ import typer
 from twilio.rest import Client
 
 from . import config as cfg
+from .builder import BUILDER_HTML
+from .compile import (
+    compile_spec,
+    placeholder_sids,
+    required_templates,
+    template_definitions,
+)
 from .crypto import CryptoError, KeyPair, load_private_key
 from .decryptor import DecryptionError, decrypt_dataset
 from .fetch import FetchError, fetch_executions, reconcile, write_output
@@ -103,6 +111,13 @@ from .warehouse import (
     push_dataframe,
     push_file,
     resolve_database,
+)
+from .widgets import (
+    DEFAULT_PUBLISH_TARGET,
+    PUBLISH_TARGETS,
+    BuildError,
+    placeholder_functions,
+    resolve_functions,
 )
 
 app = typer.Typer(
@@ -1532,8 +1547,13 @@ def _create_one(
     yes: bool,
     skip_existing: bool,
     replace: bool = False,
+    in_session: bool = False,
 ) -> None:
-    """Create one template from its definition file."""
+    """Create one template from its definition file.
+
+    ``in_session`` marks a template only ever sent inside the 24-hour window,
+    which is never submitted, so the closing hint must not suggest it.
+    """
     try:
         definition = load_definition(definition_file)
     except TemplateError as exc:
@@ -1618,6 +1638,8 @@ def _create_one(
             f"  just template-status {name}",
             fg=typer.colors.GREEN,
         )
+    elif in_session:
+        typer.echo("  Sent inside the 24-hour window, so never submitted to Meta.")
     else:
         typer.echo(
             f"\nNot yet submitted to Meta - it exists only in Twilio, so it can\n"
@@ -2141,3 +2163,235 @@ def survey_template(
         f"    rtt survey convert {written} {written.with_suffix('.json')}"
         "   # then commit the JSON"
     )
+
+
+def _checked_spec(path: Path):
+    """Load a spec and refuse one that fails its checks."""
+    try:
+        spec = _load_any_spec(path)
+    except SpecError as exc:
+        _fail(str(exc))
+    problems = check_spec(spec)
+    if problems:
+        typer.secho(f"{path} does not pass its checks:", fg=typer.colors.RED, err=True)
+        for problem in problems:
+            typer.echo(f"  {problem}", err=True)
+        raise typer.Exit(code=1)
+    return spec
+
+
+def _survey_languages(spec, lang: str | None) -> list[str]:
+    if lang is None:
+        return list(spec.settings.languages)
+    if lang not in spec.settings.languages:
+        _fail(
+            f"{lang!r} is not one of this survey's languages: {spec.settings.languages}"
+        )
+    return [lang]
+
+
+@survey_app.command("templates")
+def survey_templates(
+    spec_file: Annotated[Path, typer.Argument(help="The survey spec, .json or .xlsx.")],
+    lang: Annotated[
+        str | None, typer.Option("--lang", help="One language. Default: every one.")
+    ] = None,
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompts.")
+    ] = False,
+    replace: Annotated[
+        bool,
+        typer.Option(
+            "--replace",
+            help="Recreate any template whose wording has drifted from the spec.",
+        ),
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Create the buttons and lists a survey sends, on your Twilio account.
+
+    One content template per select question, written to
+    templates/generated/<form_id>/ and created if it does not exist yet. They
+    are sent inside the 24-hour window, so none is ever submitted to Meta. The
+    opener and the closing for people who never replied are approved templates
+    you create and submit yourself; this reports whether they exist.
+    """
+    configure(verbose)
+    spec = _checked_spec(spec_file)
+    folder = Path("templates") / "generated" / spec.settings.form_id
+    folder.mkdir(parents=True, exist_ok=True)
+
+    written: list[Path] = []
+    for language in _survey_languages(spec, lang):
+        for name, definition in template_definitions(spec, language).items():
+            path = folder / f"{name}.json"
+            path.write_text(
+                json.dumps(definition, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            written.append(path)
+    typer.echo(f"Wrote {len(written)} definitions to {folder}")
+
+    cfg.load_env()
+    client, _ = _client()
+    for path in written:
+        _create_one(
+            client,
+            path,
+            submit=False,
+            category="UTILITY",
+            yes=yes,
+            skip_existing=not replace,
+            replace=replace,
+            in_session=True,
+        )
+
+    generated = {path.stem for path in written}
+    for language in _survey_languages(spec, lang):
+        for name in required_templates(spec, language):
+            if name in generated:
+                continue
+            existing = find_by_name(client, name)
+            if existing is None:
+                typer.secho(
+                    f"missing  {name}  - an approved template the survey sends. "
+                    "Create and submit it: just template-create, then "
+                    "just template-submit",
+                    fg=typer.colors.YELLOW,
+                )
+            else:
+                typer.echo(f"exists  {name}  ({existing.sid})")
+
+
+@survey_app.command("build")
+def survey_build(
+    spec_file: Annotated[Path, typer.Argument(help="The survey spec, .json or .xlsx.")],
+    lang: Annotated[
+        str | None,
+        typer.Option(
+            "--lang", help="The language to build. Default: the default language."
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Where to write the flow."),
+    ] = None,
+    publish_target: Annotated[
+        str,
+        typer.Option(
+            "--publish-target", help=f"One of: {', '.join(sorted(PUBLISH_TARGETS))}"
+        ),
+    ] = DEFAULT_PUBLISH_TARGET,
+    offline: Annotated[
+        bool,
+        typer.Option(
+            "--offline",
+            help="Use placeholder SIDs instead of your account's. For reading and "
+            "checking the flow; it cannot be deployed.",
+        ),
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Compile a survey spec into a Studio flow, ready for `rtt flow deploy`.
+
+    Refuses a spec that fails `rtt survey check`, resolves the content templates
+    and Functions on your account, compiles, and runs every flow check. Nothing
+    is sent to Twilio: deploying is the next, separate step.
+    """
+    configure(verbose)
+    spec = _checked_spec(spec_file)
+    language = lang or spec.settings.default_language
+    _survey_languages(spec, language)
+    if publish_target not in PUBLISH_TARGETS:
+        _fail(f"Unknown publish target {publish_target!r}")
+
+    flow_name = spec.settings.flow_name.get(language) or (
+        f"{spec.settings.form_id}_{language}"
+    )
+    if output is None:
+        suffix = ".offline.json" if offline else ".json"
+        output = Path("flows") / f"{flow_name}{suffix}"
+
+    if offline:
+        sids = placeholder_sids(spec, language)
+        functions = placeholder_functions(publish_target)
+    else:
+        cfg.load_env()
+        client, _ = _client()
+        try:
+            functions = resolve_functions(client, publish_target)
+        except BuildError as exc:
+            _fail(str(exc))
+        definitions = template_definitions(spec, language)
+        sids, missing, stale = {}, [], []
+        for name in required_templates(spec, language):
+            existing = find_by_name(client, name)
+            if existing is None:
+                missing.append(name)
+                continue
+            sids[name] = existing.sid
+            if name in definitions and drifted_types(existing, definitions[name]):
+                stale.append(name)
+        if missing:
+            _fail(
+                "these templates do not exist on the account yet: "
+                + ", ".join(missing)
+                + f"\nRun: rtt survey templates {spec_file} --lang {language}"
+            )
+        if stale:
+            _fail(
+                "these templates say something different from the spec: "
+                + ", ".join(stale)
+                + f"\nRun: rtt survey templates {spec_file} --lang {language} --replace"
+            )
+
+    try:
+        flow = compile_spec(spec, language, sids, functions)
+    except BuildError as exc:
+        _fail(str(exc))
+
+    findings = check_flow(flow)
+    _print_findings(flow_name, findings)
+    if any(f.severity == "error" for f in findings):
+        _fail("not written: the compiled flow fails its checks")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(flow, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    typer.secho(
+        f"Wrote {output}  ({len(flow['states'])} widgets)",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+    if offline:
+        typer.secho(
+            "  Placeholder SIDs: read it and check it, but it cannot be deployed.",
+            fg=typer.colors.YELLOW,
+        )
+        return
+    typer.echo("\n  Next:")
+    typer.echo(
+        f"    rtt flow schema {output} --format header   # the sheet's header row"
+    )
+    typer.echo(f"    rtt flow deploy {output} --name {flow_name}   # as a draft")
+
+
+@survey_app.command("builder")
+def survey_builder(
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Open the survey builder: cards, a flow map and a phone preview, offline.
+
+    The builder is one HTML file opened from disk. It never talks to Twilio, so
+    it holds no credentials; it reads and writes the spec's canonical JSON, and
+    `rtt survey check` stays the check that counts.
+    """
+    configure(verbose)
+    typer.secho(f"Opening {BUILDER_HTML}", fg=typer.colors.GREEN)
+    if not webbrowser.open(BUILDER_HTML.as_uri()):
+        typer.echo("  No browser opened. Open that file in Chrome or Edge.")
+    typer.echo("  Chrome and Edge save straight back to the file you opened;")
+    typer.echo("  other browsers download a copy instead.")
+    typer.echo("")
+    typer.echo("  Then: rtt survey check <your_survey>.json")
