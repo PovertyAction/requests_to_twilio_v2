@@ -102,10 +102,10 @@ The types, and what each becomes:
 
 | `type` | the respondent sees | widgets |
 | --- | --- | --- |
-| `text` | a plain message; **any** reply is stored | 3 |
-| `integer` / `decimal` | a plain message; the reply must match `constraint` | 8 |
-| `select_list <list>` | a tappable list, up to 10 options | 8 |
-| `select_button <list>` | up to 3 tappable buttons | 8 |
+| `text` | a plain message; **any** reply is stored | 4 |
+| `integer` / `decimal` | a plain message; the reply must match `constraint` | 9 |
+| `select_list <list>` | a tappable list, up to 10 options | 9 |
+| `select_button <list>` | up to 3 tappable buttons | 9 |
 | `template` | an approved template, and waits for a reply | 1 |
 | `note` | a message expecting no reply | 1 |
 | `begin group` / `end group` | a branch; the condition goes in `relevance` | 1 per comparison |
@@ -267,6 +267,7 @@ Then, to put it on Twilio:
 just survey-content my_survey.json             # the buttons and lists it sends
 just survey-build my_survey.json "--lang en"   # -> flows/<flow_name>.json, checked
 just flow-schema flows/my_survey.json --format header   # the sheet's first row
+just flow-table flows/my_survey.json           # or, for MotherDuck, its table
 just flow-deploy flows/my_survey.json          # a draft; nothing is sent yet
 ```
 

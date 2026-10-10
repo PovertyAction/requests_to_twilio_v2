@@ -43,6 +43,7 @@ from .flows import (
     inbound_flow_sid,
     list_flows,
     load_definition_file,
+    publish_table,
     published_columns,
     published_revision,
     referenced_content_types,
@@ -117,6 +118,9 @@ from .warehouse import (
     push_dataframe,
     push_file,
     resolve_database,
+    table_changes,
+    wire_columns,
+    wire_connect,
 )
 from .widgets import (
     DEFAULT_PUBLISH_TARGET,
@@ -297,6 +301,13 @@ def _check_inbound_routing(
         typer.secho(
             "  inbound routing OK: replies to this number reach this flow",
             fg=typer.colors.GREEN,
+        )
+        # Twilio keeps no record of when a sender's webhook changed, so this
+        # cannot be checked - only said, at the moment it matters.
+        typer.echo(
+            "  If you repointed this sender in the last few minutes, wait before "
+            "launching:\n  for a short while Twilio can still send some replies "
+            "to the flow it pointed at before."
         )
         return
 
@@ -1432,6 +1443,83 @@ def flow_schema(
         _fail(str(exc))
 
 
+@flow_app.command("table")
+def flow_table(
+    definition_file: Annotated[
+        Path, typer.Argument(help="Flow definition JSON, e.g. flows/foo.json")
+    ],
+    table: Annotated[
+        str | None,
+        typer.Option(
+            "--table", help="Table name. Default: the one the flow names for itself."
+        ),
+    ] = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the prompt.")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Create the MotherDuck table a flow publishes to, or add its new columns.
+
+    The publish Function writes only into columns that exist, so a question with
+    no column is dropped behind a 200. This makes the table match the flow:
+    created if it is missing, and any column the flow publishes added. Columns
+    the flow no longer sends are kept, never dropped - they may hold an earlier
+    version's answers. Connects the way the Function does, over MotherDuck's
+    Postgres endpoint, with MOTHERDUCK_HOST, MOTHERDUCK_TOKEN and
+    MOTHERDUCK_DATABASE from .env.
+    """
+    configure(verbose)
+    try:
+        definition = load_definition_file(definition_file)
+    except FlowError as exc:
+        _fail(str(exc))
+    name = table or publish_table(definition)
+    if not name:
+        _fail(
+            "This flow names no MotherDuck table: it publishes to Google Sheets, or "
+            "it was built before flows named one. Rebuild it with "
+            "`rtt survey build --publish-target motherduck`, or pass --table."
+        )
+    wanted = [key for key, _ in published_columns(definition)]
+    if "submitted_at" not in wanted:
+        wanted.append("submitted_at")
+
+    cfg.load_env()
+    try:
+        database = resolve_database(None)
+        connection = wire_connect(database)
+    except WarehouseError as exc:
+        _fail(str(exc))
+    with connection:
+        create, missing, extra = table_changes(wanted, wire_columns(connection, name))
+        target = f"{database}.main.{name}"
+        if create:
+            statements = [warehouse_schema(definition, f"main.{name}")]
+            typer.echo(f"{target} does not exist. It will be created with:")
+            typer.echo("  " + ", ".join(wanted))
+        elif missing:
+            statements = [
+                f'ALTER TABLE main.{name} ADD COLUMN "{c}" VARCHAR' for c in missing
+            ]
+            typer.echo(f"{target} is missing {len(missing)} column(s) the flow sends:")
+            typer.echo("  " + ", ".join(missing))
+        else:
+            typer.secho(
+                f"{target} already has every column the flow sends.",
+                fg=typer.colors.GREEN,
+            )
+            statements = []
+        if extra:
+            typer.echo(f"  Kept, not sent by this flow: {', '.join(extra)}")
+        if not statements:
+            return
+        if not yes and not typer.confirm("Apply?"):
+            raise typer.Exit(code=1)
+        with connection.cursor() as cursor:
+            for statement in statements:
+                cursor.execute(statement)
+    typer.secho(f"Done: {target}", fg=typer.colors.GREEN, bold=True)
+
+
 @flow_app.command("deploy")
 def flow_deploy(
     definition_file: Annotated[
@@ -2429,9 +2517,12 @@ def survey_build(
         )
         return
     typer.echo("\n  Next:")
-    typer.echo(
-        f"    rtt flow schema {output} --format header   # the sheet's header row"
-    )
+    if publish_target == "motherduck":
+        typer.echo(f"    rtt flow table {output}   # its table: {spec.table_name}")
+    else:
+        typer.echo(
+            f"    rtt flow schema {output} --format header   # the sheet's header row"
+        )
     typer.echo(f"    rtt flow deploy {output} --name {flow_name}   # as a draft")
 
 

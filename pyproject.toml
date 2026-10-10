@@ -23,6 +23,7 @@ dependencies = [
     # lengths, which is wrong for the tail of countries an international
     # training attracts and cannot be checked before the room is waiting.
     "phonenumbers>=8.13.0",
+    "psycopg[binary]>=3.2",
     "python-dotenv>=1.0.1",
     # Used directly for the two Twilio endpoints the SDK does not cover: the
     # multipart function-source upload, and Flows/Validate. It arrives anyway as

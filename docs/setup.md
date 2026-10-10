@@ -79,7 +79,7 @@ completed survey has nowhere to write its row.
 | `MOTHERDUCK_TOKEN` | `rtt push`, the publish Function | account-scoped, so it grants more than one database |
 | `MOTHERDUCK_DATABASE` | `rtt push` **and** the publish Function | needed for this target |
 | `MOTHERDUCK_HOST` | the publish Function only | e.g. `pg.us-east-1-aws.motherduck.com` |
-| `MOTHERDUCK_TABLE` | the publish Function only | fully qualified: `db.schema.table` |
+| `MOTHERDUCK_TABLE` | the publish Function, for older flows only | fully qualified: `db.schema.table`. A flow from `rtt survey build` names its own table in `MOTHERDUCK_DATABASE` |
 
 The Function reaches MotherDuck over the **Postgres wire protocol**, which needs
 a host; the Python side connects with `md:` and does not. MotherDuck has no REST

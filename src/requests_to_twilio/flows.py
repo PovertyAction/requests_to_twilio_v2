@@ -31,6 +31,7 @@ from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
 
 from .log import get_logger
+from .widgets import TABLE_PARAMETER
 
 logger = get_logger()
 
@@ -926,6 +927,21 @@ def respondent_started_questions(definition: dict) -> str | None:
 STATUS_SUFFIXES = ("_status", "_err", "_error", "_state", "_outcome")
 
 
+def publish_table(definition: dict) -> str | None:
+    """Return the MotherDuck table a flow names for its rows, or None.
+
+    None for a flow that publishes to Google Sheets, or one built before flows
+    named their table; the Function then writes to ``MOTHERDUCK_TABLE``.
+    """
+    for state in definition.get("states", []):
+        if not _is_publish_widget(state):
+            continue
+        for parameter in state.get("properties", {}).get("parameters", []):
+            if parameter.get("key") == TABLE_PARAMETER:
+                return str(parameter.get("value") or "") or None
+    return None
+
+
 def published_columns(definition: dict) -> list[tuple[str, str]]:
     """Return the publish widget's columns in order, as (key, source).
 
@@ -946,6 +962,8 @@ def published_columns(definition: dict) -> list[tuple[str, str]]:
         for parameter in state.get("properties", {}).get("parameters", []):
             key = parameter.get("key") or ""
             value = str(parameter.get("value") or "")
+            if key == TABLE_PARAMETER:
+                continue
 
             if "encrypt" in value or "encriptador" in value:
                 source = "encrypted"

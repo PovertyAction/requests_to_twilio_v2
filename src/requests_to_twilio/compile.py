@@ -19,7 +19,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from .answers import answer_pattern, code_mapping, positions_are_ambiguous, word_pattern
+from .answers import (
+    answer_pattern,
+    code_mapping,
+    label_mapping,
+    positions_are_ambiguous,
+    word_pattern,
+)
 from .outcomes import ENCRYPTION_FAILED_STATUS, final_status_liquid
 from .spec import (
     COLUMN_REFERENCE,
@@ -33,6 +39,8 @@ from .spec import (
     parse_relevance,
 )
 from .widgets import (
+    PUBLISH_TARGETS,
+    TABLE_PARAMETER,
     BuildError,
     ask,
     ask_content,
@@ -69,6 +77,14 @@ def as_number(liquid: str) -> str:
     """
     inner = liquid.strip()[2:-2].strip()
     return f"{{{{{inner} | strip | replace: ',', '.' | plus: 0}}}}"
+
+
+def reminded(widget: str) -> str:
+    """Publish whether the reminder went out: 1, else 0 rather than blank.
+
+    Blank would read the same as a question never asked.
+    """
+    return f"{{{{flow.variables.{widget}_reminded | default: '0'}}}}"
 
 
 def personalise(text: str) -> str:
@@ -298,11 +314,11 @@ class _Compiler:
         self.y += 320
         return x, self.y
 
-    def stop_split(self, name, reply, on_continue, *, x, y):
+    def stop_split(self, name, reply, on_continue, *, x, y, stopped="mark_optout"):
         return split(
             name,
             f"{{{{{reply}}}}}",
-            [(self.stop_pattern, "mark_optout", "asked to stop")],
+            [(self.stop_pattern, stopped, "asked to stop")],
             on_continue,
             x=x,
             y=y,
@@ -450,7 +466,11 @@ class _Compiler:
         check = f"split_{widget}" if validated else f"store_{widget}"
         landing = f"got_{widget}" if reminder else check
         on_reply = f"stopcheck_{widget}" if stop_first else landing
-        on_timeout = f"remind_check_{widget}" if reminder else "mark_no_reply"
+        # Consent records its own outcome; any other question notes in its own
+        # status where the person stopped or went quiet, so the row shows it.
+        stopped = "mark_optout" if consent else f"optout_{widget}"
+        silent = "mark_no_reply" if consent else f"noreply_{widget}"
+        on_timeout = f"remind_check_{widget}" if reminder else silent
         first_wait = str(spec.settings.reminder_after) if reminder else timeout
 
         def asking(name, reply_to, wait, timeout_to, *, dx=0, dy=0):
@@ -486,6 +506,7 @@ class _Compiler:
                     landing,
                     x=x,
                     y=y + 40,
+                    stopped=stopped,
                 )
             )
 
@@ -506,7 +527,7 @@ class _Compiler:
                 split(
                     f"remind_check_{widget}",
                     f"{{{{flow.variables.{widget}_reminded}}}}",
-                    [("1", "mark_no_reply", "already reminded")],
+                    [("1", silent, "already reminded")],
                     f"mark_remind_{widget}",
                     x=x - 300,
                     y=y,
@@ -529,7 +550,7 @@ class _Compiler:
                     again,
                     f"stopcheck_{again}" if stop_again else f"got_{again}",
                     timeout,
-                    "mark_no_reply",
+                    silent,
                     dx=-300,
                     dy=240,
                 ),
@@ -549,16 +570,35 @@ class _Compiler:
                         f"got_{again}",
                         x=x - 300,
                         y=y + 280,
+                        stopped=stopped,
                     )
                 )
+        if not consent:
+            if stop_first or stop_again:
+                states.append(
+                    set_vars(
+                        stopped,
+                        [(f"{widget}_status", "optout")],
+                        "mark_optout",
+                        x=x + 600,
+                        y=y + 40,
+                    )
+                )
+            states.append(
+                set_vars(
+                    silent,
+                    [(f"{widget}_status", "noreply")],
+                    "mark_no_reply",
+                    x=x + 600,
+                    y=y + 120,
+                )
+            )
 
         if consent:
             states += self.consent_tail(row, widget, reply, retries, after, x, y)
             self.states += states
             if reminder:
-                self.columns.append(
-                    (f"{widget}_reminded", f"{{{{flow.variables.{widget}_reminded}}}}")
-                )
+                self.columns.append((f"{widget}_reminded", reminded(widget)))
             return
 
         if not validated:
@@ -602,21 +642,21 @@ class _Compiler:
             )
             if row.has_range:
                 states.append(self.range_split(row, widget, source, refused, x, y))
+            answered = [
+                (f"{widget}_status", "answered"),
+                (f"{widget}_{suffix}", stored),
+            ]
+            failed = [(f"{widget}_status", "multierror"), (f"{widget}_{suffix}", "")]
+            if row.is_select:
+                # The answer column reads as the person saw it, the label,
+                # however they answered; after the last retry, what they sent.
+                answered.append(
+                    (f"{widget}_answer", label_mapping(widget, options, source=source))
+                )
+                failed.append((f"{widget}_answer", reply))
             states += [
-                set_vars(
-                    f"store_{widget}",
-                    [(f"{widget}_status", "answered"), (f"{widget}_{suffix}", stored)],
-                    after,
-                    x=x,
-                    y=y + 200,
-                ),
-                set_vars(
-                    give_up,
-                    [(f"{widget}_status", "multierror"), (f"{widget}_{suffix}", "")],
-                    after,
-                    x=x + 300,
-                    y=y + 280,
-                ),
+                set_vars(f"store_{widget}", answered, after, x=x, y=y + 200),
+                set_vars(give_up, failed, after, x=x + 300, y=y + 280),
             ]
             if retries:
                 states += self.retry_loop(row, widget, retries, give_up, x, y)
@@ -632,6 +672,8 @@ class _Compiler:
                         f"{{{{widgets.function_encrypt.parsed.enc_{widget}}}}}",
                     )
                 )
+            elif row.is_select:
+                self.columns.append((widget, f"{{{{flow.variables.{widget}_answer}}}}"))
             else:
                 self.columns.append((widget, reply))
             self.columns.append(
@@ -643,9 +685,7 @@ class _Compiler:
                     (f"{widget}_{suffix}", f"{{{{flow.variables.{widget}_{suffix}}}}}")
                 )
             if reminder:
-                self.columns.append(
-                    (f"{widget}_reminded", f"{{{{flow.variables.{widget}_reminded}}}}")
-                )
+                self.columns.append((f"{widget}_reminded", reminded(widget)))
 
     def retry_loop(self, row, widget, retries, give_up, x, y, extra=()):
         options = self.spec.options(row.list_name, self.lang) if row.is_select else []
@@ -934,6 +974,10 @@ class _Compiler:
         )
 
         columns = [("caseid", "{{flow.data.caseid}}"), ("lang", self.lang)]
+        if publish == PUBLISH_TARGETS["motherduck"]["widget"]:
+            # Each survey writes its own table, named here rather than in the
+            # Function's environment, which every flow on the account shares.
+            columns.insert(0, (TABLE_PARAMETER, self.spec.table_name))
         columns += [(p, f"{{{{flow.data.{p}}}}}") for p in self.condition_preloads]
         columns += [
             (

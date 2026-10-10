@@ -158,10 +158,12 @@ class TestReminders:
         )
         again = flow["Q1_again"]
         assert again["properties"]["timeout"] == str(spec.timeout_for(spec.row("Q1")))
-        assert next_of(again, "timeout") == "mark_no_reply"
+        # Silence after the reminder notes it on the question, then ends.
+        assert next_of(again, "timeout") == "noreply_Q1"
+        assert next_of(flow["noreply_Q1"], "next") == "mark_no_reply"
         # A nudged question comes back to Q1; the flag stops a second reminder.
         check = flow["remind_check_Q1"]
-        assert check["transitions"][1]["next"] == "mark_no_reply"
+        assert check["transitions"][1]["next"] == "noreply_Q1"
 
     def test_both_replies_are_validated_the_same_way(self):
         flow = states(build(starter_spec("en")))
@@ -176,7 +178,8 @@ class TestReminders:
     def test_a_stop_in_reply_to_the_reminder_ends_the_survey(self):
         flow = states(build(starter_spec("en")))
         assert next_of(flow["Q2_again"], "incomingMessage") == "stopcheck_Q2_again"
-        assert flow["stopcheck_Q2_again"]["transitions"][1]["next"] == "mark_optout"
+        assert flow["stopcheck_Q2_again"]["transitions"][1]["next"] == "optout_Q2"
+        assert next_of(flow["optout_Q2"], "next") == "mark_optout"
 
     def test_switching_the_reminder_off_waits_the_normal_time(self):
         spec = starter_spec("en")
@@ -186,7 +189,7 @@ class TestReminders:
         assert flow["Q2"]["properties"]["timeout"] == str(
             spec.timeout_for(spec.row("Q2"))
         )
-        assert next_of(flow["Q2"], "timeout") == "mark_no_reply"
+        assert next_of(flow["Q2"], "timeout") == "noreply_Q2"
 
     def test_the_reminder_is_recorded(self):
         columns = [key for key, _ in published_columns(build(starter_spec("en")))]

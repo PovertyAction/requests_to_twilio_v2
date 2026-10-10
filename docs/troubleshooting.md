@@ -104,6 +104,16 @@ Politeness restarts flows: an inbound message from someone who just finished
 creates a fresh execution. The demo flow answers cold inbound once and ends.
 `flow-check`'s `respondent-initiated-start` reports flows that do not.
 
+### One reply went to the wrong survey, just after a launch
+
+A respondent's tap started a new execution in the flow the sender pointed at
+before, and that flow sent its "thanks for your message". The next tap reached
+the right survey. A sender's webhook change takes a few minutes to reach all of
+Twilio, and replies in that window can go either way. Repoint the sender well
+before you launch, then launch. `rtt launch` checks that the webhook points at
+the flow, but Twilio records no time for the change, so it cannot tell how
+recent it was.
+
 ## Error codes
 
 | Code | Meaning | Fix |

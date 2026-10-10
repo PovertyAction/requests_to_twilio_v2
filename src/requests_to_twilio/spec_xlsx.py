@@ -413,6 +413,7 @@ def _write_settings(workbook: Workbook, spec: Spec) -> None:
         ("default_retries", str(settings.default_retries)),
         ("stop_words", settings.stop_words),
         ("reminder_after", str(settings.reminder_after)),
+        ("publish_table", settings.publish_table),
         ("preloads", ", ".join(settings.preloads)),
     ]
     for lang in settings.languages:
@@ -914,6 +915,7 @@ def _read_settings(frame: pd.DataFrame | None) -> Settings:
     settings.reminder_after = (
         DEFAULT_REMINDER_AFTER if reminder_after is None else reminder_after
     )
+    settings.publish_table = values.get("publish_table", "")
     settings.preloads = [
         part.strip() for part in values.get("preloads", "").split(",") if part.strip()
     ]
