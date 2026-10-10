@@ -88,6 +88,8 @@ _SURVEY_TAIL = (
     "timeout",
     "constraint",
     "constraint_message",
+    "minimum",
+    "maximum",
     "timeout_message",
     "variables",
     "timeout_reminder",
@@ -184,6 +186,23 @@ def _parse_variables(value: Any) -> dict[str, str]:
     return variables
 
 
+def _parse_number(value: Any) -> int | float | None:
+    """Read a minimum or maximum: whole numbers stay whole, either decimal mark.
+
+    Raises:
+        SpecError: If the cell holds something that is not a number.
+
+    """
+    text = _clean_cell(value)
+    if not text:
+        return None
+    try:
+        number = float(text.replace(",", "."))
+    except ValueError as exc:
+        raise SpecError(f"minimum/maximum: {text!r} is not a number") from exc
+    return int(number) if number.is_integer() else number
+
+
 def _parse_int(value: str) -> int | None:
     """Read a whole-number cell, or None if it is blank or not a number.
 
@@ -258,6 +277,8 @@ def _survey_values(spec: Spec, row: SurveyRow, headers: list[str]) -> list[str]:
         "timeout": row.timeout,
         "constraint": row.constraint,
         "constraint_message": row.constraint_message,
+        "minimum": row.minimum,
+        "maximum": row.maximum,
         "timeout_message": row.timeout_message,
         "variables": _variables_cell(row.variables),
         _WIDGETS_COLUMN: spec.widget_count(row),
@@ -653,6 +674,8 @@ def _help_survey(spec: Spec) -> list[str]:
         "reply is recorded as unclear rather than as a refusal.",
         "",
         "relevance - when this row applies, e.g. ${arm}='2'",
+        "  Compare with =, != and, for numbers, > and <. Join comparisons with and, "
+        "or with or, not both: ${Q2}>0 and ${arm}='2'.",
         "  On a `begin group` row it branches the instrument. On a `close` row it "
         "picks which closing an outcome gets.",
         "",
@@ -665,6 +688,10 @@ def _help_survey(spec: Spec) -> list[str]:
         "constraint - the regex a reply must match, for integer and decimal",
         "  Blank uses the default for the type. Whatever you write here is RUN "
         "against real replies when you check the spec, not merely read.",
+        "",
+        "minimum, maximum - the smallest and largest number it takes, both included",
+        "  For integer and decimal. 0 and 7 for days a week: 15 is asked again with "
+        "the error_range message. Leave one blank to leave that side open.",
         "",
         "constraint_message - which nudge to send when a reply does not validate",
         "  A key from the messages sheet. Blank picks a sensible one.",
@@ -928,6 +955,8 @@ def _read_survey(frame: pd.DataFrame, languages: list[str]) -> list[SurveyRow]:
                 timeout=_parse_int(row.get("timeout")),
                 constraint=_clean_cell(row.get("constraint")),
                 constraint_message=_clean_cell(row.get("constraint_message")),
+                minimum=_parse_number(row.get("minimum")),
+                maximum=_parse_number(row.get("maximum")),
                 timeout_message=_clean_cell(row.get("timeout_message")),
                 variables=_parse_variables(row.get("variables")),
                 timeout_reminder=_parse_bool(row.get("timeout_reminder"), True),

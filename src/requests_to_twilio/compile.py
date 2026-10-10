@@ -23,11 +23,14 @@ from .answers import answer_pattern, code_mapping, positions_are_ambiguous, word
 from .outcomes import ENCRYPTION_FAILED_STATUS, final_status_liquid
 from .spec import (
     COLUMN_REFERENCE,
+    RANGE_MESSAGE,
     Spec,
     SpecError,
     SurveyRow,
     check_spec,
+    describe_range,
     parse_condition,
+    parse_relevance,
 )
 from .widgets import (
     BuildError,
@@ -46,6 +49,26 @@ _SPINE_ROLES = ("intro", "consent", "close", "unsolicited")
 #: The roll-up every closing is chosen from, and the outcome nothing can reach:
 #: a message that was never delivered will not deliver a goodbye either.
 _SILENT_OUTCOMES = ("undeliverable",)
+
+
+#: A condition's operator, as Studio's split names it and as a person reads it.
+_COMPARISONS = {
+    "=": ("equal_to", "is"),
+    "!=": ("not_equal_to", "is not"),
+    ">": ("greater_than", "is more than"),
+    "<": ("less_than", "is less than"),
+}
+
+
+def as_number(liquid: str) -> str:
+    """Make a ``{{...}}`` value a number for Studio's > and <, either decimal mark.
+
+    Studio compares numbers, not text, and a reply arrives as text: ``| plus: 0``
+    is the conversion Twilio documents. A comma becomes a point first, because
+    "3,5" is how half the world writes 3.5.
+    """
+    inner = liquid.strip()[2:-2].strip()
+    return f"{{{{{inner} | strip | replace: ',', '.' | plus: 0}}}}"
 
 
 def personalise(text: str) -> str:
@@ -286,15 +309,39 @@ class _Compiler:
             condition="regex",
         )
 
-    def condition_split(self, name, condition, on_true, on_false, group, *, x, y):
-        parsed = parse_condition(condition)
+    def condition_splits(self, name, condition, on_true, on_false, group, *, x, y):
+        """Return one split per comparison, chained: and needs each, or any one.
+
+        One split per comparison rather than several conditions on one branch:
+        a split tests a single value, and the comparisons read different ones.
+        """
+        parsed = parse_relevance(condition)
         if parsed is None:
             raise BuildError(f"cannot compile the condition {condition!r}")
-        variable, operator, value = parsed
-        tested = self.resolve(variable, group)
-        kind = "equal_to" if operator == "=" else "not_equal_to"
-        label = f"{variable} {'is' if operator == '=' else 'is not'} {value}"
-        return split(name, tested, [(value, on_true, label, kind)], on_false, x=x, y=y)
+        joiner, clauses = parsed
+        names = [name] + [f"{name}_{n}" for n in range(2, len(clauses) + 1)]
+        splits = []
+        for index, (variable, operator, value) in enumerate(clauses):
+            following = names[index + 1] if index + 1 < len(names) else None
+            if joiner == "or":
+                on_match, on_miss = on_true, following or on_false
+            else:
+                on_match, on_miss = following or on_true, on_false
+            tested = self.resolve(variable, group)
+            kind, words = _COMPARISONS[operator]
+            if operator in "<>":
+                tested, value = as_number(tested), value.replace(",", ".")
+            splits.append(
+                split(
+                    names[index],
+                    tested,
+                    [(value, on_match, f"{variable} {words} {value}", kind)],
+                    on_miss,
+                    x=x + 280 * index,
+                    y=y,
+                )
+            )
+        return splits
 
     def resolve(self, variable: str, group: str) -> str:
         """Return the Liquid that reads a condition's variable."""
@@ -340,16 +387,14 @@ class _Compiler:
         name = item.row.name
         if item.row.relevance:
             x, y = self.place(name)
-            self.states.append(
-                self.condition_split(
-                    f"if_{name}",
-                    item.row.relevance,
-                    self.first_entry(item.children, 0, after, name),
-                    after,
-                    "",
-                    x=x,
-                    y=y,
-                )
+            self.states += self.condition_splits(
+                f"if_{name}",
+                item.row.relevance,
+                self.first_entry(item.children, 0, after, name),
+                after,
+                "",
+                x=x,
+                y=y,
             )
         self.sequence(item.children, after, name)
 
@@ -357,10 +402,8 @@ class _Compiler:
         widget = _widget(row, group)
         if row.relevance:
             x, y = self.place(group)
-            self.states.append(
-                self.condition_split(
-                    f"if_{widget}", row.relevance, widget, after, group, x=x, y=y
-                )
+            self.states += self.condition_splits(
+                f"if_{widget}", row.relevance, widget, after, group, x=x, y=y
             )
         if row.is_question:
             self.question(row, widget, after, group)
@@ -532,25 +575,34 @@ class _Compiler:
         else:
             kind = "select" if row.is_select else "number"
             suffix = "code" if row.is_select else "value"
-            stored = (
-                code_mapping(widget, options, source=source)
-                if row.is_select
-                else f"{{{{{source} | strip}}}}"
-            )
+            if row.is_select:
+                stored = code_mapping(widget, options, source=source)
+            elif row.kind == "decimal":
+                # Stored with a point whatever mark was typed, so 3,5 and 3.5 are
+                # one value in the data and compare as one in a condition.
+                stored = f"{{{{{source} | strip | replace: ',', '.'}}}}"
+            else:
+                stored = f"{{{{{source} | strip}}}}"
             pattern = (
                 answer_pattern(options) if row.is_select else row.resolved_constraint()
             )
             give_up = f"giveup_{widget}"
-            states += [
+            refused = f"retry_{widget}" if retries else give_up
+            fits = f"range_{widget}" if row.has_range else f"store_{widget}"
+            states.append(
                 split(
                     check,
                     reply,
-                    [(pattern, f"store_{widget}", "a reply that fits")],
-                    f"retry_{widget}" if retries else give_up,
+                    [(pattern, fits, "a reply that fits")],
+                    refused,
                     x=x,
                     y=y + 120,
                     condition="regex",
-                ),
+                )
+            )
+            if row.has_range:
+                states.append(self.range_split(row, widget, source, refused, x, y))
+            states += [
                 set_vars(
                     f"store_{widget}",
                     [(f"{widget}_status", "answered"), (f"{widget}_{suffix}", stored)],
@@ -629,8 +681,33 @@ class _Compiler:
             ),
         ]
 
+    def range_split(self, row, widget, source, refused, x, y):
+        """Refuse a number outside the question's minimum and maximum.
+
+        Strict comparisons, which is all Studio has, so the limits themselves
+        are taken: a reply is refused only when below the minimum or above the
+        maximum.
+        """
+        number = as_number(f"{{{{{source}}}}}")
+        branches = []
+        if row.minimum is not None:
+            branches.append(
+                (str(row.minimum), refused, f"under {row.minimum}", "less_than")
+            )
+        if row.maximum is not None:
+            branches.append(
+                (str(row.maximum), refused, f"over {row.maximum}", "greater_than")
+            )
+        return split(
+            f"range_{widget}", number, branches, f"store_{widget}", x=x - 300, y=y + 160
+        )
+
     def nudge(self, row: SurveyRow, options) -> str:
         """Return the text sent before a question is asked again."""
+        if row.says_its_range:
+            # Said for any reply that does not fit: "five" and "15" both get
+            # told which numbers the question takes.
+            return self.message(RANGE_MESSAGE).replace("{range}", describe_range(row))
         if row.constraint_message:
             key = row.constraint_message
         elif not row.is_select:

@@ -644,6 +644,14 @@ def evaluate_condition(kind: str, value: str, reply: str) -> bool:
         return not folded
     if kind == "is_not_blank":
         return bool(folded)
+    if kind in ("greater_than", "less_than"):
+        # Studio "does not perform comparisons on letters": a reply that is not
+        # a number matches neither.
+        try:
+            number, limit = float(reply.replace(",", ".")), float(value)
+        except ValueError:
+            return False
+        return number > limit if kind == "greater_than" else number < limit
     return False
 
 

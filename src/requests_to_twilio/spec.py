@@ -202,6 +202,10 @@ UNIVERSAL_STOP_WORD = "stop"
 #: gets a reminder when this message exists or it names its own.
 REMINDER_MESSAGE = "timeout_nudge"
 
+#: The reply when a number is outside a question's minimum and maximum.
+#: ``{range}`` becomes "from 0 to 7", "of 0 or more" or "of 7 or less".
+RANGE_MESSAGE = "error_range"
+
 #: WhatsApp allows free-form messages only within 24 hours of the person's last
 #: message. The reminder has to go out before that window closes, so it is sent
 #: at 23h30 by default and :func:`check_spec` refuses 24 hours or more.
@@ -211,7 +215,14 @@ DEFAULT_REMINDER_AFTER = 23 * 3600 + 30 * 60
 
 #: The conditions the compiler can route on: one value compared with another,
 #: as the builder writes them - ``${arm}='2'`` or ``${P1}!='1'``.
-_CONDITION = re.compile(r"^\$\{(\w+)\}\s*(!=|=)\s*'([^']*)'$")
+#: One comparison in a condition, in SurveyCTO's grammar: ``${x}='v'``,
+#: ``${x}!='v'``, and for numbers ``${x}>3`` or ``${x}<'3'``.
+_CLAUSE = re.compile(r"\$\{(\w+)\}\s*(!=|=|>|<)\s*(?:'([^']*)'|(-?\d+(?:[.,]\d+)?))")
+#: What joins two comparisons. One kind per condition: mixing them needs
+#: brackets to say what goes with what, and a section says it more plainly.
+_JOINER = re.compile(r"\s+(and|or)\s+", re.IGNORECASE)
+#: A value ``>`` and ``<`` can compare: a number, with either decimal mark.
+_NUMBER = re.compile(r"^-?\d+(?:[.,]\d+)?$")
 
 #: Widget and variable names Studio accepts.
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -249,10 +260,54 @@ _SPINE_ROLES = ("intro", "consent", "close", "unsolicited")
 COLUMN_REFERENCE = re.compile(r"\$\{(\w+)\}")
 
 
-def parse_condition(text: str) -> tuple[str, str, str] | None:
-    """Split ``${x}='v'`` into ``(x, "=", "v")``, or None if it is not that shape."""
-    match = _CONDITION.match((text or "").strip())
-    return (match.group(1), match.group(2), match.group(3)) if match else None
+Clause = tuple[str, str, str]
+
+
+def parse_relevance(text: str) -> tuple[str, list[Clause]] | None:
+    """Split a condition into what joins its comparisons, and the comparisons.
+
+    ``${a}='1' and ${b}>3`` becomes ``("and", [("a", "=", "1"), ("b", ">", "3")])``;
+    one comparison has ``""`` for the joiner. None if it is not that shape,
+    including a condition that mixes ``and`` with ``or``.
+    """
+    text = (text or "").strip()
+    clauses: list[Clause] = []
+    joiners: list[str] = []
+    position = 0
+    while True:
+        match = _CLAUSE.match(text, position)
+        if match is None:
+            return None
+        value = match.group(3) if match.group(3) is not None else match.group(4)
+        clauses.append((match.group(1), match.group(2), value))
+        position = match.end()
+        if position == len(text):
+            break
+        joiner = _JOINER.match(text, position)
+        if joiner is None:
+            return None
+        joiners.append(joiner.group(1).lower())
+        position = joiner.end()
+    if len(set(joiners)) > 1:
+        return None
+    return (joiners[0] if joiners else ""), clauses
+
+
+def parse_condition(text: str) -> Clause | None:
+    """Split ``${x}='v'`` into ``(x, "=", "v")``, or None if it is not that shape.
+
+    The one-comparison form a closing uses: ``${outcome}='complete'``.
+    """
+    parsed = parse_relevance(text)
+    if parsed is None or len(parsed[1]) != 1 or parsed[1][0][1] not in ("=", "!="):
+        return None
+    return parsed[1][0]
+
+
+def condition_clauses(text: str) -> int:
+    """Return how many comparisons a condition makes: one split each."""
+    parsed = parse_relevance(text)
+    return len(parsed[1]) if parsed else 1
 
 
 class SpecError(Exception):
@@ -282,6 +337,11 @@ class SurveyRow:
     #: would be ambiguous on this question's own options - and ``error_numeric``
     #: for a constrained open question.
     constraint_message: str = ""
+    #: The smallest and largest number an ``integer`` or ``decimal`` question
+    #: takes, both included: ``0`` and ``7`` for days a week. ``None`` leaves
+    #: that side open. Checked after the reply is a number at all.
+    minimum: int | float | None = None
+    maximum: int | float | None = None
     list_button: Text = field(default_factory=dict)
     #: Friendly name of a content template, per language. The two bookends Meta
     #: reviews have different names in each language, so this cannot live in the
@@ -357,6 +417,23 @@ class SurveyRow:
         nothing to act on.
         """
         return self.is_select or self.kind in CONSTRAINED_TYPES
+
+    @property
+    def has_range(self) -> bool:
+        """Whether a number question takes only numbers between two limits."""
+        return self.kind in CONSTRAINED_TYPES and (
+            self.minimum is not None or self.maximum is not None
+        )
+
+    @property
+    def says_its_range(self) -> bool:
+        """Whether a reply that does not fit gets the range reply.
+
+        It replaces the standard number reply, named or not: "a number only"
+        would leave someone who typed 15 guessing. A message of the question's
+        own still wins.
+        """
+        return self.has_range and self.constraint_message in ("", "error_numeric")
 
     def resolved_constraint(self) -> str:
         """Return the regex this row validates against, or empty if it does not."""
@@ -585,10 +662,15 @@ class Spec:
         itself expands into. The exact total is whatever the compiler emits.
         """
         if row.type in ("begin group", "end group"):
-            return 1 if row.relevance else 0
-        # A condition on a step is one split in front of it. A closing's
-        # condition is not: every closing shares the one split on the outcome.
-        conditional = 1 if row.relevance and row.role not in ("close", "intro") else 0
+            return condition_clauses(row.relevance) if row.relevance else 0
+        # A condition on a step is one split per comparison in front of it. A
+        # closing's condition is not: every closing shares the one split on the
+        # outcome.
+        conditional = (
+            condition_clauses(row.relevance)
+            if row.relevance and row.role not in ("close", "intro")
+            else 0
+        )
         if not row.is_question:
             return 1 + conditional
         widgets = 1 + conditional  # the ask itself
@@ -603,6 +685,8 @@ class Spec:
             widgets += 4  # validate, record yes, record no, give up
         elif row.is_validated:
             widgets += 3  # validate, store, give up
+            if row.has_range:
+                widgets += 1  # the range
         else:
             widgets += 1  # store
         if row.is_validated and self.retries_for(row) > 0:
@@ -672,6 +756,8 @@ def spec_to_dict(spec: Spec) -> dict[str, Any]:
                     "timeout": r.timeout,
                     "constraint": r.constraint,
                     "constraint_message": r.constraint_message,
+                    "minimum": r.minimum,
+                    "maximum": r.maximum,
                     "timeout_message": r.timeout_message,
                     "list_button": r.list_button,
                     "template": r.template,
@@ -701,6 +787,14 @@ def spec_to_dict(spec: Spec) -> dict[str, Any]:
         ],
         "messages": [_clean({"key": m.key, "text": m.text}) for m in spec.messages],
     }
+
+
+def _number(value: Any) -> int | float | None:
+    """Read a limit as a number, writing ``7.0`` as ``7`` as JavaScript does."""
+    if value is None or value == "":
+        return None
+    number = float(str(value).replace(",", "."))
+    return int(number) if number.is_integer() else number
 
 
 def _placeholder_order(variables: dict[Any, Any]) -> dict[str, str]:
@@ -743,6 +837,8 @@ def spec_from_dict(payload: dict[str, Any]) -> Spec:
             role=r.get("role", ""),
             constraint=r.get("constraint", ""),
             constraint_message=r.get("constraint_message", ""),
+            minimum=_number(r.get("minimum")),
+            maximum=_number(r.get("maximum")),
             timeout_message=r.get("timeout_message", ""),
             relevance=r.get("relevance", ""),
             retries=r.get("retries"),
@@ -839,6 +935,7 @@ def check_spec(spec: Spec) -> list[str]:
     problems.extend(_check_column_references(spec))
     problems.extend(_check_text_limits(spec))
     problems.extend(_check_constraints(spec))
+    problems.extend(_check_ranges(spec))
     problems.extend(_check_options_are_matchable(spec))
     problems.extend(_check_consent(spec))
     problems.extend(_check_routing(spec))
@@ -922,6 +1019,62 @@ def _check_variables(spec: Spec) -> list[str]:
                     "the sample file has to carry it"
                 )
     return problems
+
+
+def _check_ranges(spec: Spec) -> list[str]:
+    """Check each minimum and maximum can be met, and the reply that says so."""
+    problems: list[str] = []
+    for row in spec.survey:
+        if row.minimum is None and row.maximum is None:
+            continue
+        if row.kind not in CONSTRAINED_TYPES:
+            problems.append(
+                f"{row.name}: a minimum or maximum applies only to a number question"
+            )
+            continue
+        if (
+            row.minimum is not None
+            and row.maximum is not None
+            and row.minimum > row.maximum
+        ):
+            problems.append(
+                f"{row.name}: the minimum {row.minimum} is above the maximum {row.maximum}"
+            )
+        if row.minimum is not None and row.minimum < 0 and not row.constraint:
+            problems.append(
+                f"{row.name}: the minimum is {row.minimum}, but the standard number "
+                "check refuses a minus sign. Use an Accepted reply pattern that "
+                "takes one, such as -?\\d+"
+            )
+        if row.kind == "integer":
+            for side, limit in (("minimum", row.minimum), ("maximum", row.maximum)):
+                if limit is not None and not float(limit).is_integer():
+                    problems.append(
+                        f"{row.name}: the {side} {limit} is not a whole number, and "
+                        "the question takes only whole numbers"
+                    )
+        if row.says_its_range:
+            for lang in spec.settings.languages:
+                if not spec.message(RANGE_MESSAGE, lang):
+                    problems.append(
+                        f"{lang}: {row.name} has a range, so it needs the "
+                        f"{RANGE_MESSAGE!r} message: the reply that says which "
+                        "numbers it takes"
+                    )
+    return problems
+
+
+def describe_range(row: SurveyRow) -> str:
+    """Say which numbers a question takes, for the message that asks again."""
+
+    def show(n):
+        return f"{n:g}" if isinstance(n, float) else str(n)
+
+    if row.minimum is not None and row.maximum is not None:
+        return f"from {show(row.minimum)} to {show(row.maximum)}"
+    if row.minimum is not None:
+        return f"of {show(row.minimum)} or more"
+    return f"of {show(row.maximum)} or less"
 
 
 def _check_constraints(spec: Spec) -> list[str]:
@@ -1355,10 +1508,47 @@ def _check_consent(spec: Spec) -> list[str]:
     return problems
 
 
+def _check_clause(
+    spec: Spec,
+    where: str,
+    seen: dict[str, SurveyRow],
+    group: str,
+    variable: str,
+    operator: str,
+    value: str,
+) -> list[str]:
+    """Check one comparison of a condition against what it reads."""
+    earlier = seen.get(f"{group}.{variable}") or seen.get(f".{variable}")
+    if earlier is None and variable not in spec.settings.preloads:
+        return [
+            f"{where}: the condition reads {variable!r}, which is neither a "
+            "preload nor a question before this one"
+        ]
+    if operator in "<>":
+        problems = []
+        if earlier is not None and earlier.kind not in CONSTRAINED_TYPES:
+            problems.append(
+                f"{where}: {variable} is not a number question, so it cannot be "
+                f"compared with {operator}"
+            )
+        if not _NUMBER.match(value):
+            problems.append(
+                f"{where}: {variable} {operator} {value!r} compares with something "
+                "that is not a number"
+            )
+        return problems
+    if earlier is not None and earlier.is_select:
+        codes = [c.value for c in spec.choice_list(earlier.list_name)]
+        if value not in codes:
+            return [
+                f"{where}: {variable} is never {value!r}; its codes are {', '.join(codes)}"
+            ]
+    return []
+
+
 def _check_routing(spec: Spec) -> list[str]:
     """Check what the compiler routes on: names, conditions, closings, consent."""
     problems: list[str] = []
-    preloads = set(spec.settings.preloads)
     seen: dict[str, SurveyRow] = {}
     group = ""
     for index, row in enumerate(spec.survey, start=2):
@@ -1378,27 +1568,28 @@ def _check_routing(spec: Spec) -> list[str]:
             problems.append(f"{where}: {row.name!r} is a name the survey spine uses")
 
         if row.relevance and row.role != "close":
-            parsed = parse_condition(row.relevance)
+            parsed = parse_relevance(row.relevance)
             if parsed is None:
+                mixed = re.search(r"\sand\s", row.relevance, re.I) and re.search(
+                    r"\sor\s", row.relevance, re.I
+                )
                 problems.append(
                     f"{where}: the condition {row.relevance!r} cannot be compiled. "
-                    "Write it as ${name}='value' or ${name}!='value'"
+                    + (
+                        "It mixes and with or; use one of them, and put the other "
+                        "part on a section around this question"
+                        if mixed
+                        else "Write it as ${name}='value', ${name}!='value', "
+                        "${name}>3 or ${name}<3, joined by and or by or"
+                    )
                 )
             else:
-                variable, _, value = parsed
-                earlier = seen.get(f"{group}.{variable}") or seen.get(f".{variable}")
-                if earlier is None and variable not in preloads:
-                    problems.append(
-                        f"{where}: the condition reads {variable!r}, which is "
-                        "neither a preload nor a question before this one"
-                    )
-                elif earlier is not None and earlier.is_select:
-                    codes = [c.value for c in spec.choice_list(earlier.list_name)]
-                    if value not in codes:
-                        problems.append(
-                            f"{where}: {variable} is never {value!r}; its codes "
-                            f"are {', '.join(codes)}"
+                for variable, operator, value in parsed[1]:
+                    problems.extend(
+                        _check_clause(
+                            spec, where, seen, group, variable, operator, value
                         )
+                    )
         if row.is_question and row.type != "begin group":
             seen[f"{group}.{row.name}"] = row
 
@@ -1749,6 +1940,10 @@ def starter_spec(language: str = "en") -> Spec:
                         "_Reply with an exact number (e.g. 0, 3, 12)._"
                     )
                 },
+            ),
+            MessageRow(
+                key=RANGE_MESSAGE,
+                text={text: "Please reply with a number {range}."},
             ),
             MessageRow(key="list_button", text={text: "Choose an answer"}),
             MessageRow(
