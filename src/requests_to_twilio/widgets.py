@@ -26,6 +26,10 @@ TIMEOUT = "3600"  # 1 hour, as in the source flow
 #: author's own subaccount, which 404s for everybody else - the single thing
 #: that stopped another team running this.
 FUNCTIONS_SERVICE_NAME = "rtt-survey"
+
+#: The publish parameter naming the MotherDuck table a flow writes to. Not a
+#: column: publish_motherduck.js reserves it, and the schema tools skip it.
+TABLE_PARAMETER = "rtt_table"
 ENCRYPT_FUNCTION_NAME = "encrypt_fields"
 
 #: The path the encryption function is deployed at, from

@@ -302,6 +302,7 @@
       "default_retries": 2,
       "stop_words": "opening_and_reminders",
       "reminder_after": 84600,
+      "publish_table": "",
       "preloads": [
         "caseid",
         "name",
@@ -621,6 +622,7 @@ function normalise(payload) {
       default_retries: intOf(s.default_retries ?? 2, "default_retries"),
       stop_words: s.stop_words ?? "opening_and_reminders",
       reminder_after: intOf(s.reminder_after ?? C.default_reminder_after, "reminder_after"),
+      publish_table: s.publish_table ?? "",
       preloads: [...(s.preloads || [])],
       flow_name: text(s.flow_name),
       description: text(s.description),
@@ -664,7 +666,7 @@ function canonical(spec) {
       form_id: st.form_id, form_title: st.form_title, languages: [...st.languages],
       default_language: st.default_language, functions_service: st.functions_service,
       default_timeout: st.default_timeout, default_retries: st.default_retries,
-      stop_words: st.stop_words, reminder_after: st.reminder_after,
+      stop_words: st.stop_words, reminder_after: st.reminder_after, publish_table: st.publish_table,
       preloads: [...st.preloads], flow_name: clean(st.flow_name), description: clean(st.description),
     },
     survey: spec.survey.map((r) => clean({
@@ -1803,7 +1805,10 @@ function settingsCard() {
       ], st.stop_words, (v) => structural(() => { st.stop_words = v; }),
       "The opening is the opener, consent and the first question. Mid-survey, people who have had enough simply stop answering."),
       reminderAfterField(st)),
-    langFields("Flow name", st, "flow_name", { mono: true, hint: "The flow's name in Twilio Studio." }),
+    h("div", { class: "grid2" },
+      langFields("Flow name", st, "flow_name", { mono: true, hint: "The flow's name in Twilio Studio." }),
+      textField("Table in MotherDuck", st, "publish_table", { mono: true, placeholder: st.form_id || "",
+        hint: "Where the answers go when the survey saves to MotherDuck. Blank uses the Survey ID." })),
     langFields("Description", st, "description"),
     standardReplies(),
     h("div", { class: "note-box info" }, C.scope_note)));

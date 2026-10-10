@@ -46,7 +46,39 @@ const CONNECT_TIMEOUT_MS = 4000;
 const QUERY_TIMEOUT_MS = 4000;
 
 // Studio passes bookkeeping alongside the parameters you configure.
-const RESERVED_KEYS = new Set(["request", "UserIdentity"]);
+const RESERVED_KEYS = new Set(["request", "UserIdentity", "rtt_table"]);
+
+// A table a flow names for itself: one plain identifier, in the main schema of
+// the configured database. It goes into the INSERT unquoted, so nothing else
+// is accepted - no schema, no other database, no quoting.
+const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+
+/**
+ * Picks the table: the one the flow names, or MOTHERDUCK_TABLE for flows built
+ * before flows named their own.
+ * @param {object} context The Twilio Function context.
+ * @param {object} event The Function widget's parameters.
+ * @returns {string} The table, as "main.name" or as configured.
+ */
+function resolveTable(context, event) {
+  const named = event.rtt_table;
+  if (named !== undefined && named !== "") {
+    if (!TABLE_NAME.test(String(named))) {
+      throw new Error(
+        `The flow names the table ${JSON.stringify(named)}, which is not a plain ` +
+          "table name (letters, digits and _). Rebuild the flow.",
+      );
+    }
+    return `main.${named}`;
+  }
+  if (!context.MOTHERDUCK_TABLE) {
+    throw new Error(
+      "The flow names no table and MOTHERDUCK_TABLE is not set. Rebuild the " +
+        "flow with `rtt survey build`, which names one.",
+    );
+  }
+  return context.MOTHERDUCK_TABLE;
+}
 
 /**
  * Reassembles the MotherDuck token from the environment.
@@ -74,16 +106,14 @@ function readToken(context) {
 /**
  * Reads and validates configuration from the environment.
  * @param {object} context The Twilio Function context.
- * @returns {{token: string, host: string, database: string, table: string}} Config.
+ * @returns {{token: string, host: string, database: string}} Config.
  */
 function readConfig(context) {
   const token = readToken(context);
 
-  const missing = [
-    "MOTHERDUCK_HOST",
-    "MOTHERDUCK_DATABASE",
-    "MOTHERDUCK_TABLE",
-  ].filter((name) => !context[name]);
+  const missing = ["MOTHERDUCK_HOST", "MOTHERDUCK_DATABASE"].filter(
+    (name) => !context[name],
+  );
 
   if (!token) {
     missing.unshift("MOTHERDUCK_TOKEN (or MOTHERDUCK_TOKEN_1, _2, ...)");
@@ -100,7 +130,6 @@ function readConfig(context) {
     token,
     host: context.MOTHERDUCK_HOST,
     database: context.MOTHERDUCK_DATABASE,
-    table: context.MOTHERDUCK_TABLE,
   };
 }
 
@@ -227,12 +256,13 @@ exports.handler = async function (context, event, callback) {
 
     await client.connect();
 
-    const columns = await getColumns(client, config.table);
-    const insert = buildInsert(config.table, columns, event);
+    const table = resolveTable(context, event);
+    const columns = await getColumns(client, table);
+    const insert = buildInsert(table, columns, event);
 
     if (insert === null) {
       throw new Error(
-        `None of the widget's parameters match a column in ${config.table}. ` +
+        `None of the widget's parameters match a column in ${table}. ` +
           `Table columns: ${columns.join(", ")}`,
       );
     }
@@ -254,7 +284,7 @@ exports.handler = async function (context, event, callback) {
     if (dropped.length > 0) {
       console.error(
         `publish_motherduck: ${dropped.length} parameter(s) had no column in ` +
-          `${config.table} and were NOT stored: ${dropped.join(", ")}. ` +
+          `${table} and were NOT stored: ${dropped.join(", ")}. ` +
           `Regenerate the table with \`rtt flow schema\`.`,
       );
     }
@@ -282,3 +312,4 @@ exports.handler = async function (context, event, callback) {
 module.exports.buildInsert = buildInsert;
 module.exports.splitTable = splitTable;
 module.exports.readConfig = readConfig;
+module.exports.resolveTable = resolveTable;

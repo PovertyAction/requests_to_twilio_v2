@@ -93,6 +93,7 @@ fails silently - see [writing templates](writing-templates.md#templates-are-immu
 | `just flow-check [FILE]` | The instrument-side equivalent of high-frequency checks: verifies the survey was coded correctly. Omit the file to check every flow on the account. Exits non-zero on an error. |
 | `just flow-schema FILE` | Prints `CREATE TABLE` DDL matching what the flow publishes. **Run this after changing the instrument** — the publish Function only inserts into columns that already exist, so a new question with no column is dropped silently behind a 200. |
 | `just flow-header FILE` | The Google Sheets counterpart: prints the header row for row 1 of the target sheet. Same reason, same failure — `publish_gsheets` matches parameters to columns by header name. |
+| `just flow-table FILE` | Creates the MotherDuck table a flow names for itself, or adds the columns it is missing; never drops one. Each survey gets its own table (the Survey ID, or `publish_table`). Connects over the Postgres endpoint the Function uses, so it works from an IPA laptop. |
 | `just flow-deploy FILE` | Deploys a definition. Refuses to ship one that fails the checks. |
 | `just flow-list` | Lists the Studio flows on the account. |
 | `just flow-pull NAME` | Saves a flow definition into `flows/` (gitignored) to review, diff, or hand to an agent. Refuses to write one containing credentials. |

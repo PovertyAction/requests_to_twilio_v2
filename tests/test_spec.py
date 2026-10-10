@@ -161,16 +161,16 @@ class TestOneRowIsOneSubgraph:
             # A row on its own: not in the opening, and no reminder text.
             # The opener stores nothing: any reply opens the 24-hour window.
             (SurveyRow(type="template", name="i"), 1),
-            # ask, store.
-            (SurveyRow(type="text", name="q"), 2),
-            # ask, validate, store, count, decide, nudge, give up.
-            (SurveyRow(type="select_list l", name="q", retries=2), 7),
+            # ask, store, note the silence.
+            (SurveyRow(type="text", name="q"), 3),
+            # ask, validate, store, count, decide, nudge, give up, note silence.
+            (SurveyRow(type="select_list l", name="q", retries=2), 8),
             # A validated number is the same shape as a select.
-            (SurveyRow(type="integer", name="q", retries=2), 7),
+            (SurveyRow(type="integer", name="q", retries=2), 8),
             # `numeric` is an alias, so it must count the same.
-            (SurveyRow(type="numeric", name="q", retries=2), 7),
+            (SurveyRow(type="numeric", name="q", retries=2), 8),
             # Zero retries drops the retry machinery; giving up stays.
-            (SurveyRow(type="select_list l", name="q", retries=0), 4),
+            (SurveyRow(type="select_list l", name="q", retries=0), 5),
             (SurveyRow(type="note", name="c"), 1),
             # A group is only a widget when it branches.
             (SurveyRow(type="begin group", name="g", relevance="${arm}='1'"), 1),
@@ -205,9 +205,10 @@ class TestOneRowIsOneSubgraph:
         # for a stop word: opener, consent, and the first question of each arm.
         assert counts[("intro", "template")] == 2
         assert counts[("consent", "select_button consent")] == 9
-        assert counts[("P1", "text")] == 3
-        assert counts[("P1", "select_list p1")] == 8
-        assert counts[("P2", "select_list p2")] == 7
+        # The first question of an arm also notes a stop on itself.
+        assert counts[("P1", "text")] == 5
+        assert counts[("P1", "select_list p1")] == 10
+        assert counts[("P2", "select_list p2")] == 8
 
 
 class TestTheValidatorRefusesWhatItShould:

@@ -101,10 +101,10 @@ Text = dict[str, str]
 #: ============================  ==============================  =========
 #: type                          what the respondent gets        widgets
 #: ============================  ==============================  =========
-#: ``text``                      a plain body, any reply taken    3
-#: ``integer`` / ``decimal``     a plain body, reply validated    8
-#: ``select_list <list>``        ``twilio/list-picker``, ≤10      8
-#: ``select_button <list>``      ``twilio/quick-reply``, ≤3       8
+#: ``text``                      a plain body, any reply taken    4
+#: ``integer`` / ``decimal``     a plain body, reply validated    9
+#: ``select_list <list>``        ``twilio/list-picker``, ≤10      9
+#: ``select_button <list>``      ``twilio/quick-reply``, ≤3       9
 #: ``template``                  an approved template, waits      3
 #: ============================  ==============================  =========
 #:
@@ -223,6 +223,10 @@ _CLAUSE = re.compile(r"\$\{(\w+)\}\s*(!=|=|>|<)\s*(?:'([^']*)'|(-?\d+(?:[.,]\d+)
 _JOINER = re.compile(r"\s+(and|or)\s+", re.IGNORECASE)
 #: A value ``>`` and ``<`` can compare: a number, with either decimal mark.
 _NUMBER = re.compile(r"^-?\d+(?:[.,]\d+)?$")
+
+#: A MotherDuck table name the publish Function takes from a flow: one plain
+#: identifier, because it goes into the INSERT unquoted.
+_TABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 #: Widget and variable names Studio accepts.
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -490,6 +494,10 @@ class Settings:
     #: Seconds of silence before the no-reply reminder goes out. Under 24 hours,
     #: because after that WhatsApp allows only approved templates.
     reminder_after: int = DEFAULT_REMINDER_AFTER
+    #: The MotherDuck table this survey's rows go to, in the database the
+    #: Function is set up for. Blank uses the Survey ID, so two surveys never
+    #: share a table by accident.
+    publish_table: str = ""
     #: Columns the sample file must supply, checked by ``rtt launch --dry-run``.
     preloads: list[str] = field(default_factory=list)
     flow_name: Text = field(default_factory=dict)
@@ -646,6 +654,11 @@ class Spec:
         has_standard = any(m.key == REMINDER_MESSAGE for m in self.messages)
         return REMINDER_MESSAGE if has_standard else ""
 
+    @property
+    def table_name(self) -> str:
+        """The MotherDuck table the survey's rows go to: the setting, or the ID."""
+        return self.settings.publish_table or self.settings.form_id
+
     def widget_count(self, row: SurveyRow) -> int:
         """Return how many Studio widgets this one row becomes.
 
@@ -681,6 +694,13 @@ class Spec:
         # free-form - so there is no variable to set and no validation to do.
         if row.kind == "template":
             return widgets
+        if row.role != "consent":
+            widgets += 1  # note it went quiet
+            if self.listens_for_stop(row) or (
+                self.reminder_key(row)
+                and self.settings.stop_words == "opening_and_reminders"
+            ):
+                widgets += 1  # note it stopped
         if row.role == "consent":
             widgets += 4  # validate, record yes, record no, give up
         elif row.is_validated:
@@ -740,6 +760,7 @@ def spec_to_dict(spec: Spec) -> dict[str, Any]:
             "default_retries": spec.settings.default_retries,
             "stop_words": spec.settings.stop_words,
             "reminder_after": spec.settings.reminder_after,
+            "publish_table": spec.settings.publish_table,
             "preloads": list(spec.settings.preloads),
             "flow_name": _clean(spec.settings.flow_name),
             "description": _clean(spec.settings.description),
@@ -824,6 +845,7 @@ def spec_from_dict(payload: dict[str, Any]) -> Spec:
         default_retries=int(raw_settings.get("default_retries", 2)),
         stop_words=raw_settings.get("stop_words", "opening_and_reminders"),
         reminder_after=int(raw_settings.get("reminder_after", DEFAULT_REMINDER_AFTER)),
+        publish_table=raw_settings.get("publish_table", ""),
         preloads=list(raw_settings.get("preloads") or []),
         flow_name=dict(raw_settings.get("flow_name") or {}),
         description=dict(raw_settings.get("description") or {}),
@@ -956,6 +978,11 @@ def _check_settings(spec: Spec) -> list[str]:
             f"settings: reminder_after is {settings.reminder_after} seconds. It has "
             f"to be under {SESSION_WINDOW_SECONDS} (24 hours): after that WhatsApp "
             "allows only approved templates, so the reminder would not be delivered"
+        )
+    if not _TABLE_NAME.match(spec.table_name):
+        problems.append(
+            f"settings: the table name {spec.table_name!r} has to start with a "
+            "letter or _ and hold only letters, digits and underscores, up to 63"
         )
     if settings.functions_service != FUNCTIONS_SERVICE:
         problems.append(

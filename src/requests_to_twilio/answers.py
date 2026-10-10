@@ -190,6 +190,17 @@ def expected_code(options, reply: str) -> str:
     return "other"
 
 
+def label_mapping(widget: str, options, source: str = "") -> str:
+    """Build Liquid that turns a reply into the label of the option it picked.
+
+    What the answer column holds for a buttons or list question, so it reads
+    the same however the person answered: a tapped list row sends its id
+    (``frequency_2``), a tapped button its title, a typed reply a digit. The
+    same case as :func:`code_mapping`, emitting the label instead of the code.
+    """
+    return _option_case(widget, options, source, lambda option, index: option[1])
+
+
 def code_mapping(widget: str, options, source: str = "") -> str:
     """Build Liquid that normalises a reply to its option number.
 
@@ -206,6 +217,11 @@ def code_mapping(widget: str, options, source: str = "") -> str:
     ``source`` is the Liquid expression holding the reply, when it is not the
     widget's own body - a question asked twice keeps its reply in a variable.
     """
+    return _option_case(widget, options, source, option_code)
+
+
+def _option_case(widget: str, options, source: str, emit) -> str:
+    """Build the Liquid case over a reply's normalised forms; see code_mapping."""
     removals = "".join(f' | replace: "{char}", ""' for char in _STRIPPED_PUNCTUATION)
     accept_positions = not positions_are_ambiguous(options)
     clauses = []
@@ -216,9 +232,7 @@ def code_mapping(widget: str, options, source: str = "") -> str:
         ]
         if accept_positions:
             alternatives.append(f'"{index}"')
-        clauses.append(
-            f"{{% when {' or '.join(alternatives)} %}}{option_code(option, index)}"
-        )
+        clauses.append(f"{{% when {' or '.join(alternatives)} %}}{emit(option, index)}")
     source = source or f"widgets.{widget}.inbound.Body"
     return (
         f"{{% assign reply = {source} "

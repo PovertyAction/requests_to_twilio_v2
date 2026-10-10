@@ -221,3 +221,66 @@ def push_file(
     return push_dataframe(
         frame=frame, table=table, database=database, mode=mode, columns=columns
     )
+
+
+def table_changes(
+    wanted: list[str], existing: list[str] | None
+) -> tuple[bool, list[str], list[str]]:
+    """Compare the columns a flow publishes with a table's.
+
+    Returns:
+        ``(create, missing, extra)``: whether the table has to be created, the
+        columns to add, and the ones the table has that the flow does not send.
+        Extra columns are kept, never dropped: they may hold an earlier version
+        of the survey's answers.
+
+    """
+    if existing is None:
+        return True, list(wanted), []
+    have = set(existing)
+    return (
+        False,
+        [c for c in wanted if c not in have],
+        [c for c in existing if c not in set(wanted)],
+    )
+
+
+def wire_connect(database: str):
+    """Connect over the Postgres endpoint the publish Function uses.
+
+    Not the DuckDB extension :func:`_connect` uses: IPA laptops cannot load it,
+    and this way the table is made by the same route the rows will arrive by.
+
+    Raises:
+        WarehouseError: If the endpoint, the token or the connection is missing.
+
+    """
+    import psycopg
+
+    try:
+        return psycopg.connect(
+            host=require(ENV_FUNCTION_HOST),
+            port=5432,
+            dbname=database,
+            user="postgres",
+            password=require(ENV_TOKEN),
+            sslmode="require",
+            autocommit=True,
+        )
+    except psycopg.Error as exc:
+        raise WarehouseError(
+            f"Could not reach MotherDuck database {database!r}: {exc}"
+        ) from exc
+
+
+def wire_columns(connection, table: str) -> list[str] | None:
+    """Return a ``main`` table's columns in order, or None if it does not exist."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'main' AND table_name = %s "
+            "ORDER BY ordinal_position",
+            (table,),
+        )
+        rows = cursor.fetchall()
+    return [r[0] for r in rows] or None

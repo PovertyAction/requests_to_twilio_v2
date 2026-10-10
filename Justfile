@@ -388,6 +388,15 @@ flow-schema FILE *ARGS:
 flow-header FILE:
     uv run rtt flow schema {{ FILE }} --format header
 
+# The MotherDuck counterpart, and it acts rather than prints: creates the table
+# the flow names, or adds the columns it is missing, over the same Postgres
+# endpoint the publish Function uses. Never drops a column.
+#
+#   just flow-table flows/my_survey_en.json
+[doc("Create a flow's MotherDuck table, or add the columns it is missing")]
+flow-table FILE *ARGS:
+    uv run rtt flow table {{ FILE }} {{ ARGS }}
+
 # One observation per respondent, every row joinable back to the sampling frame,
 # outcomes recorded. Meant to be run on a loop during a live round, so findings
 # are warnings: by the time data exists there is nothing left to prevent. The
