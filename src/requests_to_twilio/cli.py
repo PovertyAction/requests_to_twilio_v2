@@ -12,6 +12,7 @@ import json
 import stat
 import sys
 import time
+import webbrowser
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -21,6 +22,7 @@ import typer
 from twilio.rest import Client
 
 from . import config as cfg
+from .builder import BUILDER_HTML
 from .crypto import CryptoError, KeyPair, load_private_key
 from .decryptor import DecryptionError, decrypt_dataset
 from .fetch import FetchError, fetch_executions, reconcile, write_output
@@ -2141,3 +2143,23 @@ def survey_template(
         f"    rtt survey convert {written} {written.with_suffix('.json')}"
         "   # then commit the JSON"
     )
+
+
+@survey_app.command("builder")
+def survey_builder(
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Open the survey builder: cards, a flow map and a phone preview, offline.
+
+    The builder is one HTML file opened from disk. It never talks to Twilio, so
+    it holds no credentials; it reads and writes the spec's canonical JSON, and
+    `rtt survey check` stays the check that counts.
+    """
+    configure(verbose)
+    typer.secho(f"Opening {BUILDER_HTML}", fg=typer.colors.GREEN)
+    if not webbrowser.open(BUILDER_HTML.as_uri()):
+        typer.echo("  No browser opened. Open that file in Chrome or Edge.")
+    typer.echo("  Chrome and Edge save straight back to the file you opened;")
+    typer.echo("  other browsers download a copy instead.")
+    typer.echo("")
+    typer.echo("  Then: rtt survey check <your_survey>.json")

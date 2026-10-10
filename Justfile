@@ -462,6 +462,23 @@ survey-json FILE:
 # type. Two descriptions of one instrument, and the wrong one was the readable
 # one. scripts/build_data_use_demo.py is now the only description of the demo.
 
+# The survey builder: one offline HTML page with a card per step, a map of the
+# flow's shape and a WhatsApp preview. It reads and writes the same JSON as the
+# workbook, never touches Twilio, and survey-check stays the check that counts.
+#
+#   just survey-builder                   # open it, then Open... a spec or start New
+#   just survey-check my_survey.json      # after saving
+[doc("Open the visual survey builder in your browser")]
+survey-builder:
+    uv run rtt survey builder
+
+# The builder carries a copy of the limits, vocabularies and starter instrument
+# the Python side owns. Rewrite that copy after changing any of them - a test
+# fails when it has drifted.
+[doc("Rewrite the builder's embedded limits and starter from the Python side")]
+survey-builder-sync:
+    uv run python -c "from requests_to_twilio.builder import write_contract; print(write_contract())"
+
 # A documented starter workbook to fill in - a small working instrument showing
 # one row of every type, not an empty sheet. Writes survey.xlsx by default and
 # refuses to overwrite, so it cannot clobber an instrument mid-edit.

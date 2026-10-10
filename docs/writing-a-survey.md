@@ -4,9 +4,14 @@ You describe the instrument as rows, the way you would an XLSForm. The toolkit
 turns those rows into a Studio flow.
 
 ```text
-sample_template.xlsx   →   my_survey.xlsx   ⇄   my_survey.json   →   Studio flow
-   (the reference)          (you edit this)      (git carries this)      (not yet)
+   survey builder  ⇄ ┐
+                     ├   my_survey.json   →   Studio flow
+   my_survey.xlsx  ⇄ ┘   (git carries this)      (not yet)
 ```
+
+Edit the JSON in either surface: the **survey builder**, a visual editor with a
+card per step, or the **workbook** in Excel. Both read and write the same file,
+so a team can mix them.
 
 > **The last arrow is not built yet.** `rtt survey` writes, reads, converts and
 > checks an instrument, and everything on this page about authoring one is real
@@ -24,9 +29,9 @@ sample_template.xlsx   →   my_survey.xlsx   ⇄   my_survey.json   →   Studi
 > builder.
 
 One row is one question **including the whole subgraph it becomes**. A closed
-question with retries is eight Studio widgets — ask, check for a request to stop,
-validate, store, count the retry, decide, nudge, give up. A plain text question
-is three. The `widgets` column in the workbook says which, next to each row, so
+question with retries is seven Studio widgets — ask, validate, store, count the
+retry, decide, nudge, give up — and the no-reply reminder adds three more. A
+plain text question is two, or five with the reminder. The `widgets` column in the workbook says which, next to each row, so
 the cost of a design choice is visible while you are making it.
 
 That is the whole point. The demo instrument is 97 widgets for six questions
@@ -82,7 +87,7 @@ inside the file, so it is there when you need it rather than in a wiki.
 | --- | --- |
 | `survey` | a question, or a positioned message |
 | `choices` | an answer option |
-| `messages` | a string with no position — a nudge, the stop words |
+| `messages` | a string with no position — a nudge, the stop words, the reminder |
 | `settings` | the instrument as a whole |
 
 ### `survey`
@@ -97,8 +102,9 @@ inside the file, so it is there when you need it rather than in a wiki.
 | `retries` | how many times to re-ask a reply that does not validate |
 | `constraint` | the regex a reply must match, for `integer` / `decimal` |
 | `constraint_message` | which nudge to send when it does not |
-| `timeout` | seconds to wait for a reply |
-| `stop_check` | default yes, and it should stay yes |
+| `timeout` | seconds to wait for a reply (after the reminder, when there is one) |
+| `timeout_reminder` | default yes: send the no-reply reminder with the question again |
+| `timeout_message` | this question's own reminder text, a key in `messages`; blank uses `timeout_nudge` |
 | `publish` / `encrypt` | whether the answer reaches the warehouse, and whether encrypted first |
 
 The types, and what each becomes:
@@ -193,7 +199,47 @@ This is not hypothetical. In a live Spanish round, `p2_1` — whose label is
 digit been accepted, every respondent who typed `1` would have been recorded one
 option off, and nothing would have reported a problem.
 
+## The builder
+
+```powershell
+just survey-builder                            # opens it in your browser
+```
+
+One HTML page, opened from disk: no install, no server, and no Twilio
+credentials, because it never talks to Twilio. It shows three things at once:
+
+- **Cards**, one per step, in order. Sections indent their steps; drag a card by
+  its handle, or use the arrows, to move it. Delete is undoable.
+- **The flow map**, the instrument's shape: sections with a condition become
+  lanes side by side, closings fan out by outcome, and the steps every flow
+  shares (launch, publish) are drawn dashed. Click a node to open its card.
+- **A phone preview** of the selected step in each language, with its buttons
+  or list as WhatsApp renders them, the codes it stores and the nudge it sends.
+
+Limits show while you type: 24 characters for an option, 72 for a description,
+3 buttons, 10 list rows, 1024 for a message with options. Those numbers come
+from the same code `just survey-check` uses, and a test fails if the page's copy
+drifts.
+
+**Open** reads a spec's JSON; **New** starts from the documented example.
+**Save** writes back to the file you opened in Chrome or Edge, and downloads a
+copy in other browsers. An open-and-save with no edits leaves the file
+byte-identical, so the diff a reviewer reads is only what you changed.
+
+The builder shows limits, not everything: `just survey-check` stays the check
+that counts, because it runs every option pattern and the consent rules.
+
 ## The cycle
+
+With the builder:
+
+```powershell
+just survey-builder                            # Open... my_survey.json, edit, Save
+just survey-check my_survey.json               # must pass
+git add my_survey.json
+```
+
+With Excel:
 
 ```powershell
 just survey-template --output my_survey.xlsx   # once

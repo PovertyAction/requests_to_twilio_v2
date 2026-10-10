@@ -53,6 +53,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from .spec import (
     CONSTRAINED_TYPES,
+    DEFAULT_REMINDER_AFTER,
     QUESTION_TYPES,
     ROLES,
     SCOPE_NOTE,
@@ -86,7 +87,8 @@ _SURVEY_TAIL = (
     "timeout",
     "constraint",
     "constraint_message",
-    "stop_check",
+    "timeout_message",
+    "timeout_reminder",
     "publish",
     "encrypt",
 )
@@ -212,7 +214,11 @@ def _headers(spec: Spec, sheet: str) -> list[str]:
 
 #: Flags that only mean something on a row that waits for a reply, paired with
 #: the value that means "nothing unusual here".
-_QUESTION_ONLY_FLAGS = (("stop_check", True), ("publish", True), ("encrypt", False))
+_QUESTION_ONLY_FLAGS = (
+    ("timeout_reminder", True),
+    ("publish", True),
+    ("encrypt", False),
+)
 
 
 def _survey_values(spec: Spec, row: SurveyRow, headers: list[str]) -> list[str]:
@@ -226,12 +232,13 @@ def _survey_values(spec: Spec, row: SurveyRow, headers: list[str]) -> list[str]:
         "timeout": row.timeout,
         "constraint": row.constraint,
         "constraint_message": row.constraint_message,
+        "timeout_message": row.timeout_message,
         _WIDGETS_COLUMN: spec.widget_count(row),
     }
 
-    # `stop_check: yes` against a `begin group` row is not wrong, it is
+    # `timeout_reminder: yes` against a `begin group` row is not wrong, it is
     # meaningless - a group does not wait for a reply, so there is nothing to
-    # check for a request to stop. Printing it anyway invites somebody to reason
+    # remind anybody about. Printing it anyway invites somebody to reason
     # about it, or to "fix" it, and a sheet full of cells that do not matter is
     # how the cells that do matter stop being read.
     #
@@ -357,6 +364,8 @@ def _write_settings(workbook: Workbook, spec: Spec) -> None:
         ("functions_service", settings.functions_service),
         ("default_timeout", str(settings.default_timeout)),
         ("default_retries", str(settings.default_retries)),
+        ("stop_words", settings.stop_words),
+        ("reminder_after", str(settings.reminder_after)),
         ("preloads", ", ".join(settings.preloads)),
     ]
     for lang in settings.languages:
@@ -637,12 +646,15 @@ def _help_survey(spec: Spec) -> list[str]:
         f"timeout - seconds to wait for a reply. Blank uses "
         f"{spec.settings.default_timeout}.",
         "",
-        "stop_check - default yes, and it should stay yes",
-        "  Routes a mid-survey STOP before the reply is treated as an answer. "
-        "Twilio's own opt-out handling covers the carrier keywords for SMS; "
-        "inside a WhatsApp session a STOP is an ordinary message and nothing "
-        "looks at it unless the flow does. Without this, saying stop stores "
-        "'stop' as the answer and the next question goes out anyway.",
+        "timeout_reminder - default yes. Send the no-reply reminder.",
+        "  When nobody replies for the settings' reminder_after (23h30 unless you "
+        "change it), the person gets the reminder and the same question again. "
+        "Then the usual timeout runs; if there is still nothing, they are marked "
+        "as not replying.",
+        "",
+        "timeout_message - this question's own reminder text",
+        "  A key from the messages sheet. Blank uses timeout_nudge. A reminder "
+        "goes to somebody who has gone quiet, so say they can reply STOP.",
         "",
         "publish - default yes. Whether the answer reaches the warehouse.",
         "encrypt - default no. Encrypt this field before it is stored.",
@@ -722,9 +734,15 @@ def _help_messages(spec: Spec) -> list[str]:
         "",
         "error_numeric - the nudge after a reply that failed a constraint.",
         "",
-        "stop_words - comma-separated. Include the English words even in a "
-        "non-English instrument: people type STOP whatever language they are "
-        "answering in.",
+        "stop_words - comma-separated. STOP is always understood, in every "
+        "language, and capitals do not matter (stop, Stop, STOP). Where they are "
+        "listened for is the settings' stop_words: by default the opening "
+        "(opener, consent, first question) and any reply to a reminder. Mid-survey "
+        "a person who has had enough simply stops answering.",
+        "",
+        "timeout_nudge - the no-reply reminder, sent with the question again "
+        "after the settings' reminder_after (23h30 by default, the last moment "
+        "WhatsApp still allows free text). Tell people they can reply STOP.",
         "",
         "list_button - the up-to-20-character button that opens a list.",
         "",
@@ -828,6 +846,11 @@ def _read_settings(frame: pd.DataFrame | None) -> Settings:
     settings.default_timeout = _parse_int(values.get("default_timeout", "")) or 3600
     retries = _parse_int(values.get("default_retries", ""))
     settings.default_retries = 2 if retries is None else retries
+    settings.stop_words = values.get("stop_words", "") or "opening_and_reminders"
+    reminder_after = _parse_int(values.get("reminder_after", ""))
+    settings.reminder_after = (
+        DEFAULT_REMINDER_AFTER if reminder_after is None else reminder_after
+    )
     settings.preloads = [
         part.strip() for part in values.get("preloads", "").split(",") if part.strip()
     ]
@@ -869,7 +892,8 @@ def _read_survey(frame: pd.DataFrame, languages: list[str]) -> list[SurveyRow]:
                 timeout=_parse_int(row.get("timeout")),
                 constraint=_clean_cell(row.get("constraint")),
                 constraint_message=_clean_cell(row.get("constraint_message")),
-                stop_check=_parse_bool(row.get("stop_check"), True),
+                timeout_message=_clean_cell(row.get("timeout_message")),
+                timeout_reminder=_parse_bool(row.get("timeout_reminder"), True),
                 publish=_parse_bool(row.get("publish"), True),
                 encrypt=_parse_bool(row.get("encrypt"), False),
             )

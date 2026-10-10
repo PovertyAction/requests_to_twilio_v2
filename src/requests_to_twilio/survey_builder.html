@@ -1,0 +1,2107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Survey builder - requests_to_twilio</title>
+<!--
+  The survey builder. One file, opened from disk: no server, no network, no
+  Twilio credentials. It edits a survey spec's canonical JSON - the same file
+  `rtt survey convert` writes - and `rtt survey check` stays the authoritative
+  check. The limits below come from the Python side through the rtt-contract
+  block, which `just survey-builder-sync` rewrites and a test compares.
+-->
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2433; --muted: #6b7385; --line: #e2e5ea;
+    --accent: #4f46e5; --accent-soft: #eef0ff; --bad: #d92d20; --bad-soft: #fdecea;
+    --warn: #b54708; --warn-soft: #fff4e5; --ok: #067647;
+    --k-text: #0284c7; --k-integer: #7c3aed; --k-decimal: #7c3aed; --k-select_button: #059669;
+    --k-select_list: #0d9488; --k-template: #d97706; --k-note: #64748b; --k-close: #be123c;
+    --k-group: #4f46e5; --k-consent: #db2777; --k-unsolicited: #94a3b8;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel);
+    color: var(--ink); border-radius: 6px; padding: 5px 10px; }
+  button:hover { border-color: #c5cad3; background: #fafbfc; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #4338ca; }
+  button.ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 3px 6px; }
+  button.ghost:hover { color: var(--ink); background: #eef0f3; }
+  input, textarea, select { font: inherit; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 8px; background: #fff; width: 100%; }
+  textarea { resize: vertical; min-height: 64px; line-height: 1.4; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .invalid { border-color: var(--bad) !important; background: var(--bad-soft); }
+  code, .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
+
+  header.bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .brand { font-weight: 700; letter-spacing: .2px; }
+  .brand small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .file { color: var(--muted); display: flex; gap: 6px; align-items: center; min-width: 0; }
+  .file b { color: var(--ink); font-weight: 600; }
+  .dirty { color: var(--warn); font-size: 12px; }
+  .spacer { flex: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 5px 10px; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .issues-btn.has { background: var(--bad-soft); border-color: #f5c2bd; color: var(--bad); }
+  .issues-btn.none { color: var(--ok); }
+
+  main.layout { display: grid; grid-template-columns: minmax(300px, 360px) minmax(420px, 1fr) 360px;
+    gap: 14px; padding: 14px; align-items: start; }
+  @media (max-width: 1250px) { main.layout { grid-template-columns: minmax(420px, 1fr) 340px; }
+    .map-pane { grid-column: 1 / -1; position: static !important; max-height: none !important; } }
+  .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .map-pane, .preview-pane { position: sticky; top: 62px; max-height: calc(100vh - 76px); overflow: auto; }
+  .pane-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--muted); padding: 10px 12px 6px; display: flex; justify-content: space-between; align-items: center; }
+  #map { padding: 0 8px 10px; overflow: auto; }
+  #map svg text { font-family: "Segoe UI", system-ui, sans-serif; }
+  .map-node { cursor: pointer; }
+  .map-node:hover rect.box { stroke-width: 2; }
+
+  .cards-pane { min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--kc, #999);
+    border-radius: 10px; margin: 0; }
+  .card.sel { box-shadow: 0 0 0 2px var(--accent); }
+  .card.dragging { opacity: .45; }
+  .card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; user-select: none; }
+  .handle { cursor: grab; color: #a0a7b4; padding: 0 2px; font-size: 16px; line-height: 1; }
+  .stepno { font-size: 11px; color: var(--muted); background: #f0f2f5; border-radius: 4px; padding: 1px 6px; }
+  .kind { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--kc); }
+  .rname { font-weight: 600; }
+  .summary { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .badge { font-size: 11px; border-radius: 10px; padding: 1px 7px; background: #f0f2f5; color: var(--muted); white-space: nowrap; }
+  .badge.bad { background: var(--bad-soft); color: var(--bad); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .head-tools { display: flex; gap: 2px; }
+  .card-body { padding: 4px 14px 14px; border-top: 1px dashed var(--line); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .fld { margin-top: 10px; }
+  .fld > label, .fld-label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px;
+    font-weight: 600; color: #3f4756; margin-bottom: 4px; }
+  .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .count { font-size: 11px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .count.over { color: var(--bad); font-weight: 700; }
+  .langs-row { display: grid; gap: 10px; grid-template-columns: repeat(var(--nl, 1), 1fr); }
+    .checks { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+  .checks label { display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+  .checks input { width: auto; }
+  details.more { margin-top: 10px; }
+  details.more > summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; }
+  .note-box { font-size: 12.5px; color: #4b5563; background: #f7f8fa; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.45; white-space: pre-line; }
+  .note-box.info { background: var(--accent-soft); border-color: #d9dcff; color: #3730a3; }
+
+  .cond { margin-top: 12px; padding: 10px 12px; border-radius: 8px; border: 1px dashed #c7cbf5; background: #fafaff; }
+  .cond.on { border: 1px solid #a5abf2; background: var(--accent-soft); }
+  .cond .fld-label { font-size: 13px; color: #312e81; }
+  .cond-badge { background: var(--accent-soft); color: #3730a3; font-weight: 600; }
+  .choices { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .choices-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px;
+    background: #f7f8fa; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; }
+  .choice { display: grid; grid-template-columns: 70px 1fr auto; gap: 8px; padding: 8px 10px;
+    border-bottom: 1px solid var(--line); align-items: start; }
+  .choice:last-child { border-bottom: 0; }
+  .choice .sub { grid-column: 2 / 3; }
+  .choice-tools { display: flex; gap: 2px; }
+
+  .insert { display: flex; align-items: center; gap: 8px; height: 22px; margin: 2px 0; opacity: .0; transition: opacity .12s; }
+  .insert:hover, .insert.open, .insert.drop { opacity: 1; }
+  .insert::before, .insert::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .insert.drop::before, .insert.drop::after { height: 3px; background: var(--accent); }
+  .insert button { font-size: 12px; padding: 1px 8px; color: var(--accent); border-color: #d9dcff; background: var(--accent-soft); }
+  .menu { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; margin: 2px 0 6px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; }
+  .menu button { font-size: 12.5px; }
+  .menu button .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  .phone { margin: 4px 12px 12px; border-radius: 22px; border: 8px solid #1f2328; overflow: hidden; background: #efe7dd; }
+  .phone-top { background: #075e54; color: #fff; padding: 9px 12px; font-weight: 600; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .phone-top .avatar { width: 26px; height: 26px; border-radius: 50%; background: #d7ece9; color: #075e54;
+    display: grid; place-items: center; font-weight: 700; font-size: 12px; }
+  .chat { padding: 12px 10px 16px; min-height: 260px; display: flex; flex-direction: column; gap: 6px; }
+  .bubble { background: #fff; border-radius: 8px; border-top-left-radius: 0; padding: 7px 9px 5px; max-width: 92%;
+    box-shadow: 0 1px .5px rgba(0,0,0,.13); font-size: 13.5px; line-height: 1.38; word-wrap: break-word; }
+  .bubble .time { display: block; text-align: right; color: #8696a0; font-size: 10.5px; margin-top: 2px; }
+  .bubble.sys { background: #fdf6d8; color: #54470f; align-self: center; border-radius: 8px; font-size: 12.5px; text-align: center; max-width: 100%; }
+  .wa-btn { background: #fff; border-radius: 8px; padding: 8px; text-align: center; color: #027eb5; font-size: 13.5px;
+    max-width: 92%; box-shadow: 0 1px .5px rgba(0,0,0,.13); }
+  .wa-btn.over { color: var(--bad); text-decoration: line-through; }
+  .wa-list-btn { border-top: 1px solid #e9edef; margin: 6px -9px -5px; padding: 8px; text-align: center; color: #027eb5; }
+  .sheet { background: #fff; border-radius: 12px; margin-top: 8px; box-shadow: 0 -1px 6px rgba(0,0,0,.12); overflow: hidden; }
+  .sheet-title { text-align: center; font-weight: 600; padding: 8px; border-bottom: 1px solid #e9edef; font-size: 13px; }
+  .sheet-row { padding: 7px 12px; border-bottom: 1px solid #f0f2f5; display: flex; justify-content: space-between; gap: 8px; }
+  .sheet-row:last-child { border-bottom: 0; }
+  .sheet-row small { display: block; color: #667781; font-size: 12px; }
+  .radio { width: 16px; height: 16px; border: 2px solid #8696a0; border-radius: 50%; flex: none; margin-top: 2px; }
+  .var { background: #e7f0ff; color: #1d4ed8; border-radius: 3px; padding: 0 3px; font-family: Consolas, monospace; font-size: 12px; }
+  .facts { margin: 0 12px 12px; font-size: 12.5px; color: #3f4756; line-height: 1.5; }
+  .facts dt { font-weight: 700; margin-top: 6px; }
+  .facts dd { margin: 0; color: var(--muted); }
+  .codes { border-collapse: collapse; width: 100%; margin-top: 2px; }
+  .codes td { border-top: 1px solid var(--line); padding: 2px 4px; }
+  #issues { margin: 0 12px 12px; }
+  .issue { font-size: 12.5px; padding: 6px 8px; border-radius: 6px; margin-top: 4px; cursor: pointer; line-height: 1.35; }
+  .issue.error { background: var(--bad-soft); color: #912018; }
+  .issue.warn { background: var(--warn-soft); color: #93370d; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #1f2328; color: #fff;
+    padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 50; display: flex; gap: 12px; align-items: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+  .toast.error { background: #912018; }
+  .toast button { background: transparent; color: #c7d2fe; border-color: #4b5563; padding: 2px 8px; }
+  .welcome { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">Survey builder<small>requests_to_twilio</small></div>
+  <div class="file"><b id="file-name">untitled.json</b><span id="dirty" class="dirty"></span></div>
+  <button id="btn-new" title="Start from the documented example">New</button>
+  <button id="btn-open" title="Open a survey spec (.json)">Open...</button>
+  <button id="btn-save" class="primary" title="Save (Ctrl+S)">Save</button>
+  <button id="btn-saveas">Save as...</button>
+  <button id="btn-undo" class="ghost" title="Undo (Ctrl+Z)">&#8630; Undo</button>
+  <button id="btn-redo" class="ghost" title="Redo (Ctrl+Y)">&#8631; Redo</button>
+  <div class="spacer"></div>
+  <span class="hint" id="langs-label">Language</span><div class="seg" id="langs"></div>
+  <button id="btn-copy" title="Copy the command that checks this file">Copy check command</button>
+  <button id="btn-issues" class="issues-btn">0 issues</button>
+</header>
+
+<main class="layout">
+  <aside class="pane map-pane">
+    <div class="pane-title"><span>Flow map</span><span class="hint" id="map-meta"></span></div>
+    <div id="map"></div>
+  </aside>
+  <section class="cards-pane">
+    <div id="cards"></div>
+  </section>
+  <aside class="pane preview-pane">
+    <div class="pane-title"><span>How it looks on the phone</span><span class="hint" id="preview-meta"></span></div>
+    <div id="phone"></div>
+    <div class="pane-title" id="issues-title"><span>To fix</span></div>
+    <div id="issues"></div>
+  </aside>
+</main>
+<input type="file" id="file-input" accept=".json,application/json" hidden>
+
+<script type="application/json" id="rtt-contract">
+{
+  "limits": {
+    "list-picker:body": 1024,
+    "list-picker:item": 24,
+    "list-picker:description": 72,
+    "list-picker:id": 200,
+    "quick-reply:title": 25,
+    "list_button": 20,
+    "max_list_items": 10,
+    "max_session_buttons": 3
+  },
+  "question_types": [
+    "decimal",
+    "integer",
+    "numeric",
+    "select_button",
+    "select_list",
+    "template",
+    "text"
+  ],
+  "constrained_types": [
+    "decimal",
+    "integer",
+    "numeric"
+  ],
+  "structure_types": [
+    "begin group",
+    "end group",
+    "note"
+  ],
+  "type_aliases": {
+    "numeric": "integer"
+  },
+  "roles": [
+    "",
+    "close",
+    "consent",
+    "intro",
+    "unsolicited"
+  ],
+  "outcomes": [
+    "complete",
+    "declined",
+    "incomplete",
+    "unreachable",
+    "undeliverable",
+    "optout"
+  ],
+  "default_constraints": {
+    "integer": "(?:\\s*\\d+\\s*)",
+    "decimal": "(?:\\s*\\d+(?:[.,]\\d+)?\\s*)"
+  },
+  "stop_word_scopes": [
+    "opening_and_reminders",
+    "opening",
+    "never"
+  ],
+  "universal_stop_word": "stop",
+  "reminder_message": "timeout_nudge",
+  "default_reminder_after": 84600,
+  "session_window": 86400,
+  "emoji_ranges": [
+    [
+      127744,
+      129791
+    ],
+    [
+      9728,
+      10175
+    ],
+    [
+      65024,
+      65039
+    ],
+    [
+      8205,
+      8205
+    ],
+    [
+      11008,
+      11263
+    ]
+  ],
+  "scope_note": "This format describes a SURVEY: an instrument that asks a sampled person questions and expects a dataset out. It assumes consent is asked before any question, that every path publishes exactly one row per respondent, and that one execution is one person answering once.\n\nReminders, multi-wave interventions and notifications break those assumptions - they may send repeatedly to the same person, collect no answer, take consent at enrolment rather than in the message, or publish nothing. Those are not worse flows, they are a different shape. Build them as Studio flows and check them with `rtt flow check`, which judges a graph on its own terms.",
+  "starter": {
+    "settings": {
+      "form_id": "my_survey",
+      "form_title": "Replace this with what the round is called",
+      "languages": [
+        "en"
+      ],
+      "default_language": "en",
+      "functions_service": "rtt-survey",
+      "default_timeout": 3600,
+      "default_retries": 2,
+      "stop_words": "opening_and_reminders",
+      "reminder_after": 84600,
+      "preloads": [
+        "caseid",
+        "name",
+        "sent_at"
+      ],
+      "flow_name": {
+        "en": "my_survey"
+      },
+      "description": {
+        "en": "One line saying what this round is for"
+      }
+    },
+    "survey": [
+      {
+        "type": "template",
+        "name": "intro",
+        "role": "intro",
+        "retries": 0,
+        "template": {
+          "en": "my_survey_intro"
+        },
+        "publish": false
+      },
+      {
+        "type": "select_button consent",
+        "name": "consent",
+        "role": "consent",
+        "label": {
+          "en": "Before we start - would you like to take part?\n\nREPLACE THIS. It takes about N minutes. Taking part is voluntary, you can stop at any time, and your answers are confidential."
+        },
+        "retries": 1
+      },
+      {
+        "type": "select_list frequency",
+        "name": "Q1",
+        "label": {
+          "en": "Question 1 of 3\n\nA closed question. A tap cannot be malformed, so there is nothing to clean afterwards - prefer this shape."
+        },
+        "retries": 2
+      },
+      {
+        "type": "integer",
+        "name": "Q2",
+        "label": {
+          "en": "Question 2 of 3\n\nHow many? The reply is checked before it is stored, so 'about five' is re-asked rather than saved.\n\n_Reply with an exact number (e.g. 0, 3, 12)._"
+        },
+        "retries": 2,
+        "constraint_message": "error_numeric"
+      },
+      {
+        "type": "text",
+        "name": "Q3",
+        "label": {
+          "en": "Question 3 of 3\n\nAn open question. Whatever arrives is stored, including an answer nobody can code - so use it only where the answer genuinely cannot be enumerated."
+        },
+        "retries": 0
+      },
+      {
+        "type": "note",
+        "name": "close_complete",
+        "role": "close",
+        "label": {
+          "en": "Thank you for completing the survey."
+        },
+        "relevance": "${outcome}='complete'",
+        "publish": false
+      },
+      {
+        "type": "note",
+        "name": "close_incomplete",
+        "role": "close",
+        "label": {
+          "en": "Thank you for the answers you gave - they are recorded."
+        },
+        "relevance": "${outcome}='incomplete'",
+        "publish": false
+      },
+      {
+        "type": "note",
+        "name": "close_declined",
+        "role": "close",
+        "label": {
+          "en": "Thank you for your reply. We respect your decision not to take part."
+        },
+        "relevance": "${outcome}='declined'",
+        "publish": false
+      },
+      {
+        "type": "note",
+        "name": "close_optout",
+        "role": "close",
+        "label": {
+          "en": "Understood - nothing further will be sent about this survey. The answers you already gave are kept."
+        },
+        "relevance": "${outcome}='optout'",
+        "publish": false
+      },
+      {
+        "type": "note",
+        "name": "close_never_started",
+        "role": "close",
+        "relevance": "${outcome}='unreachable'",
+        "template": {
+          "en": "my_survey_close"
+        },
+        "publish": false
+      },
+      {
+        "type": "note",
+        "name": "unsolicited_reply",
+        "role": "unsolicited",
+        "label": {
+          "en": "Thanks for your message. This number only runs a short survey, so nothing further is needed from you here."
+        },
+        "publish": false
+      }
+    ],
+    "choices": [
+      {
+        "list_name": "consent",
+        "value": "yes",
+        "option_id": "consent_yes",
+        "label": {
+          "en": "Yes, I will take part"
+        },
+        "typed": {
+          "en": "1|yes|y"
+        }
+      },
+      {
+        "list_name": "consent",
+        "value": "no",
+        "option_id": "consent_no",
+        "label": {
+          "en": "No, thanks"
+        },
+        "typed": {
+          "en": "2|no|n"
+        }
+      },
+      {
+        "list_name": "frequency",
+        "value": "1",
+        "label": {
+          "en": "Never"
+        },
+        "description": {
+          "en": "Optional second line, up to 72 characters"
+        }
+      },
+      {
+        "list_name": "frequency",
+        "value": "2",
+        "label": {
+          "en": "Rarely"
+        }
+      },
+      {
+        "list_name": "frequency",
+        "value": "3",
+        "label": {
+          "en": "Sometimes"
+        }
+      },
+      {
+        "list_name": "frequency",
+        "value": "4",
+        "label": {
+          "en": "Often"
+        }
+      },
+      {
+        "list_name": "frequency",
+        "value": "-99",
+        "label": {
+          "en": "Prefer not to say"
+        },
+        "description": {
+          "en": "Coded -99 so it is not averaged in as a 5"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "key": "error_option",
+        "text": {
+          "en": "No problem - I could not read that one.\n\nTap *{button}* on the message above and pick from the list. You can also reply with the number of your answer."
+        }
+      },
+      {
+        "key": "error_option_labels",
+        "text": {
+          "en": "No problem - I could not read that one.\n\nTap *{button}* on the message above and pick from the list, or type the option exactly as it appears."
+        }
+      },
+      {
+        "key": "error_numeric",
+        "text": {
+          "en": "Please reply with a number only.\n\n_Reply with an exact number (e.g. 0, 3, 12)._"
+        }
+      },
+      {
+        "key": "list_button",
+        "text": {
+          "en": "Choose an answer"
+        }
+      },
+      {
+        "key": "timeout_nudge",
+        "text": {
+          "en": "Just checking in: here is the question again whenever you have a moment. If you would rather stop, reply STOP and we will not message you again."
+        }
+      },
+      {
+        "key": "stop_words",
+        "text": {
+          "en": "stop, quit, unsubscribe, cancel, end"
+        }
+      },
+      {
+        "key": "unsolicited",
+        "text": {
+          "en": "Thanks for your message. Nothing further is needed."
+        }
+      }
+    ]
+  }
+}
+</script>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// The contract: facts the Python side owns (limits, vocabularies, starter).
+// ---------------------------------------------------------------------------
+const C = JSON.parse(document.getElementById("rtt-contract").textContent);
+const $ = (sel) => document.querySelector(sel);
+
+// ---------------------------------------------------------------------------
+// The spec model. Mirrors spec.py: spec_from_dict in, spec_to_dict out, so an
+// untouched open-and-save writes the same bytes `rtt survey convert` would.
+// ---------------------------------------------------------------------------
+// model:begin - pure functions of the contract; tests/test_builder.py runs them in Node.
+const L = C.limits;
+const QUESTION_TYPES = new Set(C.question_types);
+const CONSTRAINED = new Set(C.constrained_types);
+function kindOf(row) {
+  const head = (row.type || "").trim().split(/\s+/)[0] || "";
+  return C.type_aliases[head] || head;
+}
+function listOf(row) {
+  const t = (row.type || "").trim();
+  const at = t.search(/\s/);
+  return at < 0 ? "" : t.slice(at).trim();
+}
+const isQuestion = (row) => QUESTION_TYPES.has(kindOf(row));
+const isSelect = (row) => ["select_list", "select_button"].includes(kindOf(row));
+const isValidated = (row) => isSelect(row) || CONSTRAINED.has(kindOf(row));
+const sendsTemplate = (row) => kindOf(row) === "template" || Object.values(row.template || {}).some(Boolean);
+const isGroupStart = (row) => row.type === "begin group";
+const isGroupEnd = (row) => row.type === "end group";
+
+function intOf(value, field) {
+  const n = Number.parseInt(String(value), 10);
+  if (Number.isNaN(n)) throw new Error(`settings.${field} must be a whole number, got ${JSON.stringify(value)}`);
+  return n;
+}
+
+function normalise(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("A survey spec must be a JSON object.");
+  }
+  const s = payload.settings || {};
+  const text = (v) => ({ ...(v || {}) });
+  return {
+    settings: {
+      form_id: s.form_id ?? "",
+      form_title: s.form_title ?? "",
+      languages: (s.languages && s.languages.length) ? [...s.languages] : ["en"],
+      default_language: s.default_language ?? "en",
+      functions_service: s.functions_service ?? "rtt-survey",
+      default_timeout: intOf(s.default_timeout ?? 3600, "default_timeout"),
+      default_retries: intOf(s.default_retries ?? 2, "default_retries"),
+      stop_words: s.stop_words ?? "opening_and_reminders",
+      reminder_after: intOf(s.reminder_after ?? C.default_reminder_after, "reminder_after"),
+      preloads: [...(s.preloads || [])],
+      flow_name: text(s.flow_name),
+      description: text(s.description),
+    },
+    survey: (payload.survey || []).map((r) => ({
+      type: r.type ?? "", name: r.name ?? "", label: text(r.label), role: r.role ?? "",
+      relevance: r.relevance ?? "", retries: r.retries ?? null, timeout: r.timeout ?? null,
+      constraint: r.constraint ?? "", constraint_message: r.constraint_message ?? "",
+      timeout_message: r.timeout_message ?? "",
+      list_button: text(r.list_button), template: text(r.template),
+      timeout_reminder: r.timeout_reminder ?? true, publish: r.publish ?? true, encrypt: r.encrypt ?? false,
+    })),
+    choices: (payload.choices || []).map((c) => ({
+      list_name: c.list_name ?? "", value: String(c.value ?? ""), option_id: c.option_id ?? "",
+      label: text(c.label), description: text(c.description), typed: text(c.typed),
+    })),
+    messages: (payload.messages || []).map((m) => ({ key: m.key ?? "", text: text(m.text) })),
+  };
+}
+
+const isEmpty = (v) => v === "" || v === null || v === undefined ||
+  (Array.isArray(v) && v.length === 0) ||
+  (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
+
+// spec.py's _clean: drop empty values, test before recursing.
+function clean(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) if (!isEmpty(v)) out[k] = clean(v);
+    return out;
+  }
+  return value;
+}
+
+function canonical(spec) {
+  const st = spec.settings;
+  return {
+    settings: {
+      form_id: st.form_id, form_title: st.form_title, languages: [...st.languages],
+      default_language: st.default_language, functions_service: st.functions_service,
+      default_timeout: st.default_timeout, default_retries: st.default_retries,
+      stop_words: st.stop_words, reminder_after: st.reminder_after,
+      preloads: [...st.preloads], flow_name: clean(st.flow_name), description: clean(st.description),
+    },
+    survey: spec.survey.map((r) => clean({
+      type: r.type, name: r.name, role: r.role, label: r.label, relevance: r.relevance,
+      retries: r.retries, timeout: r.timeout, constraint: r.constraint,
+      constraint_message: r.constraint_message, timeout_message: r.timeout_message,
+      list_button: r.list_button, template: r.template,
+      timeout_reminder: r.timeout_reminder ? null : false, publish: r.publish ? null : false,
+      encrypt: r.encrypt ? true : null,
+    })),
+    choices: spec.choices.map((c) => clean({
+      list_name: c.list_name, value: c.value, option_id: c.option_id,
+      label: c.label, description: c.description, typed: c.typed,
+    })),
+    messages: spec.messages.map((m) => clean({ key: m.key, text: m.text })),
+  };
+}
+// model:end
+
+// spec.py's opening_rows: opener, consent, and the first question of each
+// branch that starts straight after them.
+function openingRows() {
+  const rows = S.spec.survey;
+  const opening = rows.filter((r) => r.role === "intro" || r.role === "consent");
+  const firsts = [];
+  let branch = null;
+  let taken = false;
+  for (const r of rows) {
+    if (r.role === "intro" || r.role === "consent") continue;
+    if (isGroupStart(r)) { branch = r.relevance ? r : null; taken = false; continue; }
+    if (isGroupEnd(r)) { branch = null; continue; }
+    if (!isQuestion(r)) continue;
+    if (branch) { if (!taken) { firsts.push(r); taken = true; } continue; }
+    if (!firsts.length) firsts.push(r);
+    break;
+  }
+  return [...opening, ...firsts];
+}
+function listensForStop(row) {
+  return S.spec.settings.stop_words !== "never" && isQuestion(row) && openingRows().includes(row);
+}
+function reminderKey(row) {
+  if (!isQuestion(row) || kindOf(row) === "template" || !row.timeout_reminder) return "";
+  if (row.timeout_message) return row.timeout_message;
+  return S.spec.messages.some((m) => m.key === C.reminder_message) ? C.reminder_message : "";
+}
+function duration(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  const parts = [];
+  if (hours) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (minutes) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
+  return parts.join(" ") || `${seconds} seconds`;
+}
+const canonicalText = () => JSON.stringify(canonical(S.spec), null, 2) + "\n";
+
+const choicesOf = (ln) => S.spec.choices.filter((c) => c.list_name === ln);
+const rowsUsing = (ln) => S.spec.survey.filter((r) => isSelect(r) && listOf(r) === ln);
+function message(key, lang) {
+  const m = S.spec.messages.find((x) => x.key === key);
+  return m ? (m.text[lang] || "") : "";
+}
+const chars = (s) => [...(s || "")].length; // code points, as Python's len()
+const hasEmoji = (s) => [...(s || "")].some((ch) => {
+  const cp = ch.codePointAt(0);
+  return C.emoji_ranges.some(([lo, hi]) => cp >= lo && cp <= hi);
+});
+
+function blockEnd(i) {
+  // A group moves with everything inside it.
+  if (!isGroupStart(S.spec.survey[i])) return i;
+  let depth = 0;
+  for (let j = i; j < S.spec.survey.length; j++) {
+    if (isGroupStart(S.spec.survey[j])) depth++;
+    if (isGroupEnd(S.spec.survey[j]) && --depth === 0) return j;
+  }
+  return i;
+}
+
+function uniqueName(prefix) {
+  const taken = new Set(S.spec.survey.map((r) => r.name));
+  let n = 1;
+  while (taken.has(`${prefix}${n}`)) n++;
+  return `${prefix}${n}`;
+}
+
+// ---------------------------------------------------------------------------
+// State, undo, dirty tracking.
+// ---------------------------------------------------------------------------
+const S = {
+  spec: null, handle: null, fileName: "untitled.json", savedText: "", last: "",
+  undo: [], redo: [], sel: 0, open: new Set([0]), lang: "en", menuAt: null, armed: null,
+};
+
+function checkpoint() {
+  const now = JSON.stringify(S.spec);
+  if (now !== S.last) { S.undo.push(S.last); if (S.undo.length > 300) S.undo.shift(); S.last = now; S.redo = []; }
+  updateDirty();
+}
+function undo() {
+  checkpoint();
+  if (!S.undo.length) return toast("There is nothing to undo.");
+  S.redo.push(S.last); S.last = S.undo.pop(); S.spec = JSON.parse(S.last); clampSel(); renderAll();
+}
+function redo() {
+  if (!S.redo.length) return toast("There is nothing to redo.");
+  S.undo.push(S.last); S.last = S.redo.pop(); S.spec = JSON.parse(S.last); clampSel(); renderAll();
+}
+function clampSel() { S.sel = Math.max(0, Math.min(S.sel, S.spec.survey.length - 1)); }
+const isDirty = () => S.spec && canonicalText() !== S.savedText;
+function updateDirty() {
+  $("#dirty").textContent = isDirty() ? "unsaved changes" : "";
+  document.title = `${isDirty() ? "* " : ""}${S.fileName} - Survey builder`;
+}
+
+/** A structural edit: record it, then redraw everything. */
+function structural(fn) { fn(); checkpoint(); renderAll(); }
+/** A keystroke-level edit: redraw only what reads the value. */
+function edited() { renderSide(); refreshHeads(); updateDirty(); }
+
+function loadSpec(payload, fileName, handle, originalText) {
+  const spec = normalise(payload);
+  S.spec = spec; S.handle = handle || null; S.fileName = fileName;
+  S.savedText = canonicalText(); S.last = JSON.stringify(S.spec); S.undo = []; S.redo = [];
+  S.sel = 0; S.open = new Set([0]); S.menuAt = null;
+  S.lang = spec.settings.languages.includes(spec.settings.default_language)
+    ? spec.settings.default_language : spec.settings.languages[0];
+  renderAll();
+  if (originalText !== undefined && originalText.replace(/\r\n/g, "\n") !== S.savedText) {
+    toast("This file is laid out differently from the standard format. Saving will tidy the layout without changing the content.");
+    S.savedText = originalText.replace(/\r\n/g, "\n");
+    updateDirty();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Files. The File System Access API writes back to the file you opened; any
+// other browser gets a download instead.
+// ---------------------------------------------------------------------------
+const PICKER = [{ description: "Survey spec", accept: { "application/json": [".json"] } }];
+
+function guarded(action, label) {
+  if (isDirty() && S.armed !== label) {
+    S.armed = label; setTimeout(() => { if (S.armed === label) S.armed = null; }, 4000);
+    return toast(`Unsaved changes. Click ${label} again to discard them.`);
+  }
+  S.armed = null; action();
+}
+
+function readText(text, name, handle) {
+  let payload;
+  try { payload = JSON.parse(text); } catch (e) {
+    return toast(`${name} is not a survey file. To open an Excel workbook, convert it first with: just survey-json ${name}`, "error");
+  }
+  if (!payload || !Array.isArray(payload.survey)) {
+    return toast(`${name} has no survey steps in it. Check that it is a survey file.`, "error");
+  }
+  try { loadSpec(payload, name, handle, text); toast(`Opened ${name}`); }
+  catch (e) { toast(e.message, "error"); }
+}
+
+async function openFile() {
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({ types: PICKER });
+      const file = await handle.getFile();
+      readText(await file.text(), file.name, handle);
+    } catch (e) { if (e.name !== "AbortError") toast(e.message, "error"); }
+  } else {
+    $("#file-input").click();
+  }
+}
+$("#file-input").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (file) readText(await file.text(), file.name, null);
+  e.target.value = "";
+});
+
+async function writeTo(handle, text) {
+  const w = await handle.createWritable();
+  await w.write(text);
+  await w.close();
+}
+async function save() {
+  checkpoint();
+  const text = canonicalText();
+  if (S.handle && S.handle.createWritable) {
+    try { await writeTo(S.handle, text); S.savedText = text; updateDirty(); toast(`Saved ${S.fileName}`); }
+    catch (e) { toast(`Could not save: ${e.message}`, "error"); }
+  } else {
+    saveAs();
+  }
+}
+async function saveAs() {
+  checkpoint();
+  const text = canonicalText();
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: S.fileName, types: PICKER });
+      await writeTo(handle, text);
+      S.handle = handle; S.fileName = handle.name; S.savedText = text;
+      $("#file-name").textContent = S.fileName; updateDirty(); toast(`Saved ${S.fileName}`);
+    } catch (e) { if (e.name !== "AbortError") toast(e.message, "error"); }
+  } else {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    a.download = S.fileName;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    S.savedText = text; updateDirty();
+    toast(`Downloaded ${S.fileName}. Move it into the repository before you check it.`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DOM helpers.
+// ---------------------------------------------------------------------------
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  let value;
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "style") el.style.cssText = v;
+    else if (k === "value") value = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  if (value !== undefined) el.value = value;
+  return el;
+}
+
+function counter(get, cap) {
+  const el = h("span", { class: "count" });
+  const update = () => {
+    const n = chars(get());
+    el.textContent = cap ? `${n} / ${cap}` : `${n}`;
+    el.classList.toggle("over", Boolean(cap) && n > cap);
+  };
+  update();
+  return { el, update };
+}
+
+/** A text field bound to obj[key]; `cap` shows a live character limit. */
+function textField(label, obj, key, opts = {}) {
+  const tag = opts.multiline ? "textarea" : "input";
+  const c = counter(() => obj[key], opts.cap);
+  const input = h(tag, { value: obj[key] ?? "", placeholder: opts.placeholder || "", class: opts.mono ? "mono" : null,
+    rows: opts.rows || null });
+  input.addEventListener("input", () => {
+    obj[key] = input.value; c.update(); if (opts.onInput) opts.onInput(input.value); edited();
+  });
+  input.addEventListener("change", () => { if (opts.onChange) opts.onChange(input.value); checkpoint(); });
+  return h("div", { class: "fld" },
+    h("label", null, h("span", null, label, opts.hint ? h("span", { class: "hint" }, "  ", opts.hint) : null),
+      (opts.cap || opts.count) ? c.el : null),
+    input);
+}
+
+/** One field per language, side by side. */
+function langFields(label, owner, key, opts = {}) {
+  owner[key] = owner[key] || {};
+  const langs = [S.lang];
+  return h("div", { class: "fld" },
+    h("div", { class: "fld-label" }, h("span", null, label, opts.hint ? h("span", { class: "hint" }, "  ", opts.hint) : null)),
+    h("div", { class: "langs-row", style: "--nl:1" },
+      langs.map((lang) => {
+        const f = textField("", owner[key], lang, { ...opts, hint: "" });
+        f.classList.remove("fld");
+        const lab = f.querySelector("label");
+        if (!opts.cap && !opts.count) lab.append(h("span"));
+        return f;
+      })));
+}
+
+function numberField(label, obj, key, placeholder, hint, required) {
+  const input = h("input", { type: "number", min: "0", value: obj[key] ?? "", placeholder: String(placeholder ?? "") });
+  input.addEventListener("input", () => {
+    const raw = input.value.trim();
+    if (raw === "" && required) { input.classList.add("invalid"); return; }
+    if (raw === "") { obj[key] = null; input.classList.remove("invalid"); edited(); return; }
+    const n = Number(raw);
+    const ok = Number.isInteger(n) && n >= 0;
+    input.classList.toggle("invalid", !ok);
+    if (ok) { obj[key] = n; edited(); }
+  });
+  input.addEventListener("change", checkpoint);
+  return h("div", { class: "fld" }, h("label", null, h("span", null, label, hint ? h("span", { class: "hint" }, "  ", hint) : null)), input);
+}
+
+function selectField(label, options, current, onPick, hint) {
+  const known = options.some(([v]) => v === current);
+  const sel = h("select", null,
+    known ? null : h("option", { value: current }, `${current} (not recognised)`),
+    options.map(([v, text]) => h("option", { value: v }, text)));
+  sel.value = current;
+  sel.addEventListener("change", () => onPick(sel.value));
+  return h("div", { class: "fld" }, h("label", null, h("span", null, label, hint ? h("span", { class: "hint" }, "  ", hint) : null)), sel);
+}
+
+function check(label, obj, key, hint) {
+  const box = h("input", { type: "checkbox" });
+  box.checked = Boolean(obj[key]);
+  box.addEventListener("change", () => { obj[key] = box.checked; checkpoint(); edited(); });
+  return h("label", { title: hint || "" }, box, label);
+}
+
+// ---------------------------------------------------------------------------
+// Steps: what a person picks from. A step is a row type plus, for the special
+// steps, the role the spec stores beside it. Picking "Consent question" sets
+// both, so nobody has to know the spec keeps them in two columns.
+// ---------------------------------------------------------------------------
+const STEPS = [
+  ["opener", "Opener", "The first message. It has to be a template Meta approved, because the person has not written to you yet."],
+  ["consent", "Consent question", "Asks whether the person agrees to take part. Nobody gets a survey question until they say yes."],
+  ["select_button", "Buttons", `The person taps one of up to ${L.max_session_buttons} buttons.`],
+  ["select_list", "List", `The person opens a list and picks one of up to ${L.max_list_items} options.`],
+  ["integer", "Number", "The person types a whole number, such as 0, 3 or 12."],
+  ["decimal", "Decimal number", "The person types a number that can have decimals, such as 3.5 or 3,5."],
+  ["text", "Open answer", "The person can type anything. It is saved exactly as written, so it usually needs cleaning later."],
+  ["note", "Message", "Sends a message and moves on without waiting for a reply."],
+  ["close", "Closing message", "The last message the person gets. Each closing belongs to one way the survey can end."],
+  ["unsolicited", "Reply to unexpected messages", "Sent when someone writes to the number while no survey is running for them."],
+  ["template", "Template message", "Sends a message Meta approved. Use it when more than 24 hours have passed since the person last wrote."],
+  ["begin group", "Section", "Groups steps together. A section can go to some people only, for example one study arm."],
+  ["end group", "End of section", "Marks where the section above ends."],
+];
+const STEP_LABEL = Object.fromEntries(STEPS.map(([k, label]) => [k, label]));
+const STEP_HELP = Object.fromEntries(STEPS.map(([k, , help]) => [k, help]));
+const ROLE_OF_STEP = { opener: "intro", consent: "consent", close: "close", unsolicited: "unsolicited" };
+const TYPE_OF_STEP = { opener: "template", consent: "select_button", close: "note", unsolicited: "note" };
+
+/** How the survey can end, in words, for the closing picker and the map. */
+const OUTCOME_LABEL = {
+  complete: "Finished the survey", declined: "Said no to consent", incomplete: "Stopped partway",
+  unreachable: "Never replied", undeliverable: "Message could not be delivered", optout: "Asked to stop",
+};
+
+function stepKey(row) {
+  if (isGroupStart(row) || isGroupEnd(row)) return row.type;
+  const byRole = { intro: "opener", consent: "consent", close: "close", unsolicited: "unsolicited" }[row.role];
+  return byRole || kindOf(row);
+}
+function rowLabel(row) { return STEP_LABEL[stepKey(row)] || row.type || "Unknown"; }
+
+const MAP_COLORS = {
+  text: "#0284c7", integer: "#7c3aed", decimal: "#7c3aed", select_button: "#059669", select_list: "#0d9488",
+  template: "#d97706", opener: "#d97706", note: "#64748b", close: "#be123c", "begin group": "#4f46e5",
+  "end group": "#4f46e5", consent: "#db2777", unsolicited: "#94a3b8",
+};
+function mapColor(row) { return MAP_COLORS[stepKey(row)] || "#999"; }
+function rowColor(row) { return mapColor(row); }
+
+function freeName(base) {
+  const taken = new Set(S.spec.survey.map((r) => r.name));
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}_${n}`)) n++;
+  return `${base}_${n}`;
+}
+
+function newRows(key) {
+  const lang = S.spec.settings.default_language;
+  if (key === "begin group") {
+    const name = freeName("section");
+    return [{ ...blankRow("begin group", name), label: { [lang]: "" } }, blankRow("end group", name)];
+  }
+  const names = { opener: "intro", consent: "consent", note: "message", close: "close", unsolicited: "unsolicited_reply", template: "template" };
+  const row = blankRow("text", names[key] ? freeName(names[key]) : uniqueName("Q"));
+  row.label = { [lang]: "" };
+  applyStep(row, key);
+  if (key === "opener") Object.assign(row, { label: {}, retries: 0, publish: false });
+  if (key === "consent") Object.assign(row, { retries: 1 });
+  if (["note", "close", "unsolicited", "template"].includes(key)) row.publish = false;
+  if (key === "text") row.retries = 0;
+  return [row];
+}
+function blankRow(type, name) {
+  return { type, name, label: {}, role: "", relevance: "", retries: null, timeout: null, constraint: "",
+    constraint_message: "", timeout_message: "", list_button: {}, template: {}, timeout_reminder: true,
+    publish: true, encrypt: false };
+}
+function blankChoice(ln, value, label, typed) {
+  const lang = S.spec.settings.default_language;
+  return { list_name: ln, value, option_id: "", label: { [lang]: label }, description: {}, typed: typed ? { [lang]: typed } : {} };
+}
+function uniqueList(base) {
+  const taken = new Set(S.spec.choices.map((c) => c.list_name));
+  let name = base.toLowerCase().replace(/[^a-z0-9_]/g, "_") || "list";
+  let n = 2;
+  const root = name;
+  while (taken.has(name)) name = `${root}_${n++}`;
+  return name;
+}
+
+/** Turn a row into another step, keeping what still applies. */
+function applyStep(row, key) {
+  row.role = ROLE_OF_STEP[key] || "";
+  const kind = TYPE_OF_STEP[key] || key;
+  if (kind === "select_button" || kind === "select_list") {
+    let ln = listOf(row);
+    if (!ln) {
+      ln = uniqueList(row.name);
+      if (key === "consent") {
+        S.spec.choices.push(blankChoice(ln, "yes", "Yes, I will take part", "1|yes|y"),
+          blankChoice(ln, "no", "No, thank you", "2|no|n"));
+      } else {
+        const n = kind === "select_button" ? 2 : 3;
+        for (let v = 1; v <= n; v++) S.spec.choices.push(blankChoice(ln, String(v), `Option ${v}`));
+      }
+    }
+    row.type = `${kind} ${ln}`;
+  } else {
+    row.type = kind;
+  }
+  const endsSurvey = /^\$\{outcome\}/.test(row.relevance || "");
+  if (key === "close" && !endsSurvey) row.relevance = "${outcome}='complete'";
+  if (key !== "close" && endsSurvey) row.relevance = "";
+}
+
+// ---------------------------------------------------------------------------
+// Row operations: insert, move, duplicate, delete - all undoable.
+// ---------------------------------------------------------------------------
+function insertAt(i, kind) {
+  structural(() => {
+    const rows = newRows(kind);
+    S.spec.survey.splice(i, 0, ...rows);
+    S.sel = i; S.open = new Set([i]); S.menuAt = null;
+  });
+  scrollToCard(S.sel);
+}
+function moveBlock(from, to) {
+  // Move rows[from..blockEnd(from)] so it starts at index `to` (pre-removal).
+  const end = blockEnd(from);
+  if (to >= from && to <= end + 1) return;
+  structural(() => {
+    const block = S.spec.survey.splice(from, end - from + 1);
+    const at = to > end ? to - block.length : to;
+    S.spec.survey.splice(at, 0, ...block);
+    S.sel = at; S.open = new Set([at]);
+  });
+}
+function moveUp(i) { if (i > 0) moveBlock(i, i - 1); }
+function moveDown(i) { const end = blockEnd(i); if (end < S.spec.survey.length - 1) moveBlock(i, end + 2); }
+function duplicate(i) {
+  structural(() => {
+    const end = blockEnd(i);
+    const copy = JSON.parse(JSON.stringify(S.spec.survey.slice(i, end + 1)));
+    const name = uniqueName(`${copy[0].name}_copy`.replace(/\d+$/, "") || "copy");
+    for (const r of copy) if (r.name === S.spec.survey[i].name) r.name = name;
+    S.spec.survey.splice(end + 1, 0, ...copy);
+    S.sel = end + 1; S.open = new Set([end + 1]);
+  });
+}
+function remove(i) {
+  const row = S.spec.survey[i];
+  structural(() => {
+    if (isGroupStart(row)) {
+      // Deleting a section keeps its questions: only the two bracket rows go.
+      const end = blockEnd(i);
+      S.spec.survey.splice(end, 1);
+    }
+    S.spec.survey.splice(i, 1);
+    clampSel(); S.open = new Set([S.sel]);
+  });
+  toast(`Deleted ${row.name || rowLabel(row)}`, null, ["Undo", undo]);
+}
+
+// ---------------------------------------------------------------------------
+// Cards.
+// ---------------------------------------------------------------------------
+function renderCards() {
+  const root = $("#cards");
+  root.replaceChildren();
+  root.append(settingsCard());
+  let depth = 0;
+  S.spec.survey.forEach((row, i) => {
+    root.append(insertBar(i));
+    if (isGroupEnd(row)) depth = Math.max(0, depth - 1);
+    root.append(rowCard(row, i, depth));
+    if (isGroupStart(row)) depth++;
+  });
+  root.append(insertBar(S.spec.survey.length, true));
+  root.append(messagesCard());
+}
+
+function insertBar(i, always) {
+  const open = S.menuAt === i;
+  const bar = h("div", { class: `insert${open || always ? " open" : ""}` },
+    h("button", { onclick: () => { S.menuAt = open ? null : i; renderCards(); } }, open ? "close" : "+ add step"));
+  bar.addEventListener("dragover", (e) => { e.preventDefault(); bar.classList.add("drop"); });
+  bar.addEventListener("dragleave", () => bar.classList.remove("drop"));
+  bar.addEventListener("drop", (e) => {
+    e.preventDefault(); bar.classList.remove("drop");
+    const from = Number(e.dataTransfer.getData("text/x-row"));
+    if (!Number.isNaN(from)) moveBlock(from, i);
+  });
+  if (!open) return bar;
+  return h("div", null, bar, h("div", { class: "menu" },
+    STEPS.filter(([k]) => k !== "end group").map(([k, label, tip]) => h("button", { title: tip, onclick: () => insertAt(i, k) },
+      h("span", { class: "dot", style: `background:${MAP_COLORS[k] || "#999"}` }), label))));
+}
+
+function rowIssues(i) { return ISSUES.filter((x) => x.rows.includes(i)); }
+
+function cardHead(row, i) {
+  const issues = rowIssues(i);
+  const errors = issues.filter((x) => x.level === "error").length;
+  const lang = S.lang;
+  let summary = "";
+  if (isGroupEnd(row)) summary = `end of ${row.name}`;
+  else if (sendsTemplate(row) && (kindOf(row) === "template" || !row.label[lang])) summary = `template ${row.template[lang] || "(no name)"}`;
+  else summary = (row.label[lang] || "").replace(/\s+/g, " ").trim() || (isGroupStart(row) ? "" : "(no text)");
+  const condition = row.relevance && row.role !== "close"
+    ? h("span", { class: "badge cond-badge", title: "Only some people get this step" }, `only if ${conditionText(row.relevance)}`)
+    : null;
+
+  const handle = h("span", { class: "handle", title: "Drag to move", draggable: "true" }, "⠇");
+  handle.addEventListener("dragstart", (e) => {
+    e.dataTransfer.setData("text/x-row", String(i)); e.dataTransfer.effectAllowed = "move";
+    handle.closest(".card").classList.add("dragging");
+  });
+  handle.addEventListener("dragend", () => handle.closest(".card")?.classList.remove("dragging"));
+  const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+  return h("div", { class: "card-head", onclick: () => toggleCard(i) },
+    handle,
+    h("span", { class: "stepno" }, i + 1),
+    h("span", { class: "kind" }, rowLabel(row)),
+    isGroupEnd(row) ? null : h("span", { class: "rname" }, row.name || "(unnamed)"),
+    condition,
+    h("span", { class: "summary" }, summary),
+    isSelect(row) ? h("span", { class: "badge" }, `${choicesOf(listOf(row)).length} options`) : null,
+    issues.length ? h("span", { class: `badge ${errors ? "bad" : "warn"}` }, `${issues.length} to fix`) : null,
+    h("span", { class: "head-tools" },
+      h("button", { class: "ghost", title: "Move up", onclick: stop(() => moveUp(i)) }, "↑"),
+      h("button", { class: "ghost", title: "Move down", onclick: stop(() => moveDown(i)) }, "↓"),
+      isGroupEnd(row) ? null : h("button", { class: "ghost", title: "Duplicate", onclick: stop(() => duplicate(i)) }, "⧉"),
+      h("button", { class: "ghost", title: "Delete. You can undo this.", onclick: stop(() => remove(i)) }, "✕")));
+}
+
+function refreshHeads() {
+  ISSUES = computeIssues();
+  document.querySelectorAll(".card[data-i]").forEach((card) => {
+    const i = Number(card.dataset.i);
+    const row = S.spec.survey[i];
+    if (row) card.querySelector(".card-head").replaceWith(cardHead(row, i));
+  });
+  renderIssueButton();
+}
+
+function toggleCard(i) {
+  if (S.sel === i && S.open.has(i)) S.open.delete(i); else S.open.add(i);
+  S.sel = i;
+  renderCards(); renderSide();
+}
+function select(i) {
+  S.sel = i; S.open.add(i);
+  renderCards(); renderSide(); scrollToCard(i);
+}
+function scrollToCard(i) {
+  requestAnimationFrame(() => document.querySelector(`.card[data-i="${i}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+}
+
+function rowCard(row, i, depth) {
+  const open = S.open.has(i);
+  const card = h("div", {
+    class: `card${S.sel === i ? " sel" : ""}`, "data-i": i,
+    style: `--kc:${rowColor(row)};margin-left:${depth * 22}px`,
+  }, cardHead(row, i), open ? rowBody(row, i) : null);
+  return card;
+}
+
+function rowBody(row, i) {
+  const kind = kindOf(row);
+  const key = stepKey(row);
+  const st = S.spec.settings;
+  const body = h("div", { class: "card-body" });
+
+  const picker = selectField("Step type", STEPS.map(([k, label]) => [k, label]), key,
+    (k) => structural(() => applyStep(row, k)));
+  picker.append(h("div", { class: "hint", style: "margin-top:4px" }, STEP_HELP[key] || ""));
+  body.append(h("div", { class: "grid2" },
+    picker,
+    isGroupEnd(row) ? h("div") : textField(isQuestion(row) ? "Column name" : "Step name", row, "name", {
+      mono: true, onChange: () => renderAll(),
+      hint: isQuestion(row) ? "The answer is saved in the data under this name." : "Used to find this step. People never see it.",
+    })));
+
+  if (isGroupEnd(row)) {
+    body.append(h("div", { class: "note-box" }, `This marks the end of the section "${row.name}". Move this card to change which steps are in the section.`));
+    return body;
+  }
+
+  const conditional = isGroupStart(row) || (isQuestion(row) && !["intro", "consent", "close"].includes(row.role));
+  if (conditional) body.append(conditionEditor(row, i, isGroupStart(row)));
+
+  if (isGroupStart(row)) {
+    body.append(langFields("Section name for your team", row, "label", { hint: "People never see it." }));
+    return body;
+  }
+
+  // What the person reads.
+  if (kind === "template") {
+    body.append(langFields("Template name", row, "template",
+      { mono: true, hint: "The approved template to send. Its text is in templates/<name>.json." }));
+  } else {
+    const cap = isSelect(row) ? L["list-picker:body"] : 0;
+    body.append(langFields("Message", row, "label", { multiline: true, cap, count: true, rows: 4,
+      hint: "*bold*  _italic_  {{flow.data.name}} adds a value from your sample file" }));
+  }
+
+  if (isSelect(row)) body.append(choicesEditor(row));
+  if (kind === "select_list") {
+    body.append(langFields("List button text", row, "list_button", { cap: L.list_button,
+      placeholder: message("list_button", st.default_language) || "Choose",
+      hint: "The button the person taps to open the list. Leave it blank to use the standard text." }));
+  }
+
+  if (row.role === "close") body.append(closeFields(row));
+
+  if (isQuestion(row) && kind !== "template") {
+    const grid = h("div", { class: "grid2" });
+    if (isValidated(row)) {
+      grid.append(numberField("Times to ask again", row, "retries", st.default_retries,
+        "If the reply does not fit, the question is sent again. After the last try, the answer is marked as an error."));
+    }
+    grid.append(numberField("Wait for a reply (seconds)", row, "timeout", st.default_timeout,
+      "After this, the person is marked as not replying. 3600 is one hour."));
+    body.append(grid);
+    if (isValidated(row)) body.append(nudgeField(row));
+    if (CONSTRAINED.has(kind)) {
+      body.append(h("details", { class: "more", open: row.constraint ? true : null }, h("summary", null, "Advanced"),
+        textField("Accepted reply pattern", row, "constraint", { mono: true, placeholder: C.default_constraints[kind] || "",
+          hint: kind === "integer" ? "Leave it blank to accept any whole number." : "Leave it blank to accept any number." })));
+    }
+  }
+
+  if (isQuestion(row)) {
+    if (kind !== "template") body.append(reminderField(row));
+    if (listensForStop(row)) {
+      body.append(h("div", { class: "note-box" }, `Stop words end the survey here, because this is part of the opening. ${stopWordsLine()}`));
+    }
+    if (kind !== "template") {
+      body.append(h("div", { class: "checks" }, check("Encrypt this answer", row, "encrypt")));
+      body.append(h("div", { class: "hint", style: "margin-top:4px" }, "Use it for answers that identify someone, such as a name or phone number."));
+      if (!row.publish) {
+        body.append(h("div", { class: "note-box" }, "This answer is not saved to the dataset. ",
+          h("button", { onclick: () => structural(() => { row.publish = true; }) }, "Save it to the dataset")));
+      }
+    }
+  }
+
+  if (kind === "note" && row.role !== "close" && Object.values(row.template || {}).some(Boolean)) {
+    body.append(langFields("Approved template", row, "template", { mono: true,
+      hint: "Sent instead of the message when more than 24 hours have passed." }));
+  }
+
+  return body;
+}
+
+function stopWords(lang) {
+  const words = message("stop_words", lang).split(",").map((w) => w.trim()).filter(Boolean);
+  if (!words.some((w) => w.toLowerCase() === C.universal_stop_word)) words.unshift(C.universal_stop_word);
+  return words;
+}
+function stopWordsLine() {
+  return `The words are ${stopWords(S.lang).join(", ")}, in any capitals. The person gets the opt-out closing, and the answers they already gave are kept.`;
+}
+
+/** The no-reply reminder: on by default, with this question's own text if it has one. */
+function reminderField(row) {
+  const lang = S.lang;
+  const st = S.spec.settings;
+  const standard = message(C.reminder_message, lang);
+  const ownKey = (k) => k && k !== C.reminder_message &&
+    S.spec.survey.filter((r) => r.timeout_message === k).length === 1;
+  const box = h("div", { class: "fld" });
+  box.append(h("div", { class: "checks" }, check("Send a reminder if the person does not reply", row, "timeout_reminder")));
+  if (!row.timeout_reminder) {
+    box.append(h("div", { class: "hint", style: "margin-top:4px" }, `No reminder. After ${duration(row.timeout ?? st.default_timeout)} without a reply, the person is marked as not replying.`));
+    return box;
+  }
+  const current = row.timeout_message ? message(row.timeout_message, lang) : "";
+  const input = h("textarea", { value: current, placeholder: standard || "Write the reminder, or add timeout_nudge under Messages.", rows: 3 });
+  input.addEventListener("input", () => {
+    let msg = ownKey(row.timeout_message) ? S.spec.messages.find((m) => m.key === row.timeout_message) : null;
+    if (!msg) {
+      let k = `reminder_${row.name}`;
+      let n = 2;
+      while (S.spec.messages.some((m) => m.key === k)) k = `reminder_${row.name}_${n++}`;
+      msg = { key: k, text: {} };
+      S.spec.messages.push(msg);
+      row.timeout_message = k;
+    }
+    msg.text[lang] = input.value;
+    edited();
+  });
+  input.addEventListener("change", () => {
+    if (!input.value.trim() && ownKey(row.timeout_message)) {
+      S.spec.messages = S.spec.messages.filter((m) => m.key !== row.timeout_message);
+      row.timeout_message = "";
+    }
+    checkpoint(); renderCards();
+  });
+  const stopNote = st.stop_words === "opening_and_reminders"
+    ? "A stop word in reply ends the survey, so say they can reply STOP."
+    : "Stop words are not listened for here (Survey settings), so do not invite a STOP.";
+  box.append(
+    h("label", { style: "display:block;margin-top:8px;font-size:12px;font-weight:600;color:#3f4756" }, "Reminder text",
+      h("span", { class: "hint" }, `  Sent after ${duration(st.reminder_after)} without a reply, with the question again. Leave it blank to use the standard reminder shown in grey.`)),
+    input,
+    h("div", { class: "hint", style: "margin-top:4px" }, stopNote));
+  return box;
+}
+
+/** The text sent before a question is asked again. Kept as a message, so the spec format does not change. */
+function nudgeField(row) {
+  const lang = S.lang;
+  const auto = isSelect(row) ? "error_option" : "error_numeric";
+  const standard = message(auto, lang);
+  const ownKey = (k) => k && !k.startsWith("error_") &&
+    S.spec.survey.filter((r) => r.constraint_message === k).length === 1;
+  const current = row.constraint_message ? message(row.constraint_message, lang) : "";
+  const input = h("textarea", { value: current, placeholder: standard, rows: 3 });
+  input.addEventListener("input", () => {
+    let msg = ownKey(row.constraint_message) ? S.spec.messages.find((m) => m.key === row.constraint_message) : null;
+    if (!msg) {
+      let k = `nudge_${row.name}`;
+      let n = 2;
+      while (S.spec.messages.some((m) => m.key === k)) k = `nudge_${row.name}_${n++}`;
+      msg = { key: k, text: {} };
+      S.spec.messages.push(msg);
+      row.constraint_message = k;
+    }
+    msg.text[lang] = input.value;
+    edited();
+  });
+  input.addEventListener("change", () => {
+    if (!input.value.trim() && ownKey(row.constraint_message)) {
+      S.spec.messages = S.spec.messages.filter((m) => m.key !== row.constraint_message);
+      row.constraint_message = "";
+    }
+    checkpoint(); renderCards();
+  });
+  const label = h("label", null, h("span", null, "Message when the reply does not fit",
+    h("span", { class: "hint" }, "  Sent before asking again. Leave it blank to use the standard message shown in grey.")));
+  return h("div", { class: "fld" }, label, input,
+    kindOf(row) === "select_list" ? h("div", { class: "hint", style: "margin-top:4px" }, "{button} is replaced with the list button text.") : null);
+}
+
+// A condition the builder can edit: one value compared with another.
+const COND = /^\$\{(\w+)\}\s*(!=|=)\s*'([^']*)'$/;
+function conditionText(rel) {
+  const m = COND.exec((rel || "").trim());
+  return m ? `${m[1]} ${m[2] === "=" ? "is" : "is not"} ${m[3]}` : rel;
+}
+function variablesBefore(i) {
+  const preloads = S.spec.settings.preloads.filter((p) => !["caseid", "sent_at"].includes(p))
+    .map((p) => ({ name: p, label: `${p} (from your sample file)`, row: null }));
+  const seen = new Set(preloads.map((p) => p.name));
+  const answers = [];
+  S.spec.survey.slice(0, i).forEach((r) => {
+    if (isQuestion(r) && kindOf(r) !== "template" && r.role !== "consent" && !seen.has(r.name)) {
+      seen.add(r.name);
+      answers.push({ name: r.name, label: `${r.name} (an earlier answer)`, row: r });
+    }
+  });
+  return [...preloads, ...answers];
+}
+function conditionEditor(row, i, isSection) {
+  const title = isSection ? "Show this section only if" : "Ask only if";
+  const effect = isSection ? "People who do not match skip every step in this section." : "People who do not match skip this question.";
+  const box = h("div", { class: `cond${row.relevance ? " on" : ""}` });
+  if (!row.relevance) {
+    box.append(h("button", { onclick: () => {
+      const vars = variablesBefore(i);
+      if (!vars.length) return toast("There is nothing to compare yet. Add a column under Preloads in Survey settings, or a question before this one.");
+      const first = vars[0];
+      const codes = first.row && isSelect(first.row) ? choicesOf(listOf(first.row)) : [];
+      structural(() => { row.relevance = `\${${first.name}}='${codes[0] ? codes[0].value : ""}'`; S.open.add(i); });
+    } }, `+ ${title}...`),
+    h("span", { class: "hint" }, isSection ? "  Without a condition, everyone gets this section." : "  Without a condition, everyone gets this question."));
+    return box;
+  }
+  const remove = h("button", { class: "ghost", onclick: () => structural(() => { row.relevance = ""; }) }, "Remove condition");
+  const m = COND.exec(row.relevance.trim());
+  if (!m) {
+    box.append(textField(`${title} (written by hand)`, row, "relevance", { mono: true,
+      hint: "This condition is too complex for the pickers. Edit the text, or remove it." }), remove);
+    return box;
+  }
+  const [, name, op, value] = m;
+  const vars = variablesBefore(i);
+  if (!vars.some((v) => v.name === name)) vars.unshift({ name, label: `${name} (not found before this step)`, row: null });
+  const write = (n, o, v) => structural(() => { row.relevance = `\${${n}}${o}'${v}'`; });
+  const varSel = h("select", null, vars.map((v) => h("option", { value: v.name }, v.label)));
+  varSel.value = name;
+  varSel.addEventListener("change", () => {
+    const picked = vars.find((v) => v.name === varSel.value);
+    const codes = picked && picked.row && isSelect(picked.row) ? choicesOf(listOf(picked.row)) : [];
+    write(varSel.value, op, codes[0] ? codes[0].value : "");
+  });
+  const opSel = h("select", null, h("option", { value: "=" }, "is"), h("option", { value: "!=" }, "is not"));
+  opSel.value = op;
+  opSel.addEventListener("change", () => write(name, opSel.value, value));
+  const source = vars.find((v) => v.name === name);
+  const codes = source && source.row && isSelect(source.row) ? choicesOf(listOf(source.row)) : [];
+  let valueEl;
+  if (codes.length) {
+    valueEl = h("select", null, codes.map((c) => h("option", { value: c.value }, `${c.label[S.lang] || c.value} (code ${c.value})`)));
+    valueEl.value = value;
+    valueEl.addEventListener("change", () => write(name, op, valueEl.value));
+  } else {
+    valueEl = h("input", { value, placeholder: "value", class: "mono" });
+    valueEl.addEventListener("change", () => write(name, op, valueEl.value));
+  }
+  box.append(h("div", { class: "fld-label" }, h("span", null, title)),
+    h("div", { style: "display:grid;grid-template-columns:1.4fr .6fr 1.4fr auto;gap:8px;align-items:center" }, varSel, opSel, valueEl, remove),
+    h("div", { class: "hint", style: "margin-top:4px" }, effect));
+  return box;
+}
+
+function closeFields(row) {
+  const m = /^\$\{outcome\}\s*=\s*'([^']*)'$/.exec(row.relevance || "");
+  const current = m ? m[1] : "";
+  const options = C.outcomes.map((o) => [o, OUTCOME_LABEL[o] || o]);
+  if (!m) options.unshift(["", "(a condition written by hand)"]);
+  return h("div", null,
+    selectField("Sent when the survey ends this way", options, current,
+      (o) => structural(() => { if (o) row.relevance = `\${outcome}='${o}'`; }),
+      "Each ending needs its own closing."),
+    m ? null : textField("Condition", row, "relevance", { mono: true }),
+    langFields("Approved template", row, "template", { mono: true,
+      hint: "Needed for people who never replied, because WhatsApp then allows only approved templates." }));
+}
+
+function choicesEditor(row) {
+  const ln = listOf(row);
+  const kind = kindOf(row);
+  const list = choicesOf(ln);
+  const cap = kind === "select_button" ? L.max_session_buttons : L.max_list_items;
+  const others = rowsUsing(ln).filter((r) => r !== row).map((r) => r.name);
+  const lang = S.lang;
+
+  const over = list.length > cap || list.length === 0;
+  const box = h("div", { class: "choices" },
+    h("div", { class: "choices-head" },
+      h("span", null, "Options",
+        others.length ? h("span", { class: "hint" }, `  Also used by ${others.join(", ")}. Changes apply to all of them.`) : null),
+      h("span", { class: `badge ${over ? "bad" : ""}` }, `${list.length} of ${cap} ${kind === "select_button" ? "buttons" : "options"}`)));
+
+  list.forEach((c, n) => {
+    const idx = S.spec.choices.indexOf(c);
+    const value = h("input", { value: c.value, class: "mono", title: "Saved in the data when someone picks this option" });
+    value.addEventListener("input", () => { c.value = value.value; edited(); });
+    value.addEventListener("change", checkpoint);
+    c.label = c.label || {};
+    const cnt = counter(() => c.label[lang], L["list-picker:item"]);
+    const labelInput = h("input", { value: c.label[lang] || "", placeholder: "What the person sees" });
+    labelInput.addEventListener("input", () => { c.label[lang] = labelInput.value; cnt.update(); edited(); });
+    labelInput.addEventListener("change", checkpoint);
+    const sub = h("details", { class: "more sub" }, h("summary", null, kind === "select_list" ? "Other spellings, description" : "Other spellings"),
+      langFields("Also accept", c, "typed", { mono: true, placeholder: "1|yes|y",
+        hint: "Other replies that count as this option, separated by |. Capital letters do not matter: yes, Yes and YES all match." }),
+      kind === "select_list" ? langFields("Description", c, "description", { cap: L["list-picker:description"],
+        hint: "Small text under the option in the list." }) : null,
+      kind === "select_list" ? textField("Option ID", c, "option_id", { mono: true, placeholder: `${ln}_${c.value}`, cap: L["list-picker:id"],
+        hint: "Sent back when someone taps this option. Leave it blank to create one." }) : null);
+    const swap = (d) => structural(() => {
+      const j = S.spec.choices.indexOf(list[n + d]);
+      [S.spec.choices[idx], S.spec.choices[j]] = [S.spec.choices[j], S.spec.choices[idx]];
+    });
+    box.append(h("div", { class: "choice" },
+      h("div", null, h("div", { class: "fld-label" }, "Code"), value),
+      h("div", null, h("div", { class: "fld-label" }, h("span", null, "Label"), cnt.el), labelInput, sub),
+      h("div", { class: "choice-tools" },
+        n > 0 ? h("button", { class: "ghost", title: "Move up", onclick: () => swap(-1) }, "↑") : null,
+        n < list.length - 1 ? h("button", { class: "ghost", title: "Move down", onclick: () => swap(1) }, "↓") : null,
+        h("button", { class: "ghost", title: "Remove this option", onclick: () => structural(() => S.spec.choices.splice(idx, 1)) }, "✕"))));
+  });
+  box.append(h("div", { style: "padding:8px 10px" }, h("button", {
+    onclick: () => structural(() => {
+      const values = list.map((c) => Number.parseInt(c.value, 10)).filter((v) => !Number.isNaN(v));
+      const next = String(values.length ? Math.max(...values) + 1 : list.length + 1);
+      const last = list.length ? S.spec.choices.indexOf(list[list.length - 1]) + 1 : S.spec.choices.length;
+      S.spec.choices.splice(last, 0, blankChoice(ln, next, ""));
+    }),
+  }, "+ Add an option")));
+  return box;
+}
+
+function settingsCard() {
+  const st = S.spec.settings;
+  const open = S.open.has("settings");
+  const head = h("div", { class: "card-head", onclick: () => { open ? S.open.delete("settings") : S.open.add("settings"); renderCards(); } },
+    h("span", { class: "kind" }, "Survey"),
+    h("span", { class: "rname" }, st.form_title || st.form_id || "(untitled)"),
+    h("span", { class: "summary" }, `${st.languages.join(", ")}  -  ${S.spec.survey.filter(isQuestion).length} questions`),
+    h("span", { class: "badge" }, open ? "hide settings" : "settings"));
+  const card = h("div", { class: "card welcome", style: "--kc:#1f2937" }, head);
+  if (!open) return card;
+
+  const listField = (label, key, hint, after) => {
+    const input = h("input", { value: st[key].join(", "), class: "mono" });
+    input.addEventListener("change", () => structural(() => {
+      st[key] = input.value.split(",").map((x) => x.trim()).filter(Boolean);
+      if (after) after();
+    }));
+    return h("div", { class: "fld" }, h("label", null, h("span", null, label, h("span", { class: "hint" }, "  ", hint))), input);
+  };
+  card.append(h("div", { class: "card-body" },
+    h("div", { class: "grid2" },
+      textField("Survey ID", st, "form_id", { mono: true, hint: "A short name with no spaces." }),
+      textField("Title", st, "form_title")),
+    h("div", { class: "grid3" },
+      listField("Languages", "languages", "Language codes, such as en or es, separated by commas.", () => {
+        if (!st.languages.length) st.languages = ["en"];
+        if (!st.languages.includes(st.default_language)) st.default_language = st.languages[0];
+        if (!st.languages.includes(S.lang)) S.lang = st.default_language;
+      }),
+      selectField("Default language", st.languages.map((l) => [l, l]), st.default_language,
+        (v) => structural(() => { st.default_language = v; })),
+      textField("Twilio Functions service", st, "functions_service", { mono: true, hint: "Where encryption and saving run. Usually rtt-survey." })),
+    h("div", { class: "grid3" },
+      listField("Preloads", "preloads", "Columns your sample file must have, separated by commas."),
+      numberField("Wait for a reply (seconds)", st, "default_timeout", 3600, "Used by every question that does not set its own.", true),
+      numberField("Times to ask again", st, "default_retries", 2, "Used by every question that does not set its own.", true)),
+    h("div", { class: "grid2" },
+      selectField("Listen for stop words", [
+        ["opening_and_reminders", "In the opening and in reply to reminders"],
+        ["opening", "In the opening only"],
+        ["never", "Never"],
+      ], st.stop_words, (v) => structural(() => { st.stop_words = v; }),
+      "The opening is the opener, consent and the first question. Mid-survey, people who have had enough simply stop answering."),
+      reminderAfterField(st)),
+    langFields("Flow name", st, "flow_name", { mono: true, hint: "The flow's name in Twilio Studio." }),
+    langFields("Description", st, "description"),
+    h("div", { class: "note-box info" }, C.scope_note)));
+  return card;
+}
+
+function reminderAfterField(st) {
+  const fmt = (sec) => `${String(Math.floor(sec / 3600)).padStart(2, "0")}:${String(Math.round((sec % 3600) / 60)).padStart(2, "0")}`;
+  const input = h("input", { value: fmt(st.reminder_after), placeholder: "23:30", class: "mono" });
+  input.addEventListener("change", () => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(input.value.trim());
+    const seconds = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 : NaN;
+    const ok = m && Number(m[2]) < 60 && seconds > 0 && seconds < C.session_window;
+    input.classList.toggle("invalid", !ok);
+    if (!ok) return toast("Use hours and minutes under 24:00, such as 23:30 or 00:10.", "error");
+    structural(() => { st.reminder_after = seconds; });
+  });
+  return h("div", { class: "fld" }, h("label", null, h("span", null, "Send the reminder after",
+    h("span", { class: "hint" }, "  Hours:minutes without a reply. Under 24:00, because after that WhatsApp allows only approved templates."))), input);
+}
+
+function messagesCard() {
+  const open = S.open.has("messages");
+  const head = h("div", { class: "card-head", onclick: () => { open ? S.open.delete("messages") : S.open.add("messages"); renderCards(); } },
+    h("span", { class: "kind" }, "Messages"),
+    h("span", { class: "summary" }, "Standard texts used across the survey, such as the stop words and the reply when an answer does not fit"),
+    h("span", { class: "badge" }, `${S.spec.messages.length}`));
+  const card = h("div", { class: "card", style: "--kc:#64748b;margin-top:6px" }, head);
+  if (!open) return card;
+  const body = h("div", { class: "card-body" });
+  S.spec.messages.forEach((m, n) => {
+    body.append(h("div", { style: "margin-top:12px;padding-top:6px;border-top:1px solid var(--line)" },
+      h("div", { style: "display:flex;gap:8px;align-items:end" },
+        h("div", { style: "flex:1" }, textField("Key", m, "key", { mono: true, onChange: () => renderAll() })),
+        h("button", { class: "ghost", title: "Remove message", onclick: () => structural(() => S.spec.messages.splice(n, 1)) }, "✕")),
+      langFields("Text", m, "text", { multiline: true, rows: 2, count: true })));
+  });
+  body.append(h("div", { style: "margin-top:10px" },
+    h("button", { onclick: () => structural(() => S.spec.messages.push({ key: "new_message", text: {} })) }, "+ add message")));
+  card.append(body);
+  return card;
+}
+
+// ---------------------------------------------------------------------------
+// Limits and gaps. Advisory: `rtt survey check` is the real check.
+// ---------------------------------------------------------------------------
+let ISSUES = [];
+function computeIssues() {
+  const out = [];
+  const add = (level, rows, text) => out.push({ level, rows, text });
+  const rows = S.spec.survey;
+  const indexOfRows = (ln) => rows.map((r, i) => (isSelect(r) && listOf(r) === ln ? i : -1)).filter((i) => i >= 0);
+
+  // Names are scoped to their group, as in check_spec: ARM1 and ARM2 both
+  // holding a P1 is the same question asked two ways.
+  const seen = new Map();
+  let group = "";
+  rows.forEach((r, i) => {
+    if (isGroupStart(r)) { group = r.name; return; }
+    if (isGroupEnd(r)) { group = ""; return; }
+    const key = `${group}\u0000${r.name}`;
+    if (!r.name) add("error", [i], `Step ${i + 1} needs a name.`);
+    else if (seen.has(key)) add("warn", [seen.get(key), i], `Two steps${group ? ` in ${group}` : ""} are called ${r.name}. Each needs its own name.`);
+    else seen.set(key, i);
+  });
+
+  for (const lang of [S.lang]) {
+    rows.forEach((r, i) => {
+      const kind = kindOf(r);
+      if (isGroupStart(r) || isGroupEnd(r)) return;
+      if (kind === "template") {
+        if (!r.template[lang]) add("error", [i], `${r.name} needs the name of its approved template.`);
+        return;
+      }
+      if (!sendsTemplate(r) && !(r.label[lang] || "").trim()) add("warn", [i], `${r.name} has no message yet.`);
+      if (!isQuestion(r)) return;
+      const body = r.label[lang] || "";
+      if (isSelect(r) && chars(body) > L["list-picker:body"]) {
+        add("error", [i], `The message in ${r.name} is ${chars(body)} characters. WhatsApp allows ${L["list-picker:body"]} with options.`);
+      }
+      if (kind === "select_list") {
+        const button = r.list_button[lang] || message("list_button", lang);
+        if (chars(button) > L.list_button) add("warn", [i], `The list button in ${r.name} is over ${L.list_button} characters, so WhatsApp may cut it off.`);
+      }
+      const n = choicesOf(listOf(r)).length;
+      if (kind === "select_list" && !(n >= 1 && n <= L.max_list_items)) {
+        add("error", [i], `${r.name} has ${n} options. A list can have 1 to ${L.max_list_items}.`);
+      }
+      if (kind === "select_button" && !(n >= 1 && n <= L.max_session_buttons)) {
+        add("error", [i], `${r.name} has ${n} buttons. WhatsApp sends at most ${L.max_session_buttons}; use a list for more.`);
+      }
+    });
+
+    const lists = new Set(S.spec.choices.map((c) => c.list_name));
+    for (const ln of lists) {
+      const where = indexOfRows(ln);
+      const owner = where.map((j) => rows[j].name).join(", ") || ln;
+      const labels = new Map();
+      for (const c of choicesOf(ln)) {
+        const label = c.label[lang] || "";
+        const named = `Option ${c.value} in ${owner}`;
+        if (!label.trim()) add("warn", where, `${named} has no label.`);
+        if (chars(label) > L["list-picker:item"]) add("error", where, `${named} has a ${chars(label)}-character label. WhatsApp allows ${L["list-picker:item"]}.`);
+        if (chars(c.description[lang]) > L["list-picker:description"]) add("error", where, `${named} has a description over ${L["list-picker:description"]} characters.`);
+        if (hasEmoji(label)) add("error", where, `${named} has an emoji in its label. Labels are matched letter by letter, so keep emoji in the message instead.`);
+        const key = label.toLowerCase();
+        if (key && labels.has(key)) add("error", where, `${owner} uses the label "${label}" twice, so the saved code would be unclear.`);
+        labels.set(key, true);
+      }
+      {
+        const values = choicesOf(ln).map((c) => c.value);
+        if (values.some((v) => v === "")) add("error", where, `${owner} has an option with no code.`);
+        if (new Set(values).size !== values.length) add("error", where, `${owner} uses the same code twice.`);
+      }
+    }
+  }
+  rows.forEach((r, i) => { if (isSelect(r) && !choicesOf(listOf(r)).length && !listOf(r)) add("error", [i], `${r.name} has no options.`); });
+  const st = S.spec.settings;
+  if (!(st.reminder_after > 0 && st.reminder_after < C.session_window)) {
+    add("error", [], "The reminder has to go out within 24 hours. After that, WhatsApp allows only approved templates.");
+  }
+  rows.forEach((r, i) => {
+    const key = reminderKey(r);
+    if (!key) return;
+    const text = message(key, S.lang);
+    if (!text.trim()) add("warn", [i], `${r.name} sends a reminder with no text yet.`);
+    else if (st.stop_words === "opening_and_reminders" && !text.toLowerCase().includes(C.universal_stop_word)) {
+      add("warn", [i], `The reminder for ${r.name} does not say they can reply STOP.`);
+    }
+  });
+  return out;
+}
+
+function renderIssueButton() {
+  const btn = $("#btn-issues");
+  const errors = ISSUES.filter((x) => x.level === "error").length;
+  btn.textContent = ISSUES.length ? `${ISSUES.length} to fix${errors ? "" : " (warnings)"}` : "Nothing to fix";
+  btn.className = `issues-btn ${ISSUES.length ? "has" : "none"}`;
+}
+
+function renderIssues() {
+  const root = $("#issues");
+  root.replaceChildren();
+  if (!ISSUES.length) {
+    root.append(h("div", { class: "note-box" }, "Nothing is over a WhatsApp limit. Before you commit, run the check command. It also tests every option and the consent rules."));
+    return;
+  }
+  for (const x of ISSUES) {
+    root.append(h("div", { class: `issue ${x.level}`, onclick: () => x.rows.length && select(x.rows[0]) }, x.text));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phone preview.
+// ---------------------------------------------------------------------------
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+function waFormat(s) {
+  return escapeHtml(s || "")
+    .replace(/\{\{\s*([^}]+?)\s*\}\}/g, '<span class="var">$1</span>')
+    .replace(/```([\s\S]+?)```/g, "<code>$1</code>")
+    .replace(/(^|[\s(])\*(\S(?:[^*\n]*\S)?)\*(?=$|[\s).,!?:;])/g, "$1<b>$2</b>")
+    .replace(/(^|[\s(])_(\S(?:[^_\n]*\S)?)_(?=$|[\s).,!?:;])/g, "$1<i>$2</i>")
+    .replace(/(^|[\s(])~(\S(?:[^~\n]*\S)?)~(?=$|[\s).,!?:;])/g, "$1<s>$2</s>")
+    .replace(/\n/g, "<br>");
+}
+function bubble(text, cls) {
+  const b = h("div", { class: `bubble ${cls || ""}` });
+  b.innerHTML = waFormat(text); // escaped above; only WhatsApp markup becomes tags
+  if (!cls) b.append(h("span", { class: "time" }, "10:42"));
+  return b;
+}
+
+function renderPreview() {
+  const root = $("#phone");
+  root.replaceChildren();
+  const row = S.spec.survey[S.sel];
+  const lang = S.lang;
+  $("#preview-meta").textContent = row ? `step ${S.sel + 1}, ${lang}` : "";
+  const st = S.spec.settings;
+  const chat = h("div", { class: "chat" });
+  const phone = h("div", { class: "phone" },
+    h("div", { class: "phone-top" }, h("span", { class: "avatar" }, (st.form_title || "S")[0].toUpperCase()), st.form_title || st.form_id || "Survey"),
+    chat);
+  root.append(phone);
+  if (!row) { chat.append(bubble("Add a step to see how it looks.", "sys")); return; }
+
+  const kind = kindOf(row);
+  if (isGroupStart(row) || isGroupEnd(row)) {
+    chat.append(bubble(isGroupStart(row)
+      ? `Section ${row.name}${row.relevance ? `\nOnly for people where ${conditionText(row.relevance)}` : "\nEveryone gets this section"}`
+      : `End of section ${row.name}`, "sys"));
+    return;
+  }
+  if (sendsTemplate(row)) {
+    chat.append(bubble(`Approved template "${row.template[lang] || "(no name)"}"\nMeta reviews its text, which is in templates/${row.template[lang] || "<name>"}.json.`, "sys"));
+    if (kind === "template") { root.append(facts(row)); return; }
+  }
+  if (!(kind === "template") && !(sendsTemplate(row) && !row.label[lang])) {
+    const text = row.label[lang] || "";
+    const b = bubble(text || "(no message yet)");
+    if (kind === "select_list") {
+      b.querySelector(".time").before(h("div", { class: "wa-list-btn" }, "☰ ", row.list_button[lang] || message("list_button", lang) || "Choose"));
+    }
+    chat.append(b);
+  }
+  if (kind === "select_button") {
+    choicesOf(listOf(row)).forEach((c, n) => chat.append(
+      h("div", { class: `wa-btn${n >= L.max_session_buttons ? " over" : ""}`, title: n >= L.max_session_buttons ? "WhatsApp will not send this button" : "" },
+        c.label[lang] || "(no label)")));
+  }
+  if (kind === "select_list") {
+    chat.append(h("div", { class: "sheet" },
+      h("div", { class: "sheet-title" }, row.list_button[lang] || message("list_button", lang) || "Choose"),
+      choicesOf(listOf(row)).map((c) => h("div", { class: "sheet-row" },
+        h("div", null, c.label[lang] || "(no label)", c.description[lang] ? h("small", null, c.description[lang]) : null),
+        h("span", { class: "radio" })))));
+  }
+  if (isQuestion(row)) root.append(facts(row));
+}
+
+function facts(row) {
+  const kind = kindOf(row);
+  const st = S.spec.settings;
+  const lang = S.lang;
+  const dl = h("dl", { class: "facts" });
+  const add = (term, ...desc) => dl.append(h("dt", null, term), h("dd", null, ...desc));
+  if (kind === "template") {
+    add("Waits for", "any reply. The opener only opens the 24-hour window for the messages after it, so nothing is saved.");
+    return dl;
+  }
+  add("Saved as", h("code", null, row.name || "?"), row.publish ? "" : " (not saved to the dataset)", row.encrypt ? ", encrypted" : "");
+  if (isSelect(row)) {
+    const list = choicesOf(listOf(row));
+    add("Codes", h("table", { class: "codes" }, list.map((c) => h("tr", null, h("td", null, h("code", null, c.value)), h("td", null, c.label[lang] || "")))));
+  }
+  if (isValidated(row)) {
+    const tries = row.retries ?? st.default_retries;
+    // Blank picks error_option or error_option_labels from whether a typed
+    // digit would be ambiguous - the check decides, so say which is a guess.
+    const key = row.constraint_message || (isSelect(row) ? "error_option" : "error_numeric");
+    add("If the reply does not fit", `asked again up to ${tries} time${tries === 1 ? "" : "s"}, then the answer is marked as an error`);
+    const button = row.list_button[lang] || message("list_button", lang) || "Choose";
+    const nudge = message(key, lang).replaceAll("{button}", button);
+    if (nudge) {
+      dl.append(h("dd", null, bubble(nudge)));
+    }
+  } else {
+    add("Checking", "none. Any reply is saved as written.");
+  }
+  const wait = row.timeout ?? st.default_timeout;
+  const remind = reminderKey(row);
+  if (remind) {
+    add("If nobody replies", `after ${duration(st.reminder_after)} the reminder goes out with the question again; after ${duration(wait)} more, the person is marked as not replying`);
+    const text = message(remind, lang);
+    if (text) dl.append(h("dd", null, bubble(text)));
+  } else {
+    add("If nobody replies", `after ${duration(wait)} the person is marked as not replying`);
+  }
+  if (listensForStop(row)) add("Stop words", "a stop word here ends the survey with the opt-out closing");
+  if (row.relevance) add("Only if", conditionText(row.relevance), ". Everyone else skips this question.");
+  return dl;
+}
+
+// ---------------------------------------------------------------------------
+// Flow map: the shape of the instrument, which a list of cards cannot show.
+// Sections with a condition become lanes side by side; closings fan out at the
+// end; widgets every flow shares (launch, publish) are drawn dashed.
+// ---------------------------------------------------------------------------
+const NW = 132, NH = 38, GAP = 16, PAD = 8, LANE_GAP = 10;
+
+function tree(rows) {
+  const root = [];
+  const stack = [root];
+  rows.forEach((row, i) => {
+    if (row.role === "close" || row.role === "unsolicited") return;
+    if (isGroupStart(row)) {
+      const g = { kind: "group", row, i, children: [] };
+      stack[stack.length - 1].push(g); stack.push(g.children);
+    } else if (isGroupEnd(row)) {
+      if (stack.length > 1) stack.pop();
+    } else {
+      stack[stack.length - 1].push({ kind: "row", row, i });
+    }
+  });
+  return root;
+}
+function segments(items) {
+  const out = [];
+  for (const it of items) {
+    if (it.kind === "group" && it.row.relevance) {
+      const last = out[out.length - 1];
+      if (last && last.kind === "branch") last.groups.push(it); else out.push({ kind: "branch", groups: [it] });
+    } else out.push(it);
+  }
+  return out;
+}
+function width(items) {
+  let w = NW;
+  for (const seg of segments(items)) {
+    if (seg.kind === "row") continue;
+    if (seg.kind === "group") w = Math.max(w, width(seg.children) + 2 * PAD);
+    else {
+      const lanes = seg.groups.map((g) => width(g.children) + 2 * PAD);
+      if (seg.groups.length === 1) lanes.push(70);
+      w = Math.max(w, lanes.reduce((a, b) => a + b, 0) + LANE_GAP * (lanes.length - 1));
+    }
+  }
+  return w;
+}
+
+function renderMap() {
+  const rows = S.spec.survey;
+  const items = tree(rows);
+  const closes = rows.map((row, i) => ({ row, i })).filter((x) => x.row.role === "close");
+  const unsolicited = rows.map((row, i) => ({ row, i })).filter((x) => x.row.role === "unsolicited");
+  const issueRows = new Set(ISSUES.filter((x) => x.level === "error").flatMap((x) => x.rows));
+  const g = { nodes: [], lines: [], bands: [], labels: [] };
+  const W = Math.max(width(items), 2 * NW + LANE_GAP, 300);
+  const cx0 = W / 2 + 8;
+
+  const node = (x, y, w, item, extra = {}) => g.nodes.push({ x, y, w, h: NH, item, ...extra });
+  const line = (x1, y1, x2, y2, dashed) => g.lines.push({ x1, y1, x2, y2, dashed });
+
+  let y = 8;
+  node(cx0 - NW / 2, y, NW, null, { title: "Start", sub: "one run per phone number", ghost: true });
+  let prev = { x: cx0, y: y + NH };
+  y += NH + GAP;
+
+  function place(list, cx, avail) {
+    for (const seg of segments(list)) {
+      if (seg.kind === "row") {
+        line(prev.x, prev.y, cx, y);
+        node(cx - NW / 2, y, NW, seg);
+        prev = { x: cx, y: y + NH };
+        y += NH + GAP;
+      } else if (seg.kind === "group") {
+        const w = Math.min(avail, width(seg.children) + 2 * PAD);
+        const top = y;
+        g.labels.push({ x: cx - w / 2 + 6, y: top + 13, text: seg.row.name, i: seg.i });
+        y += 20;
+        place(seg.children, cx, w - 2 * PAD);
+        g.bands.push({ x: cx - w / 2, y: top, w, h: y - top - GAP / 2, i: seg.i });
+        y += 4;
+      } else {
+        // A condition splits the path into lanes that meet again below.
+        const lanes = seg.groups.map((grp) => ({ grp, w: width(grp.children) + 2 * PAD }));
+        if (lanes.length === 1) lanes.push({ grp: null, w: 70 });
+        const total = lanes.reduce((a, l) => a + l.w, 0) + LANE_GAP * (lanes.length - 1);
+        const split = { x: cx, y: y + 10 };
+        line(prev.x, prev.y, split.x, split.y - 10);
+        g.nodes.push({ diamond: true, x: split.x, y: split.y });
+        const top = y + 34;
+        let left = cx - total / 2;
+        const ends = [];
+        let bottom = top;
+        for (const lane of lanes) {
+          const lx = left + lane.w / 2;
+          y = top;
+          if (lane.grp) {
+            g.labels.push({ x: left + 6, y: top + 13, text: conditionText(lane.grp.row.relevance), i: lane.grp.i });
+            prev = { x: split.x, y: split.y + 10 };
+            line(prev.x, prev.y, lx, top);
+            prev = { x: lx, y: top };
+            y = top + 22;
+            place(lane.grp.children, lx, lane.w - 2 * PAD);
+            g.bands.push({ x: left, y: top, w: lane.w, h: y - top - GAP / 2, i: lane.grp.i, lane: true });
+            ends.push({ x: lx, y: y - GAP / 2 });
+          } else {
+            line(split.x, split.y + 10, lx, top, true);
+            g.labels.push({ x: lx - 22, y: top + 14, text: "otherwise", muted: true });
+            ends.push({ x: lx, y: top + 22 });
+            y = top + 30;
+          }
+          bottom = Math.max(bottom, y);
+          left += lane.w + LANE_GAP;
+        }
+        y = bottom + 6;
+        for (const e of ends) line(e.x, e.y, cx, y);
+        g.nodes.push({ dot: true, x: cx, y });
+        prev = { x: cx, y };
+        y += GAP;
+      }
+    }
+  }
+  place(items, cx0, W);
+
+  line(prev.x, prev.y, cx0, y);
+  node(cx0 - NW / 2, y, NW, null, { title: "Save the answers", sub: "one row per person", ghost: true });
+  const pub = { x: cx0, y: y + NH };
+  y += NH + GAP + 10;
+
+  if (closes.length) {
+    const per = Math.max(1, Math.floor((W + LANE_GAP) / (NW * 0.82 + LANE_GAP)));
+    const cw = Math.min(NW, (W - LANE_GAP * (Math.min(per, closes.length) - 1)) / Math.min(per, closes.length));
+    closes.forEach((c, n) => {
+      const col = n % per, rowN = Math.floor(n / per);
+      const count = Math.min(per, closes.length - rowN * per);
+      const span = count * cw + (count - 1) * LANE_GAP;
+      const x = cx0 - span / 2 + col * (cw + LANE_GAP);
+      const yy = y + rowN * (NH + GAP);
+      line(pub.x, pub.y, x + cw / 2, yy, true);
+      node(x, yy, cw, c, { terminal: true });
+    });
+    y += Math.ceil(closes.length / per) * (NH + GAP);
+  }
+  if (unsolicited.length) {
+    y += 8;
+    g.labels.push({ x: 10, y: y + 4, text: "Outside the flow", muted: true });
+    y += 12;
+    unsolicited.forEach((u) => { node(cx0 - NW / 2, y, NW, u); y += NH + GAP; });
+  }
+
+  const svgW = W + 16, svgH = y + 6;
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) if (v !== null && v !== undefined) e.setAttribute(k, v);
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const svg = el("svg", { width: svgW, height: svgH, viewBox: `0 0 ${svgW} ${svgH}` });
+  for (const b of g.bands) {
+    const r = el("rect", { x: b.x, y: b.y, width: b.w, height: Math.max(b.h, 24), rx: 8,
+      fill: b.lane ? "#f5f6ff" : "#f8f9fb", stroke: S.sel === b.i ? "#4f46e5" : "#d9dcff", "stroke-dasharray": b.lane ? null : "4 3" });
+    r.style.cursor = "pointer";
+    r.addEventListener("click", () => select(b.i));
+    svg.append(r);
+  }
+  for (const l of g.lines) {
+    svg.append(el("line", { x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2, stroke: "#b7bdc8", "stroke-width": 1.5,
+      "stroke-dasharray": l.dashed ? "4 3" : null }));
+  }
+  for (const lab of g.labels) {
+    const t = el("text", { x: lab.x, y: lab.y, "font-size": 11, fill: lab.muted ? "#8a93a3" : "#4f46e5",
+      "font-weight": lab.muted ? 400 : 600, "font-family": lab.mono ? "Consolas, monospace" : null }, clip(lab.text, 30));
+    if (lab.i !== undefined) { t.style.cursor = "pointer"; t.addEventListener("click", () => select(lab.i)); }
+    svg.append(t);
+  }
+  for (const n of g.nodes) {
+    if (n.diamond) {
+      svg.append(el("path", { d: `M${n.x} ${n.y - 10} L${n.x + 12} ${n.y} L${n.x} ${n.y + 10} L${n.x - 12} ${n.y} Z`,
+        fill: "#fff", stroke: "#4f46e5", "stroke-width": 1.5 }));
+      continue;
+    }
+    if (n.dot) { svg.append(el("circle", { cx: n.x, cy: n.y, r: 3, fill: "#b7bdc8" })); continue; }
+    const grp = el("g", { class: n.item ? "map-node" : null });
+    const row = n.item && n.item.row;
+    const color = row ? mapColor(row) : "#9aa3b2";
+    const selected = n.item && n.item.i === S.sel;
+    const bad = n.item && issueRows.has(n.item.i);
+    grp.append(el("rect", { class: "box", x: n.x, y: n.y, width: n.w, height: n.h, rx: n.terminal ? 18 : 7,
+      fill: n.ghost ? "#fff" : "#fff", stroke: bad ? "#d92d20" : selected ? "#4f46e5" : color,
+      "stroke-width": selected || bad ? 2.5 : 1.3, "stroke-dasharray": n.ghost ? "4 3" : null }));
+    if (row) grp.append(el("rect", { x: n.x, y: n.y, width: 5, height: n.h, rx: 2, fill: color }));
+    const maxChars = Math.floor((n.w - 16) / 6.2);
+    const title = row ? `${row.role === "close" ? (OUTCOME_LABEL[outcomeOf(row)] || "Closing") : rowLabel(row)}  ${row.role === "close" ? "" : row.name}` : n.title;
+    const sub = row ? (sendsTemplate(row) && (kindOf(row) === "template" || !row.label[S.lang]) ? `template ${row.template[S.lang] || ""}` : (row.label[S.lang] || "").replace(/\s+/g, " ")) : n.sub;
+    grp.append(el("text", { x: n.x + 11, y: n.y + 15, "font-size": 11.5, "font-weight": 700, fill: row ? color : "#6b7385" }, clip(title, maxChars)));
+    grp.append(el("text", { x: n.x + 11, y: n.y + 30, "font-size": 10.5, fill: "#6b7385" }, clip(sub, maxChars + 2)));
+    if (row && isValidated(row)) {
+      const tries = row.retries ?? S.spec.settings.default_retries;
+      if (tries > 0) grp.append(el("text", { x: n.x + n.w - 6, y: n.y + 15, "font-size": 10.5, fill: "#8a93a3", "text-anchor": "end" }, `↻${tries}`));
+    }
+    if (row && row.encrypt) grp.append(el("text", { x: n.x + n.w - 6, y: n.y + 30, "font-size": 10, fill: "#8a93a3", "text-anchor": "end" }, "enc"));
+    if (n.item) grp.addEventListener("click", () => select(n.item.i));
+    if (row) grp.append(el("title", {}, `${rowLabel(row)} ${row.name}\n${row.label[S.lang] || ""}`));
+    svg.append(grp);
+  }
+  const map = $("#map");
+  map.replaceChildren(svg);
+  const q = rows.filter(isQuestion).length;
+  $("#map-meta").textContent = `${q} questions, ${closes.length} closings`;
+}
+function outcomeOf(row) {
+  const m = /^\$\{outcome\}\s*=\s*'([^']*)'$/.exec(row.relevance || "");
+  return m ? m[1] : "closing";
+}
+function clip(s, n) { const a = [...(s || "")]; return a.length > n ? a.slice(0, Math.max(1, n - 1)).join("") + "…" : a.join(""); }
+
+// ---------------------------------------------------------------------------
+// Header, rendering, wiring.
+// ---------------------------------------------------------------------------
+function renderHeader() {
+  $("#file-name").textContent = S.fileName;
+  // One language at a time: the one being deployed. A file that carries more
+  // keeps them untouched; the switcher only appears for such a file.
+  const langs = S.spec.settings.languages;
+  const seg = $("#langs");
+  seg.replaceChildren(...langs.map((lang) =>
+    h("button", { class: lang === S.lang ? "on" : "", onclick: () => { S.lang = lang; renderHeader(); renderCards(); renderSide(); } }, lang)));
+  seg.hidden = langs.length < 2;
+  $("#langs-label").hidden = langs.length < 2;
+  updateDirty();
+}
+function renderSide() { ISSUES = computeIssues(); renderMap(); renderPreview(); renderIssues(); renderIssueButton(); }
+function renderAll() { ISSUES = computeIssues(); renderHeader(); renderCards(); renderSide(); }
+
+let toastTimer = null;
+function toast(text, level, action) {
+  document.querySelector(".toast")?.remove();
+  const t = h("div", { class: `toast ${level || ""}` }, text,
+    action ? h("button", { onclick: () => { t.remove(); action[1](); } }, action[0]) : null);
+  document.body.append(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), level === "error" ? 9000 : 4500);
+}
+
+$("#btn-new").addEventListener("click", () => guarded(() => {
+  loadSpec(JSON.parse(JSON.stringify(C.starter)), "my_survey.json", null);
+  S.savedText = ""; updateDirty();
+  toast("Started from the example survey, which has one step of every type.");
+}, "New"));
+$("#btn-open").addEventListener("click", () => guarded(openFile, "Open"));
+$("#btn-save").addEventListener("click", save);
+$("#btn-saveas").addEventListener("click", saveAs);
+$("#btn-undo").addEventListener("click", undo);
+$("#btn-redo").addEventListener("click", redo);
+$("#btn-issues").addEventListener("click", () => $("#issues-title").scrollIntoView({ behavior: "smooth" }));
+$("#btn-copy").addEventListener("click", async () => {
+  const cmd = `just survey-check ${S.fileName}`;
+  try { await navigator.clipboard.writeText(cmd); toast(`Copied: ${cmd}`); }
+  catch { toast(`Run: ${cmd}`); }
+});
+
+document.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod) return;
+  const k = e.key.toLowerCase();
+  if (k === "s") { e.preventDefault(); save(); return; }
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+  if (typing) return; // a field keeps its own undo
+  if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+  if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
+});
+window.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); });
+window.addEventListener("drop", async (e) => {
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  e.preventDefault();
+  guarded(async () => readText(await file.text(), file.name, null), "drop");
+});
+window.addEventListener("beforeunload", (e) => { if (isDirty()) e.preventDefault(); });
+
+loadSpec(JSON.parse(JSON.stringify(C.starter)), "my_survey.json", null);
+</script>
+</body>
+</html>
