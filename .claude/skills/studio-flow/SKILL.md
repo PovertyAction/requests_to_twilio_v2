@@ -29,9 +29,9 @@ The instrument is described as rows; the eight-widget per-question subgraph, the
 consent gate, the publish convergence and the closings are meant to be generated
 from them, so they cannot be got subtly wrong one question at a time.
 
-**The compiler from spec to flow is not built yet** (`docs/writing-a-survey.md`).
-Author and check the spec now; the flow itself is still built by hand or by the
-demo builder. Do not tell a user their spec deploys.
+`just survey-build` compiles a checked spec into a flow (`compile.py`), and
+`just flow-deploy` puts it on the account as a draft. Run `just survey-templates`
+first: it creates the buttons and lists the survey sends.
 
 ```bash
 just survey-builder                            # visual editor: cards, map, preview

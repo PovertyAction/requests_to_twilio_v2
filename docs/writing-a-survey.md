@@ -5,28 +5,18 @@ turns those rows into a Studio flow.
 
 ```text
    survey builder  ⇄ ┐
-                     ├   my_survey.json   →   Studio flow
-   my_survey.xlsx  ⇄ ┘   (git carries this)      (not yet)
+                     ├   my_survey.json   →   flows/my_survey.json   →   Studio
+   my_survey.xlsx  ⇄ ┘   (git carries this)   (just survey-build)        (just flow-deploy)
 ```
 
 Edit the JSON in either surface: the **survey builder**, a visual editor with a
 card per step, or the **workbook** in Excel. Both read and write the same file,
 so a team can mix them.
 
-> **The last arrow is not built yet.** `rtt survey` writes, reads, converts and
-> checks an instrument, and everything on this page about authoring one is real
-> and works today. What it cannot do is emit a flow definition: the only thing
-> that does is `scripts/build_data_use_demo.py`, which reads its own Python
-> tables rather than a spec. So changing the demo's questions today means editing
-> that script — it is the only description of that instrument, deliberately.
-> A `just export-demo-spec` recipe used to keep a second copy in spec form; it
-> was removed after the copy drifted out of step and became the more readable of
-> two disagreeing descriptions.
->
-> This matters most if you are about to write an instrument for a real round.
-> Author it here — the format is stable and `just survey-check` is worth running
-> — but budget for the flow itself being built by hand or by extending the
-> builder.
+`just survey-build` compiles a spec that passes `just survey-check` into a
+Studio flow, and `just flow-deploy` puts it on your account as a draft. The demo
+instrument is still built by `scripts/build_data_use_demo.py`, from its own
+tables; it shares its widgets with the compiler.
 
 One row is one question **including the whole subgraph it becomes**. A closed
 question with retries is seven Studio widgets — ask, validate, store, count the
@@ -238,6 +228,20 @@ just survey-builder                            # Open... my_survey.json, edit, S
 just survey-check my_survey.json               # must pass
 git add my_survey.json
 ```
+
+Then, to put it on Twilio:
+
+```powershell
+just survey-templates my_survey.json           # the buttons and lists it sends
+just survey-build my_survey.json "--lang en"   # -> flows/<flow_name>.json, checked
+just flow-schema flows/my_survey.json --format header   # the sheet's first row
+just flow-deploy flows/my_survey.json          # a draft; nothing is sent yet
+```
+
+The opener and the closing for people who never replied are approved templates:
+create and submit those yourself (see `docs/writing-templates.md`), under the
+names the spec gives them. `survey-templates` reports whether they exist, and
+`survey-build` refuses to compile until they do.
 
 With Excel:
 

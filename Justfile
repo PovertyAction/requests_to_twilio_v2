@@ -462,6 +462,22 @@ survey-json FILE:
 # type. Two descriptions of one instrument, and the wrong one was the readable
 # one. scripts/build_data_use_demo.py is now the only description of the demo.
 
+# The last arrow: a checked spec becomes a Studio flow. `survey-templates` creates
+# the buttons and lists the survey sends (never submitted to Meta); `survey-build`
+# compiles against your account and runs every flow check; deploying stays the
+# separate `flow-deploy` step, as a draft unless you pass --publish.
+#
+#   just survey-templates my_survey.json
+#   just survey-build my_survey.json "--lang en"
+#   just flow-deploy flows/my_survey.json
+[doc("Create the content templates a survey sends, on your Twilio account")]
+survey-templates FILE *ARGS:
+    uv run rtt survey templates {{ FILE }} {{ ARGS }}
+
+[doc("Compile a survey spec into a Studio flow and check it")]
+survey-build FILE *ARGS:
+    uv run rtt survey build {{ FILE }} {{ ARGS }}
+
 # The survey builder: one offline HTML page with a card per step, a map of the
 # flow's shape and a WhatsApp preview. It reads and writes the same JSON as the
 # workbook, never touches Twilio, and survey-check stays the check that counts.

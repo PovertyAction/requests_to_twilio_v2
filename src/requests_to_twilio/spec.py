@@ -66,6 +66,7 @@ Studio uses, and checks where each reply lands.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -204,6 +205,47 @@ REMINDER_MESSAGE = "timeout_nudge"
 #: at 23h30 by default and :func:`check_spec` refuses 24 hours or more.
 SESSION_WINDOW_SECONDS = 24 * 3600
 DEFAULT_REMINDER_AFTER = 23 * 3600 + 30 * 60
+
+
+#: The conditions the compiler can route on: one value compared with another,
+#: as the builder writes them - ``${arm}='2'`` or ``${P1}!='1'``.
+_CONDITION = re.compile(r"^\$\{(\w+)\}\s*(!=|=)\s*'([^']*)'$")
+
+#: Widget and variable names Studio accepts.
+_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+#: Names the survey spine already uses, so a row may not take them.
+_RESERVED_NAMES = frozenset(
+    {
+        "Trigger",
+        "intro",
+        "consent",
+        "finish",
+        "function_encrypt",
+        "split_closing",
+        "end_without_message",
+        "record_publish_failure",
+        "record_consent",
+        "record_declined",
+        "unsolicited_reply",
+        "mark_complete",
+        "mark_no_reply",
+        "mark_never_started",
+        "mark_delivery_failed",
+        "mark_optout",
+        "mark_encrypt_failed",
+    }
+)
+
+
+#: Rows the spine places itself; their names are the spine's to use.
+_SPINE_ROLES = ("intro", "consent", "close", "unsolicited")
+
+
+def parse_condition(text: str) -> tuple[str, str, str] | None:
+    """Split ``${x}='v'`` into ``(x, "=", "v")``, or None if it is not that shape."""
+    match = _CONDITION.match((text or "").strip())
+    return (match.group(1), match.group(2), match.group(3)) if match else None
 
 
 class SpecError(Exception):
@@ -532,9 +574,12 @@ class Spec:
         """
         if row.type in ("begin group", "end group"):
             return 1 if row.relevance else 0
+        # A condition on a step is one split in front of it. A closing's
+        # condition is not: every closing shares the one split on the outcome.
+        conditional = 1 if row.relevance and row.role not in ("close", "intro") else 0
         if not row.is_question:
-            return 1
-        widgets = 1  # the ask itself
+            return 1 + conditional
+        widgets = 1 + conditional  # the ask itself
         if self.listens_for_stop(row):
             widgets += 1
         # The opener stores nothing. Any reply at all is the answer, because its
@@ -542,16 +587,21 @@ class Spec:
         # free-form - so there is no variable to set and no validation to do.
         if row.kind == "template":
             return widgets
-        if row.is_validated:
-            widgets += 2  # validate, store
-            if self.retries_for(row) > 0:
-                widgets += 4  # count, decide, nudge, give up
+        if row.role == "consent":
+            widgets += 4  # validate, record yes, record no, give up
+        elif row.is_validated:
+            widgets += 3  # validate, store, give up
         else:
             widgets += 1  # store
+        if row.is_validated and self.retries_for(row) > 0:
+            widgets += 3  # count, decide, nudge
         if self.reminder_key(row):
-            widgets += 3  # note the reminder, decide, send it
-            if self.settings.stop_words == "opening_and_reminders" and not (
+            # keep the reply, check, note the reminder, send it, ask again, keep
+            # that reply
+            widgets += 6
+            if self.settings.stop_words != "never" and (
                 self.listens_for_stop(row)
+                or self.settings.stop_words == "opening_and_reminders"
             ):
                 widgets += 1  # a stop word in reply to the reminder
         return widgets
@@ -764,6 +814,7 @@ def check_spec(spec: Spec) -> list[str]:
     problems.extend(_check_constraints(spec))
     problems.extend(_check_options_are_matchable(spec))
     problems.extend(_check_consent(spec))
+    problems.extend(_check_routing(spec))
     return problems
 
 
@@ -1211,6 +1262,93 @@ def _check_consent(spec: Spec) -> list[str]:
     return problems
 
 
+def _check_routing(spec: Spec) -> list[str]:
+    """Check what the compiler routes on: names, conditions, closings, consent."""
+    problems: list[str] = []
+    preloads = set(spec.settings.preloads)
+    seen: dict[str, SurveyRow] = {}
+    group = ""
+    for index, row in enumerate(spec.survey, start=2):
+        where = f"survey row {index} ({row.name or row.type})"
+        if row.type == "begin group":
+            group = row.name
+        elif row.type == "end group":
+            group = ""
+            continue
+        if row.name and not _NAME.match(row.name):
+            problems.append(
+                f"{where}: the name {row.name!r} has to start with a letter and "
+                "hold only letters, digits and underscores, because Studio names "
+                "its widgets after it"
+            )
+        if row.name in _RESERVED_NAMES and row.role not in _SPINE_ROLES:
+            problems.append(f"{where}: {row.name!r} is a name the survey spine uses")
+
+        if row.relevance and row.role != "close":
+            parsed = parse_condition(row.relevance)
+            if parsed is None:
+                problems.append(
+                    f"{where}: the condition {row.relevance!r} cannot be compiled. "
+                    "Write it as ${name}='value' or ${name}!='value'"
+                )
+            else:
+                variable, _, value = parsed
+                earlier = seen.get(f"{group}.{variable}") or seen.get(f".{variable}")
+                if earlier is None and variable not in preloads:
+                    problems.append(
+                        f"{where}: the condition reads {variable!r}, which is "
+                        "neither a preload nor a question before this one"
+                    )
+                elif earlier is not None and earlier.is_select:
+                    codes = [c.value for c in spec.choice_list(earlier.list_name)]
+                    if value not in codes:
+                        problems.append(
+                            f"{where}: {variable} is never {value!r}; its codes "
+                            f"are {', '.join(codes)}"
+                        )
+        if row.is_question and row.type != "begin group":
+            seen[f"{group}.{row.name}"] = row
+
+    closes = {}
+    for row in spec.survey:
+        if row.role == "close":
+            parsed = parse_condition(row.relevance)
+            if parsed is None or parsed[0] != "outcome" or parsed[1] != "=":
+                problems.append(
+                    f"closing {row.name!r}: say which ending it is for, as "
+                    "${outcome}='complete'"
+                )
+                continue
+            closes[parsed[2]] = row
+    unreachable = closes.get("unreachable")
+    if unreachable is not None:
+        for lang in spec.settings.languages:
+            if not unreachable.template.get(lang):
+                problems.append(
+                    f"{lang}: closing {unreachable.name!r} goes to people who never "
+                    "replied, so WhatsApp allows only an approved template. Name one"
+                )
+
+    intro = next((r for r in spec.survey if r.role == "intro"), None)
+    if intro is not None:
+        for lang in spec.settings.languages:
+            if not intro.template.get(lang):
+                problems.append(
+                    f"{lang}: the opener {intro.name!r} needs an approved template. "
+                    "It is the only message sent before the person has written"
+                )
+
+    consent = spec.consent_row()
+    if consent is not None:
+        values = {c.value for c in spec.choice_list(consent.list_name)}
+        if "yes" not in values:
+            problems.append(
+                f"consent: one option of {consent.list_name!r} has to have the code "
+                "'yes'. It is the only one that enrols the person"
+            )
+    return problems
+
+
 def review_notes(spec: Spec) -> list[str]:
     """Things a human must read, which no check can judge.
 
@@ -1221,6 +1359,21 @@ def review_notes(spec: Spec) -> list[str]:
     the time it is wrong somebody has already agreed to something.
     """
     notes: list[str] = []
+    ends = {
+        parsed[2]
+        for row in spec.survey
+        if row.role == "close" and (parsed := parse_condition(row.relevance))
+    }
+    if (
+        spec.questions()
+        and spec.settings.stop_words != "never"
+        and "optout" not in ends
+    ):
+        notes.append(
+            "stop words end the survey, but no closing is for ${outcome}='optout', "
+            "so somebody who says stop hears nothing back - which reads as not "
+            "being heard"
+        )
     for key in sorted({spec.reminder_key(r) for r in spec.questions()} - {""}):
         for lang in spec.settings.languages:
             text = spec.message(key, lang)

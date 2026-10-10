@@ -47,20 +47,20 @@ requires_node = pytest.mark.skipif(node is None, reason="Node.js is not installe
 
 
 def python_json(payload: dict) -> str:
-    """What ``save_spec`` writes for a payload read back through the spec."""
+    """Return what ``save_spec`` writes for a payload read back through the spec."""
     spec = spec_from_dict(payload)
     return json.dumps(spec_to_dict(spec), indent=2, ensure_ascii=False) + "\n"
 
 
 def model_source() -> str:
-    """The page's pure model code, between its two markers."""
+    """Return the page's pure model code, between its two markers."""
     match = re.search(r"// model:begin[^\n]*\n(.*?)// model:end", HTML, re.DOTALL)
     assert match, "survey_builder.html lost its model:begin/model:end markers"
     return match.group(1)
 
 
 def builder_json(payload: dict) -> str:
-    """What the page's Save writes for a payload it opened, run in Node."""
+    """Return what the page's Save writes for a payload it opened, run in Node."""
     script = (
         f"const C = {render_contract()};\n"
         f"{model_source()}\n"
@@ -83,7 +83,7 @@ def builder_json(payload: dict) -> str:
 
 
 def every_field_spec() -> Spec:
-    """A spec with every field set away from its default, so none can be dropped."""
+    """Build a spec with every field set off its default, so none can be dropped."""
     return Spec(
         settings=Settings(
             form_id="full",
@@ -184,6 +184,20 @@ def test_page_never_mentions_twilio_credentials():
 )
 def test_untouched_open_and_save_is_byte_identical(payload):
     assert builder_json(payload) == python_json(payload)
+
+
+@pytest.mark.node
+@requires_node
+def test_the_page_script_parses(tmp_path):
+    """A syntax error blanks the whole page, and nothing else would notice."""
+    scripts = re.findall(r"<script>\n(.*?)</script>", HTML, re.DOTALL)
+    assert scripts, "the page has no inline script"
+    path = tmp_path / "page.js"
+    path.write_text(scripts[-1], encoding="utf-8")
+    result = subprocess.run(  # noqa: S603
+        [node, "--check", str(path)], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.node

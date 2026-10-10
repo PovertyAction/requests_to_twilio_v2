@@ -190,7 +190,7 @@ def expected_code(options, reply: str) -> str:
     return "other"
 
 
-def code_mapping(widget: str, options) -> str:
+def code_mapping(widget: str, options, source: str = "") -> str:
     """Build Liquid that normalises a reply to its option number.
 
     The stored answer must not depend on whether the respondent tapped or
@@ -202,6 +202,9 @@ def code_mapping(widget: str, options) -> str:
     condition is deliberately tolerant of casing and trailing punctuation - and
     a mapping that were stricter would quietly code those replies as `other`
     while the split had already recorded them as answered.
+
+    ``source`` is the Liquid expression holding the reply, when it is not the
+    widget's own body - a question asked twice keeps its reply in a variable.
     """
     removals = "".join(f' | replace: "{char}", ""' for char in _STRIPPED_PUNCTUATION)
     accept_positions = not positions_are_ambiguous(options)
@@ -216,8 +219,9 @@ def code_mapping(widget: str, options) -> str:
         clauses.append(
             f"{{% when {' or '.join(alternatives)} %}}{option_code(option, index)}"
         )
+    source = source or f"widgets.{widget}.inbound.Body"
     return (
-        f"{{% assign reply = widgets.{widget}.inbound.Body "
+        f"{{% assign reply = {source} "
         f"| strip | downcase{removals} | strip %}}"
         f"{{% case reply %}}{''.join(clauses)}"
         "{% else %}other{% endcase %}"

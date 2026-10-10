@@ -48,6 +48,8 @@ workbook is a generated view, gitignored, and it is what you edit.
 | `just survey-json FILE` | Reads an RA's workbook edits back into the tracked JSON. **The load-bearing direction** — whatever does not survive this trip is silently lost. |
 | `just survey-rows FILE` | Prints the whole instrument in the terminal, without opening Excel. |
 | `just survey-check FILE` | *Runs* the option patterns and constraints rather than reading them, and reports where each possible reply lands. Exits non-zero. |
+| `just survey-templates FILE` | Creates the buttons and lists a survey sends, one content template per select question, and reports whether the approved opener and closing templates exist. Never submits anything to Meta. |
+| `just survey-build FILE` | Compiles a checked spec into a Studio flow against your account (content SIDs, Functions), runs every flow check, and writes `flows/<flow_name>.json`. `--offline` builds with placeholder SIDs for reading only. |
 | `just survey-builder` | Opens the visual survey builder: one offline HTML page with a card per step, a map of the flow's shape and a WhatsApp preview. Reads and writes the same JSON as the workbook and never talks to Twilio. |
 | `just survey-builder-sync` | Rewrites the builder's embedded limits, vocabularies and starter from the Python side. Only needed when those change; a test fails when they have drifted. |
 | `just survey-sample` | Regenerates the committed `sample_template.xlsx`. Only needed when the schema or starter content changes — a test fails when it has drifted. |
