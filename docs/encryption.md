@@ -135,7 +135,7 @@ unauthenticated, with initialisation vectors from `Math.random()`. It still
 decrypts:
 
 ```powershell
-just decrypt "old.csv --columns name,phone --legacy-secret your_old_key"
+just data decrypt "old.csv --columns name,phone --legacy-secret your_old_key"
 ```
 
 Treat it as weakly protected. The IVs were not cryptographically random, and the

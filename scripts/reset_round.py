@@ -10,11 +10,11 @@ have to be dealt with deliberately rather than left to be noticed later:
 
 Three operations, chosen independently so one command covers the whole day:
 
-    just round-reset SAMPLE.xlsx                  # say what is there, change nothing
-    just round-reset SAMPLE.xlsx "--snapshot"     # data -> data_template, and tracking
-    just round-reset SAMPLE.xlsx "--truncate"     # live tabs back to their header row
-    just round-reset SAMPLE.xlsx "--local old_output.csv"   # delete named leftovers
-    just round-reset SAMPLE.xlsx "--snapshot --truncate --yes"
+    just round reset SAMPLE.xlsx                  # say what is there, change nothing
+    just round reset SAMPLE.xlsx "--snapshot"     # data -> data_template, and tracking
+    just round reset SAMPLE.xlsx "--truncate"     # live tabs back to their header row
+    just round reset SAMPLE.xlsx "--local old_output.csv"   # delete named leftovers
+    just round reset SAMPLE.xlsx "--snapshot --truncate --yes"
 
 **Nothing happens without `--yes`.** Every operation here destroys something on
 a live surface, and a dry run that prints row counts is the only way to be sure
@@ -59,7 +59,7 @@ TOUCHABLE = frozenset(SNAPSHOTS) | frozenset(SNAPSHOTS.values())
 #:
 #: This replaces a hardcoded tuple of one operator's rehearsal filenames -
 #: `my_solo_test.xlsx`, `my_es_test.xlsx`, two dated files under
-#: `.launch_archive/`. Every stranger running `just round-reset` was shown
+#: `.launch_archive/`. Every stranger running `just round reset` was shown
 #: filenames from somebody else's laptop and told they were "local test
 #: artifacts", and `--local` then deleted by those names from whatever working
 #: directory they happened to be in. A default here is somebody else's round.
@@ -86,7 +86,7 @@ DATA_SHAPED = ("*_output.csv", "*_decrypted.csv", "*_export.csv", "*.xlsx")
 #:     never walked back - so last round's rows persist into this round's tab.
 #:
 #: All three are gitignored. Deliberately separate from --local: those are old
-#: junk, these are current state, and one of them is the file `just send` reads.
+#: junk, these are current state, and one of them is the file `just round send` reads.
 #:
 #: Derived from whichever sample the round is launching, because a round is
 #: named by its sample and everything else follows: `rtt launch x.xlsx` writes
@@ -106,7 +106,7 @@ def round_files(sample: str) -> tuple[str, ...]:
     command exists to remove.
 
     A bare name with no suffix is taken as `.xlsx`, because that is the form
-    `just send` uses.
+    `just round send` uses.
     """
     path = Path(sample)
     workbook = path if path.suffix else path.with_suffix(".xlsx")

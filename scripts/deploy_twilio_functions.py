@@ -23,7 +23,7 @@ through the SDK.
 
 Secrets are read from `.env` and passed straight to Twilio; nothing is printed.
 
-Run with `just deploy-functions`.
+Run with `just setup functions`.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def public_key_from_private_file() -> str:
         cfg.optional("ENCRYPTION_PRIVATE_KEY_FILE") or "rtt_private_key.txt"
     )
     if not path.is_file():
-        fail(f"No private key at {path}. Run `just keygen` first.")
+        fail(f"No private key at {path}. Run `just setup key` first.")
 
     private = load_private_key(path.read_text(encoding="utf-8"))
     raw = private.public_key().public_bytes(
@@ -488,7 +488,7 @@ def main() -> None:
         name = spec["friendly_name"]
         print(f"  {name:16} {deployed[name][0]}  {spec['path']}")
     print()
-    print("Next: just build-demo-flow   (resolves these by name; nothing to paste)")
+    print("Next: just demo build   (resolves these by name; nothing to paste)")
 
 
 if __name__ == "__main__":

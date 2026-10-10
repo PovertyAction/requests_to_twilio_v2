@@ -32,14 +32,14 @@ are committed - `flows/data_use_demo_en.json` and `_es.json` - and both build
 from the same code.
 
 The builder resolves your Twilio Functions service and content templates **by
-name**, so `just build-demo-flow` produces a flow that points at your account
+name**, so `just demo build` produces a flow that points at your account
 rather than at ours. Either language needs its two bookend templates to exist on
 your account first; the build stops and names them if they do not.
 
 ```powershell
-just demo-templates-create        # the in-session templates the questions need
-just build-demo-flow --lang en    # writes flows/data_use_demo_en.json
-just flow-deploy flows/data_use_demo_en.json --publish
+just demo content        # the in-session templates the questions need
+just demo build --lang en    # writes flows/data_use_demo_en.json
+just flow deploy flows/data_use_demo_en.json --publish
 ```
 
 Only the bookends — the opener and the closing message to someone who never
@@ -49,7 +49,7 @@ replied — need Meta approval. Everything in between is in-session and free.
 
 `flows/foro_nacional_datos_source.json` is an as-ran original, kept unmodified as
 provenance. It is **not runnable here** — its templates and Functions live on a
-different account — but `just flow-check flows/foro_nacional_datos_source.json`
+different account — but `just flow check flows/foro_nacional_datos_source.json`
 reads it off disk and reports real defects in it. It is kept precisely because it
 still fails, which makes it the honest thing to run the checks against before you
 point them at your own flow.

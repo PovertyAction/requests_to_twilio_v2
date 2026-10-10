@@ -144,7 +144,7 @@ def test_embedded_contract_matches_the_python_side():
     """Limits, vocabularies and the starter come from spec.py, not a copy."""
     assert embedded_contract(HTML) == render_contract(), (
         "survey_builder.html carries stale limits or starter content. "
-        "Run: just survey-builder-sync"
+        "Run: just dev builder-sync"
     )
 
 

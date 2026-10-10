@@ -47,7 +47,7 @@ that outlives the round. See `docs/encryption.md` for the full threat model.
 - `.env`, `rtt_private_key.txt`, and all `*.csv` / `*.xlsx` are gitignored,
   except the committed example (`sample_input.xlsx`) and the value-label
   codebooks, which contain no respondent data.
-  `just scan-secrets` catches private keys locally; gitleaks runs in CI.
+  `just dev secrets` catches private keys locally; gitleaks runs in CI.
 - Decrypted output is plain-text PII the moment it is written. Store it per your
   organisation's policy for that classification.
 

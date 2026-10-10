@@ -14,9 +14,9 @@ from the nearest one rather than from a blank file.
 Pull the current set any time with:
 
 ```bash
-just template-list                    # everything
-just template-list --filter intro     # openings
-just template-list --filter end       # closings
+just approved list                    # everything
+just approved list --filter intro     # openings
+just approved list --filter end       # closings
 ```
 
 ## The category pattern

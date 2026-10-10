@@ -4,7 +4,9 @@ You want to run a survey over WhatsApp: send a question to a list of people,
 collect what they reply, and get it back without their names and numbers ending
 up somewhere they should not be.
 
-This page is the whole path, in order. It assumes no Twilio experience.
+This page is the whole path, in order. It assumes no Twilio experience. The
+same steps as a short list of commands are in
+[the recipes](docs/justfile-recipes.md#step-by-step-from-a-new-laptop-to-your-data).
 
 **Read the timing note first.** Steps 1 to 3 involve Meta and can take **days to
 weeks**. Everything after them takes an afternoon. Teams get caught out by
@@ -36,9 +38,9 @@ flow you already trust.
 Do **step 5** (install), then:
 
 ```powershell
-just flow-list                            # find it by friendly name
-just flow-pull my_endline                 # writes flows/my_endline.json, gitignored
-just flow-check flows/my_endline.json     # what is mechanically wrong with it
+just flow list                            # find it by friendly name
+just flow pull my_endline                 # writes flows/my_endline.json, gitignored
+just flow check flows/my_endline.json     # what is mechanically wrong with it
 ```
 
 Nothing here writes to your account: `list`, `pull` and `check` only read. That
@@ -96,17 +98,17 @@ Everything in between — consent buttons, answer lists, retry nudges, the closi
 message to someone who did reply — is inside the window and needs nothing.
 
 ```powershell
-just template-create templates/data_use_demo_intro_en.json
-just template-create templates/data_use_demo_close_en.json
-just template-submit data_use_demo_intro_en --category UTILITY
-just template-submit data_use_demo_close_en --category UTILITY
-just template-status data_use_demo_intro_en
+just approved create templates/data_use_demo_intro_en.json
+just approved create templates/data_use_demo_close_en.json
+just approved submit data_use_demo_intro_en --category UTILITY
+just approved submit data_use_demo_close_en --category UTILITY
+just approved status data_use_demo_intro_en
 ```
 
 Three things worth knowing before you submit:
 
 - **Submission is irreversible.** An approved template can never be edited, only
-  deleted and recreated under a new name. `template-submit` asks for confirmation
+  deleted and recreated under a new name. `just approved submit` asks for confirmation
   for this reason.
 - **The category is not a hint.** Leading with an incentive lands in MARKETING;
   leading with the consent basis lands in UTILITY. Marketing templates are easier
@@ -142,7 +144,7 @@ Node. On Windows:
 
 ```powershell
 winget install Casey.Just astral-sh.uv
-just get-started
+just setup install
 ```
 
 Then create your `.env`:
@@ -160,7 +162,7 @@ history and are readable by other processes on the machine.
 ## 6. Generate an encryption keypair
 
 ```powershell
-just keygen
+just setup key
 ```
 
 This prints a **public key** and writes a **private key** to
@@ -180,7 +182,7 @@ Point `.env` at it with `ENCRYPTION_PRIVATE_KEY_FILE=rtt_private_key.txt`.
 ## 7. Deploy the two Twilio Functions
 
 ```powershell
-just deploy-functions
+just setup functions
 ```
 
 This creates a Functions service called `rtt-survey` and deploys two files from
@@ -215,7 +217,7 @@ below whenever you add a question.
 Print the header row the flow expects, and paste it into row 1 of a tab:
 
 ```powershell
-just flow-header flows/data_use_demo_en.json
+just flow header flows/data_use_demo_en.json
 ```
 
 Create the sheet, share it with your service account's address as an Editor,
@@ -230,28 +232,28 @@ adding a tracking tab later silently redirects every submission into it.
 Print the DDL from the flow itself and run it:
 
 ```powershell
-just flow-schema flows/data_use_demo_en.json --table my_db.main.my_round
+uv run rtt flow schema flows/data_use_demo_en.json --table my_db.main.my_round
 ```
 
 Then set `MOTHERDUCK_TOKEN`, `MOTHERDUCK_DATABASE`, `MOTHERDUCK_HOST` and
 `MOTHERDUCK_TABLE` in `.env`, and build with
-`just build-demo-flow "--lang en --publish-target motherduck"` in the next step —
+`just demo build "--lang en --publish-target motherduck"` in the next step —
 **the default is Sheets, so a MotherDuck round has to say so.** Configuring
 MotherDuck and building without that flag gives you a flow that publishes to a
-sheet you never made, and `deploy-functions` will not catch it.
+sheet you never made, and `just setup functions` will not catch it.
 
 ## 9. Build and deploy the flow
 
 ```powershell
-just demo-templates-create        # the in-session templates the questions need
-just build-demo-flow --lang en    # writes flows/data_use_demo_en.json
-just flow-deploy flows/data_use_demo_en.json --publish
+just demo content        # the in-session templates the questions need
+just demo build --lang en    # writes flows/data_use_demo_en.json
+just flow deploy flows/data_use_demo_en.json --publish
 ```
 
-`build-demo-flow` resolves your Functions service and your content templates by
+`just demo build` resolves your Functions service and your content templates by
 name, so the flow it writes points at *your* account.
 
-`flow-deploy` refuses to ship a flow that fails the checks. That is deliberate:
+`just flow deploy` refuses to ship a flow that fails the checks. That is deliberate:
 refusing to deploy costs you a fix, whereas a defective flow costs you a round.
 
 ### Writing your own survey, rather than the demo
@@ -261,20 +263,20 @@ not copy someone else's flow — you describe the survey as rows, either in the
 visual builder or in Excel:
 
 ```powershell
-just survey-builder                            # cards, a flow map, a phone preview
-just survey-check my_survey.json               # must pass before you build
-just survey-content my_survey.json             # its buttons and lists, on Twilio
-just survey-build my_survey.json               # -> flows/<flow_name>.json, checked
-just flow-deploy flows/my_survey.json          # a draft on your account
+just survey builder                            # cards, a flow map, a phone preview
+just survey check my_survey.json               # must pass before you build
+just survey content my_survey.json             # its buttons and lists, on Twilio
+just survey build my_survey.json               # -> flows/<flow_name>.json, checked
+just flow deploy flows/my_survey.json          # a draft on your account
 ```
 
 or
 
 ```powershell
-just survey-template --output my_survey.xlsx   # a documented starter workbook
+just survey new --output my_survey.xlsx   # a documented starter workbook
 # ...fill it in in Excel...
-just survey-json my_survey.xlsx                # → my_survey.json, the tracked copy
-just survey-check my_survey.json               # must pass before you build
+just survey json my_survey.xlsx                # → my_survey.json, the tracked copy
+just survey check my_survey.json               # must pass before you build
 ```
 
 One row is one question *and* the whole subgraph it becomes — seven Studio widgets
@@ -287,7 +289,7 @@ the repository root is a filled-in example you can open right now, and its
 that every path publishes one row per respondent, and that one execution is one
 person answering once. Reminder campaigns, multi-wave interventions and
 notification flows break those assumptions — build those as Studio flows and check
-them with `just flow-check`, which judges a graph on its own terms.
+them with `just flow check`, which judges a graph on its own terms.
 
 Full guide: [docs/writing-a-survey.md](docs/writing-a-survey.md).
 
@@ -305,10 +307,10 @@ must match the flow exactly and must be `[A-Za-z0-9_]` only.
 
 ```powershell
 # See exactly what would be sent, and run every pre-flight check
-just launch "sample_input.xlsx --columns caseid,name,arm --dry-run"
+just round launch "sample_input.xlsx --columns caseid,name,arm --dry-run"
 
 # Send for real
-just launch "sample_input.xlsx --columns caseid,name,arm"
+just round launch "sample_input.xlsx --columns caseid,name,arm"
 ```
 
 Answer it on your phone. Then confirm the row arrived before you launch at
@@ -335,13 +337,13 @@ Then, locally:
 
 ```powershell
 # Decrypt with your private key. Writes responses_decrypted.csv
-just decrypt "responses.csv"
+just data decrypt "responses.csv"
 
 # During a round: does the data look right?
-just data-check "responses_decrypted.csv"
+just data check "responses_decrypted.csv"
 
 # What does Twilio think happened? Useful when a row seems missing
-just fetch "--since 2026-08-01"
+just data fetch "--since 2026-08-01"
 ```
 
 Encrypted columns are detected automatically — they carry a `v2:` marker — so
@@ -373,6 +375,6 @@ failed**: a survey completed and no row written, a message sent to a flow that
 was not listening, every tap falling through to a retry nudge, a warehouse
 returning 200 while dropping columns.
 
-So the checks are not ceremony. `just flow-check` before a round and
-`just data-check` during one exist because none of that was visible in the Studio
+So the checks are not ceremony. `just flow check` before a round and
+`just data check` during one exist because none of that was visible in the Studio
 editor, and all of it was visible in the data months too late.

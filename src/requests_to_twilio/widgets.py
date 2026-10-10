@@ -18,11 +18,11 @@ from typing import Any
 FROM = "{{flow.channel.address}}"
 TIMEOUT = "3600"  # 1 hour, as in the source flow
 
-#: The Functions service `just deploy-functions` creates. Everything about the
+#: The Functions service `just setup functions` creates. Everything about the
 #: deployment is looked up from this one name at build time rather than pasted
 #: in as SIDs: a `ZS`/`ZE`/`ZH` triple and a `*.twil.io` host are per-account,
 #: and the domain carries a random suffix that cannot even be guessed. Hard-
-#: coding them meant `just build-demo-flow` emitted a flow pointing at the
+#: coding them meant `just demo build` emitted a flow pointing at the
 #: author's own subaccount, which 404s for everybody else - the single thing
 #: that stopped another team running this.
 FUNCTIONS_SERVICE_NAME = "rtt-survey"
@@ -257,7 +257,7 @@ def resolve_functions(client, target: str = DEFAULT_PUBLISH_TARGET) -> dict[str,
 
     Raises:
         BuildError: If the service, its environment, or either function is
-            missing - which means `just deploy-functions` has not been run on
+            missing - which means `just setup functions` has not been run on
             this account.
 
     Studio needs the deployed **url** as well as the three SIDs; validation
@@ -287,7 +287,7 @@ def resolve_functions(client, target: str = DEFAULT_PUBLISH_TARGET) -> dict[str,
     if service is None:
         raise BuildError(
             f"No Functions service named {FUNCTIONS_SERVICE_NAME!r} on this "
-            f"account. Run `just deploy-functions` first - it creates the "
+            f"account. Run `just setup functions` first - it creates the "
             f"service and deploys encrypt_fields and every publish target."
         )
 
@@ -296,7 +296,7 @@ def resolve_functions(client, target: str = DEFAULT_PUBLISH_TARGET) -> dict[str,
     if environment is None:
         raise BuildError(
             f"The {FUNCTIONS_SERVICE_NAME!r} service has no environment. "
-            f"Re-run `just deploy-functions`."
+            f"Re-run `just setup functions`."
         )
 
     functions = {
@@ -312,12 +312,12 @@ def resolve_functions(client, target: str = DEFAULT_PUBLISH_TARGET) -> dict[str,
         # Naming the target matters here. A service deployed before this repo
         # grew a second destination has encrypt_fields and publish_motherduck
         # and nothing else, so `--publish-target gsheets` fails on an account
-        # that is otherwise perfectly set up - and "re-run deploy-functions"
+        # that is otherwise perfectly set up - and "re-run just setup functions"
         # alone does not explain why.
         raise BuildError(
             f"Deployed but incomplete: {FUNCTIONS_SERVICE_NAME!r} is missing "
             f"{', '.join(missing)}, which the {target!r} publish target needs. "
-            f"Re-run `just deploy-functions`."
+            f"Re-run `just setup functions`."
         )
 
     host = environment.domain_name

@@ -110,7 +110,7 @@ class TestTheSheetTokenSurvivesTheWindow:
 
     `TOKEN_LIFETIME_SECONDS` is 600, and `monitor` used to mint once before the
     loop. That was ample while a settled round exited on the first poll, and
-    became wrong the moment `--full-window` existed: `just send` runs
+    became wrong the moment `--full-window` existed: `just round send` runs
     `--hours 1`, so the token expired a sixth of the way in and every later
     write returned 401. `SheetsError` is swallowed on purpose - the CSV is the
     record, a dead sheet must not end the round's monitoring - so the tracking

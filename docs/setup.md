@@ -31,11 +31,11 @@ but the inbound-routing check will then be describing SMS, not WhatsApp.
 | Variable | |
 | --- | --- |
 | `ENCRYPTION_PRIVATE_KEY` | the key inline, or leave blank and use the file below |
-| `ENCRYPTION_PRIVATE_KEY_FILE` | path to what `just keygen` wrote. Default `rtt_private_key.txt` |
+| `ENCRYPTION_PRIVATE_KEY_FILE` | path to what `just setup key` wrote. Default `rtt_private_key.txt` |
 | `LEGACY_SECRET_KEY` | only for data collected before 2.0. Leave blank otherwise |
 
 The **public** key is deliberately absent: this machine never needs it.
-`just deploy-functions` derives it from the private key and sets it on the
+`just setup functions` derives it from the private key and sets it on the
 Function, which also avoids the failure mode where someone pastes the *private*
 key into the public slot — that succeeds silently and produces permanently
 undecryptable data.
@@ -47,12 +47,12 @@ it touches.
 ### Where a submission is written
 
 There are two destinations, and they are peers. Both occupy the same position in
-the flow graph, both are deployed by `just deploy-functions`, and both write the
+the flow graph, both are deployed by `just setup functions`, and both write the
 same payload. Choose per build:
 
 ```powershell
-just build-demo-flow "--lang en --publish-target gsheets"    # Google Sheets
-just build-demo-flow "--lang en --publish-target motherduck" # MotherDuck
+just demo build "--lang en --publish-target gsheets"    # Google Sheets
+just demo build "--lang en --publish-target motherduck" # MotherDuck
 ```
 
 | | Google Sheets | MotherDuck |
@@ -68,7 +68,7 @@ account should not be the first step of somebody's first WhatsApp survey.
 MotherDuck is where this project's own rounds land, which is a fact about this
 project rather than a recommendation: pick the one that fits your round.
 
-Configure either, or both. `just deploy-functions` reports what each target is
+Configure either, or both. `just setup functions` reports what each target is
 missing and only fails when *no* target is configured — which would mean a
 completed survey has nowhere to write its row.
 
@@ -112,10 +112,10 @@ Five steps, once:
 5. Put a header row in row 1, generated from the instrument rather than typed:
 
    ```powershell
-   just flow-header flows/data_use_demo_en.json
+   just flow header flows/data_use_demo_en.json
    ```
 
-`just deploy-functions` reads the JSON file and sets `GOOGLE_CLIENT_EMAIL` and
+`just setup functions` reads the JSON file and sets `GOOGLE_CLIENT_EMAIL` and
 the key on the Twilio Function Service for you. You never paste the key
 anywhere.
 
@@ -128,7 +128,7 @@ anywhere.
 Two mechanical details worth knowing, because both fail confusingly:
 
 - **The key does not fit in a Twilio environment variable.** Twilio rejects a
-  value over 450 bytes and an RSA 2048 PEM is about 1,700, so `deploy-functions`
+  value over 450 bytes and an RSA 2048 PEM is about 1,700, so `just setup functions`
   splits it across `GOOGLE_PRIVATE_KEY_1`, `_2`, … and the Function rejoins
   them. `MOTHERDUCK_TOKEN` already needed the same treatment.
 - **Twilio environment variables cannot hold real newlines**, so the PEM travels
@@ -145,7 +145,7 @@ Two mechanical details worth knowing, because both fail confusingly:
 
 `rtt` itself does not use these. They exist for the Twilio MCP server, and they
 are **a different credential from the auth token** — the most common reason
-`just mcp-list` reports "not ready".
+`just setup mcp-check` reports "not ready".
 
 Prefer an API key over the auth token wherever a choice exists: it can be revoked
 on its own without rotating the credential for your whole account.
@@ -163,12 +163,12 @@ Node. It can read and modify Studio flows and Content templates. Setup:
 
 ```powershell
 # 1. put TWILIO_API_KEY and TWILIO_API_SECRET in .env
-just mcp-setup      # 2. writes .claude/settings.local.json (gitignored)
+just setup mcp      # 2. writes .claude/settings.local.json (gitignored)
 # 3. restart Claude Code
-just mcp-list       # 4. confirm
+just setup mcp-check       # 4. confirm
 ```
 
-`mcp-setup` refuses to write if git would track the target file, because that is
+`just setup mcp` refuses to write if git would track the target file, because that is
 how credentials reach a public repository.
 
 Two cautions. It is an **alpha** package, pinned here for that reason. And it
@@ -179,8 +179,8 @@ anything that writes.
 ## Toolchain
 
 ```powershell
-just pre-install    # uv, gh, Node, markdownlint
-just get-started    # uv sync + pre-commit hooks
+just setup install    # uv, gh, Node, markdownlint
+just setup install    # uv sync + pre-commit hooks
 ```
 
 Node is not optional even if you never touch JavaScript: the encryption test

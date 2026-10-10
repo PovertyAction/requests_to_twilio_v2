@@ -9,7 +9,7 @@
   Twilio credentials. It edits a survey spec's canonical JSON - the same file
   `rtt survey convert` writes - and `rtt survey check` stays the authoritative
   check. The limits below come from the Python side through the rtt-contract
-  block, which `just survey-builder-sync` rewrites and a test compares.
+  block, which `just dev builder-sync` rewrites and a test compares.
 -->
 <style>
   :root {
@@ -820,7 +820,7 @@ function guarded(action, label) {
 function readText(text, name, handle) {
   let payload;
   try { payload = JSON.parse(text); } catch (e) {
-    return toast(`${name} is not a survey file. To open an Excel workbook, convert it first with: just survey-json ${name}`, "error");
+    return toast(`${name} is not a survey file. To open an Excel workbook, convert it first with: just survey json ${name}`, "error");
   }
   if (!payload || !Array.isArray(payload.survey)) {
     return toast(`${name} has no survey steps in it. Check that it is a survey file.`, "error");
@@ -1263,7 +1263,7 @@ function approvedField(row, label, hint) {
     h("div", { class: "fld-label" }, h("span", null, label, h("span", { class: "hint" }, "  ", hint))));
   const list = approvedIn(lang);
   if (list === null) {
-    box.append(h("div", { class: "note-box" }, "Open the builder with ", h("code", null, "just survey-builder"),
+    box.append(h("div", { class: "note-box" }, "Open the builder with ", h("code", null, "just survey builder"),
       " to pick from the messages Meta approved on your account, and see their text. Until then, type the name."));
     const f = textField("", row.template, lang, { mono: true });
     f.classList.remove("fld");
@@ -2078,7 +2078,7 @@ function renderPreview() {
       chat.append(bubble(approvedText(msg.body, row)));
       msg.buttons.forEach((b) => chat.append(h("div", { class: "wa-btn" }, b)));
     } else {
-      chat.append(bubble(`Approved message "${row.template[lang] || "(none chosen)"}"\n${APPROVED ? "Not approved on your account." : "Open the builder with just survey-builder to see its text."}`, "sys"));
+      chat.append(bubble(`Approved message "${row.template[lang] || "(none chosen)"}"\n${APPROVED ? "Not approved on your account." : "Open the builder with just survey builder to see its text."}`, "sys"));
     }
     if (kind === "template") { root.append(facts(row)); return; }
   }
@@ -2408,10 +2408,10 @@ $("#btn-copy").addEventListener("click", async () => {
   const st = S.spec.settings;
   const flow = st.flow_name[S.lang] || `${st.form_id}_${S.lang}`;
   const cmd = [
-    `just survey-check ${S.fileName}`,
-    `just survey-content ${S.fileName}`,
-    `just survey-build ${S.fileName} "--lang ${S.lang}"`,
-    `just flow-deploy flows/${flow}.json`,
+    `just survey check ${S.fileName}`,
+    `just survey content ${S.fileName}`,
+    `just survey build ${S.fileName} --lang ${S.lang}`,
+    `just flow deploy flows/${flow}.json`,
   ].join("\n");
   try { await navigator.clipboard.writeText(cmd); toast("Copied the four commands: check, create the buttons and lists, build, deploy as a draft."); }
   catch { toast(`Run: ${cmd.replaceAll("\n", " ; ")}`); }

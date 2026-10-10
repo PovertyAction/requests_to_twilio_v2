@@ -6,7 +6,7 @@ environment somehow, and the place for that is `.claude/settings.local.json`,
 which is gitignored.
 
 This script derives that file from `.env`, so the credentials are written down
-exactly once. Run it with ``just mcp-setup``.
+exactly once. Run it with ``just setup mcp``.
 
 Nothing is accepted on the command line: arguments land in shell history and are
 readable from the process table by anything else running on the machine.
@@ -136,7 +136,7 @@ def list_servers() -> None:
     settings_env = {}
     if SETTINGS_FILE.is_file():
         # A malformed local settings file just means "not configured yet" here;
-        # `mcp-setup` is where that gets reported properly.
+        # `just setup mcp` is where that gets reported properly.
         with contextlib.suppress(json.JSONDecodeError):
             settings_env = json.loads(SETTINGS_FILE.read_text(encoding="utf-8")).get(
                 "env", {}
@@ -152,7 +152,7 @@ def list_servers() -> None:
             ready = (
                 "ready"
                 if not missing
-                else f"NOT ready - run `just mcp-setup` ({len(missing)} var(s) unset)"
+                else f"NOT ready - run `just setup mcp` ({len(missing)} var(s) unset)"
             )
         print(f"  {name:14} {target}")
         print(f"  {'':14} {ready}")

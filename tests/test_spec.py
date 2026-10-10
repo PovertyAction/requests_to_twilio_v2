@@ -694,7 +694,7 @@ class TestTheCommittedSampleTemplate:
 
     def test_it_exists_and_is_tracked(self):
         assert self.SAMPLE.is_file(), (
-            "sample_template.xlsx is missing. Regenerate it with `just survey-sample`."
+            "sample_template.xlsx is missing. Regenerate it with `just dev sample`."
         )
 
     @staticmethod
@@ -731,7 +731,7 @@ class TestTheCommittedSampleTemplate:
         assert self._contents(fresh) == self._contents(self.SAMPLE), (
             "sample_template.xlsx no longer matches starter_spec(). The schema "
             "or the starter content has changed - regenerate it with "
-            "`just survey-sample` and commit the result, so the reference people "
+            "`just dev sample` and commit the result, so the reference people "
             "open is the format the code actually reads."
         )
 

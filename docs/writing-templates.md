@@ -73,11 +73,11 @@ under your WABA. Test one send before planning around them.
 ## The commands
 
 ```powershell
-just template-list --filter rst
-just template-create templates/my_intro.json
-just template-status my_intro
-just template-submit my_intro --category UTILITY   # IRREVERSIBLE
-just template-delete my_draft --yes
+just approved list --filter rst
+just approved create templates/my_intro.json
+just approved status my_intro
+just approved submit my_intro --category UTILITY   # IRREVERSIBLE
+just approved delete my_draft --yes
 ```
 
 `create` makes the template in Twilio without submitting it, so the wording can
@@ -103,12 +103,12 @@ letting Meta reject it.
 ```
 
 Keep one file per template in `templates/`. The generated in-session ones live in
-`templates/generated/` and are rebuilt by `just build-demo-flow`, so edit the
+`templates/generated/` and are rebuilt by `just demo build`, so edit the
 builder rather than those files.
 
 ## Templates are immutable
 
-`demo-templates-create` uses
+`just demo content` uses
 `--skip-existing`, which leaves an existing template alone rather than making a
 duplicate. That is what you want when re-running a build — and exactly what you
 do **not** want after changing a question's wording or options, because the
@@ -117,15 +117,15 @@ flow resolves templates *by friendly name* and then references them *by SID*.
 How that fails depends on what you changed, and the quieter case is the
 dangerous one. Change an **option** and the new split refuses every answer, so
 you find out immediately. Change only the **wording** and nothing objects at
-all: the flow is correct, `flow-check` passes, the linter is clean, the tests
+all: the flow is correct, `just flow check` passes, the linter is clean, the tests
 are green, and respondents are read the old text. That happened — six questions
 went out numbered "of 5" after a sixth was added, and only a respondent's
 transcript revealed it.
 
-`just build-demo-flow` now blocks on this, comparing each stored template
+`just demo build` now blocks on this, comparing each stored template
 against the definition it just wrote and naming what drifted. The fix is
-`just demo-templates-sync`, which replaces only what actually differs. Do not
-rely on remembering to `template-delete` by hand.
+`just demo content-sync`, which replaces only what actually differs. Do not
+rely on remembering to `just approved delete` by hand.
 
 ## Before you submit
 
