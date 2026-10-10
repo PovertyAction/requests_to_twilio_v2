@@ -192,3 +192,37 @@ class TestSubmit:
     def test_rejects_a_bad_category_before_touching_the_api(self):
         with pytest.raises(TemplateError, match="category must be one of"):
             submit(fake_client(fails=True), "HXtext", "demo_intro", "PROMOTIONAL")
+
+
+class TestCreateSendsTheTypesUnchanged:
+    """Built with the SDK's real request class, so an SDK upgrade cannot hide.
+
+    twilio 9.11.2 started parsing `types` when the request is constructed, and
+    template creation failed outright while every mocked test kept passing.
+    """
+
+    def test_every_type_reaches_the_request_as_written(self):
+        from requests_to_twilio.templates import create
+
+        types = {
+            "twilio/text": {"body": "Pick one\n\n1 - Red\n2 - Blue"},
+            "twilio/list-picker": {
+                "body": "Pick one",
+                "button": "Choose",
+                "items": [{"id": "c_red", "item": "Red", "description": ""}],
+            },
+        }
+        sent = {}
+
+        def record(content_create_request):
+            sent.update(content_create_request.to_dict())
+            return SimpleNamespace(friendly_name="t_q1_en", sid="HX" + "0" * 32)
+
+        client = SimpleNamespace(
+            content=SimpleNamespace(
+                v1=SimpleNamespace(contents=SimpleNamespace(create=record))
+            )
+        )
+        create(client, {"friendly_name": "t_q1_en", "language": "en", "types": types})
+        assert sent["types"] == types
+        assert (sent["friendly_name"], sent["language"]) == ("t_q1_en", "en")

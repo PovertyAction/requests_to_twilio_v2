@@ -1547,8 +1547,13 @@ def _create_one(
     yes: bool,
     skip_existing: bool,
     replace: bool = False,
+    in_session: bool = False,
 ) -> None:
-    """Create one template from its definition file."""
+    """Create one template from its definition file.
+
+    ``in_session`` marks a template only ever sent inside the 24-hour window,
+    which is never submitted, so the closing hint must not suggest it.
+    """
     try:
         definition = load_definition(definition_file)
     except TemplateError as exc:
@@ -1633,6 +1638,8 @@ def _create_one(
             f"  just template-status {name}",
             fg=typer.colors.GREEN,
         )
+    elif in_session:
+        typer.echo("  Sent inside the 24-hour window, so never submitted to Meta.")
     else:
         typer.echo(
             f"\nNot yet submitted to Meta - it exists only in Twilio, so it can\n"
@@ -2236,6 +2243,7 @@ def survey_templates(
             yes=yes,
             skip_existing=not replace,
             replace=replace,
+            in_session=True,
         )
 
     generated = {path.stem for path in written}
