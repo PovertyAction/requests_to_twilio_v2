@@ -150,6 +150,17 @@
   .issue { font-size: 12.5px; padding: 6px 8px; border-radius: 6px; margin-top: 4px; cursor: pointer; line-height: 1.35; }
   .issue.error { background: var(--bad-soft); color: #912018; }
   .issue.warn { background: var(--warn-soft); color: #93370d; }
+  .issue .act { margin-left: 8px; font-size: 12px; padding: 1px 8px; }
+  .approved { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #f6fbf7; }
+  .approved-body { font-size: 13px; white-space: pre-wrap; line-height: 1.4; }
+  .approved-buttons { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .approved-buttons span { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: #027eb5; font-size: 12.5px; }
+  .approved-var { display: grid; grid-template-columns: auto auto minmax(120px, 1fr) auto; gap: 8px; align-items: center; margin-top: 8px; font-size: 12.5px; }
+  .tools { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; align-items: center; }
+  .tools button, .tools select { font-size: 12px; padding: 2px 8px; width: auto; }
+  .palette { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .palette button { font-size: 17px; padding: 2px 5px; border-color: transparent; background: transparent; }
+  .replies { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #1f2328; color: #fff;
     padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 50; display: flex; gap: 12px; align-items: center;
     box-shadow: 0 6px 20px rgba(0,0,0,.25); }
@@ -200,6 +211,7 @@
     "list-picker:id": 200,
     "quick-reply:title": 25,
     "list_button": 20,
+    "button_title": 20,
     "max_list_items": 10,
     "max_session_buttons": 3
   },
@@ -310,6 +322,9 @@
         "template": {
           "en": "my_survey_intro"
         },
+        "variables": {
+          "1": "name"
+        },
         "publish": false
       },
       {
@@ -394,6 +409,9 @@
         "template": {
           "en": "my_survey_close"
         },
+        "variables": {
+          "1": "name"
+        },
         "publish": false
       },
       {
@@ -412,7 +430,7 @@
         "value": "yes",
         "option_id": "consent_yes",
         "label": {
-          "en": "Yes, I will take part"
+          "en": "Yes, I'll take part"
         },
         "typed": {
           "en": "1|yes|y"
@@ -518,6 +536,10 @@
   }
 }
 </script>
+<!-- The account's approved messages: null here, filled in the copy `rtt survey builder` opens. -->
+<script type="application/json" id="rtt-approved">
+null
+</script>
 
 <script>
 "use strict";
@@ -526,6 +548,8 @@
 // The contract: facts the Python side owns (limits, vocabularies, starter).
 // ---------------------------------------------------------------------------
 const C = JSON.parse(document.getElementById("rtt-contract").textContent);
+// null when the page was opened directly rather than by `rtt survey builder`.
+const APPROVED = JSON.parse(document.getElementById("rtt-approved").textContent);
 const $ = (sel) => document.querySelector(sel);
 
 // ---------------------------------------------------------------------------
@@ -558,6 +582,13 @@ function intOf(value, field) {
   return n;
 }
 
+// spec.py's spec_from_dict: placeholder numbers in order, as JSON objects keep
+// integer-like keys in JavaScript anyway.
+function variablesOf(v) {
+  return Object.fromEntries(Object.entries(v || {}).map(([k, c]) => [String(k), String(c)])
+    .sort(([a], [b]) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0)));
+}
+
 function normalise(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("A survey spec must be a JSON object.");
@@ -585,6 +616,7 @@ function normalise(payload) {
       constraint: r.constraint ?? "", constraint_message: r.constraint_message ?? "",
       timeout_message: r.timeout_message ?? "",
       list_button: text(r.list_button), template: text(r.template),
+      variables: variablesOf(r.variables),
       timeout_reminder: r.timeout_reminder ?? true, publish: r.publish ?? true, encrypt: r.encrypt ?? false,
     })),
     choices: (payload.choices || []).map((c) => ({
@@ -623,7 +655,7 @@ function canonical(spec) {
       type: r.type, name: r.name, role: r.role, label: r.label, relevance: r.relevance,
       retries: r.retries, timeout: r.timeout, constraint: r.constraint,
       constraint_message: r.constraint_message, timeout_message: r.timeout_message,
-      list_button: r.list_button, template: r.template,
+      list_button: r.list_button, template: r.template, variables: r.variables,
       timeout_reminder: r.timeout_reminder ? null : false, publish: r.publish ? null : false,
       encrypt: r.encrypt ? true : null,
     })),
@@ -877,7 +909,7 @@ function textField(label, obj, key, opts = {}) {
   return h("div", { class: "fld" },
     h("label", null, h("span", null, label, opts.hint ? h("span", { class: "hint" }, "  ", opts.hint) : null),
       (opts.cap || opts.count) ? c.el : null),
-    input);
+    input, opts.multiline ? textTools(input) : null);
 }
 
 /** One field per language, side by side. */
@@ -934,17 +966,17 @@ function check(label, obj, key, hint) {
 // both, so nobody has to know the spec keeps them in two columns.
 // ---------------------------------------------------------------------------
 const STEPS = [
-  ["opener", "Opener", "The first message. It has to be a template Meta approved, because the person has not written to you yet."],
+  ["opener", "Opener", "The first message. It has to be a message Meta approved, because the person has not written to you yet."],
   ["consent", "Consent question", "Asks whether the person agrees to take part. Nobody gets a survey question until they say yes."],
-  ["select_button", "Buttons", `The person taps one of up to ${L.max_session_buttons} buttons.`],
-  ["select_list", "List", `The person opens a list and picks one of up to ${L.max_list_items} options.`],
+  ["select_button", "Buttons (quick reply)", `The person taps one of up to ${L.max_session_buttons} buttons, each up to ${L.button_title} characters. For more options, use a list. Buttons need no approval: they are sent after the person has replied to the opener.`],
+  ["select_list", "List", `The person opens a list and picks one of up to ${L.max_list_items} options, each up to ${L["list-picker:item"]} characters. Like buttons, it needs no approval.`],
   ["integer", "Number", "The person types a whole number, such as 0, 3 or 12."],
   ["decimal", "Decimal number", "The person types a number that can have decimals, such as 3.5 or 3,5."],
   ["text", "Open answer", "The person can type anything. It is saved exactly as written, so it usually needs cleaning later."],
   ["note", "Message", "Sends a message and moves on without waiting for a reply."],
   ["close", "Closing message", "The last message the person gets. Each closing belongs to one way the survey can end."],
   ["unsolicited", "Reply to unexpected messages", "Sent when someone writes to the number while no survey is running for them."],
-  ["template", "Template message", "Sends a message Meta approved. Use it when more than 24 hours have passed since the person last wrote."],
+  ["template", "Approved message", "Sends a message Meta approved. Use it when more than 24 hours have passed since the person last wrote."],
   ["begin group", "Section", "Groups steps together. A section can go to some people only, for example one study arm."],
   ["end group", "End of section", "Marks where the section above ends."],
 ];
@@ -1000,7 +1032,7 @@ function newRows(key) {
 }
 function blankRow(type, name) {
   return { type, name, label: {}, role: "", relevance: "", retries: null, timeout: null, constraint: "",
-    constraint_message: "", timeout_message: "", list_button: {}, template: {}, timeout_reminder: true,
+    constraint_message: "", timeout_message: "", list_button: {}, template: {}, variables: {}, timeout_reminder: true,
     publish: true, encrypt: false };
 }
 function blankChoice(ln, value, label, typed) {
@@ -1104,7 +1136,6 @@ function renderCards() {
     if (isGroupStart(row)) depth++;
   });
   root.append(insertBar(S.spec.survey.length, true));
-  root.append(messagesCard());
 }
 
 function insertBar(i, always) {
@@ -1132,7 +1163,7 @@ function cardHead(row, i) {
   const lang = S.lang;
   let summary = "";
   if (isGroupEnd(row)) summary = `end of ${row.name}`;
-  else if (sendsTemplate(row) && (kindOf(row) === "template" || !row.label[lang])) summary = `template ${row.template[lang] || "(no name)"}`;
+  else if (sendsTemplate(row) && (kindOf(row) === "template" || !row.label[lang])) summary = `approved message ${row.template[lang] || "(none chosen)"}`;
   else summary = (row.label[lang] || "").replace(/\s+/g, " ").trim() || (isGroupStart(row) ? "" : "(no text)");
   const condition = row.relevance && row.role !== "close"
     ? h("span", { class: "badge cond-badge", title: "Only some people get this step" }, `only if ${conditionText(row.relevance)}`)
@@ -1184,6 +1215,114 @@ function scrollToCard(i) {
   requestAnimationFrame(() => document.querySelector(`.card[data-i="${i}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
 }
 
+
+// ---------------------------------------------------------------------------
+// Approved messages. Meta reviews the opener and the closing for people who
+// never replied, because those reach someone who has not written to you. The
+// list comes from your account when `rtt survey builder` opens the page.
+// ---------------------------------------------------------------------------
+function approvedIn(lang) {
+  if (!APPROVED) return null;
+  // "en" also takes the en_GB and en_US messages.
+  return APPROVED.filter((m) => m.language === lang || m.language.split(/[_-]/)[0] === lang);
+}
+function approvedNamed(name, lang) {
+  return (approvedIn(lang) || []).find((m) => m.name === name) || null;
+}
+function howToApprove() {
+  return h("span", null, "Write it in ", h("code", null, "templates/<name>.json"), ", run ",
+    h("code", null, "rtt template create"), " and ", h("code", null, "rtt template submit"),
+    ", and open the builder again once Meta approves it (usually within a day).");
+}
+/** The approved message a row sends, picked from the account's list, with its text and placeholders. */
+function approvedField(row, label, hint) {
+  const lang = S.lang;
+  row.template = row.template || {};
+  row.variables = row.variables || {};
+  const current = row.template[lang] || "";
+  const box = h("div", { class: "fld" },
+    h("div", { class: "fld-label" }, h("span", null, label, h("span", { class: "hint" }, "  ", hint))));
+  const list = approvedIn(lang);
+  if (list === null) {
+    box.append(h("div", { class: "note-box" }, "Open the builder with ", h("code", null, "just survey-builder"),
+      " to pick from the messages Meta approved on your account, and see their text. Until then, type the name."));
+    const f = textField("", row.template, lang, { mono: true });
+    f.classList.remove("fld");
+    box.append(f);
+    return box;
+  }
+  const options = [["", list.length ? "Choose an approved message" : `No approved messages in ${lang} on your account`],
+    ...list.map((m) => [m.name, m.name])];
+  if (current && !list.some((m) => m.name === current)) options.push([current, `${current} (not approved on your account)`]);
+  const sel = h("select", null, options.map(([v, t]) => h("option", { value: v }, t)));
+  sel.value = current;
+  sel.addEventListener("change", () => structural(() => {
+    if (sel.value) row.template[lang] = sel.value; else delete row.template[lang];
+    const keep = new Set((approvedNamed(sel.value, lang) || {}).placeholders || []);
+    for (const p of Object.keys(row.variables)) if (!keep.has(p)) delete row.variables[p];
+  }));
+  box.append(sel);
+  const msg = approvedNamed(current, lang);
+  if (msg) box.append(approvedPreview(row, msg));
+  box.append(h("div", { class: "hint", style: "margin-top:4px" }, "None of them fits? ", howToApprove()));
+  return box;
+}
+function approvedText(text, row) {
+  return (text || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (all, p) => {
+    const column = (row.variables || {})[p];
+    return column ? `\${${column}}` : all;
+  });
+}
+function approvedPreview(row, msg) {
+  const columns = S.spec.settings.preloads.filter((c) => c !== "sent_at");
+  const wrap = h("div", { class: "approved" });
+  const body = h("div", { class: "approved-body" });
+  body.innerHTML = waFormat(approvedText(msg.body, row));
+  wrap.append(body);
+  if (msg.buttons.length) wrap.append(h("div", { class: "approved-buttons" }, msg.buttons.map((b) => h("span", null, b))));
+  for (const p of msg.placeholders) {
+    const pick = h("select", null, h("option", { value: "" }, "Choose a column"), columns.map((c) => h("option", { value: c }, c)));
+    pick.value = row.variables[p] || "";
+    pick.addEventListener("change", () => structural(() => {
+      if (pick.value) row.variables[p] = pick.value; else delete row.variables[p];
+    }));
+    wrap.append(h("div", { class: "approved-var" }, h("span", { class: "var" }, `{{${p}}}`), "is filled from", pick,
+      h("span", { class: "hint" }, msg.samples[p] ? `Meta's example: ${msg.samples[p]}` : "")));
+  }
+  if (msg.placeholders.length) {
+    wrap.append(h("div", { class: "hint", style: "margin-top:6px" },
+      "Every row of the sample file needs these columns filled: an empty one stops the message from being sent."));
+  }
+  return wrap;
+}
+
+// Emoji that read well on WhatsApp. Kept out of option labels, which are
+// matched letter by letter against what the person types.
+const EMOJI = ["👋", "😊", "🙏", "✅", "❌", "👍", "📋", "📝", "⏰", "📅", "📞", "💬", "🎉", "⭐", "❤️", "💡", "📌", "🔒", "👉", "☺️"];
+function insertAtCursor(input, text) {
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  input.value = input.value.slice(0, start) + text + input.value.slice(end);
+  input.selectionStart = input.selectionEnd = start + text.length;
+  input.focus();
+  input.dispatchEvent(new Event("input"));
+  input.dispatchEvent(new Event("change"));
+}
+/** Emoji and sample-file columns for a message field. */
+function textTools(input) {
+  const palette = h("div", { class: "palette", style: "display:none" },
+    EMOJI.map((e) => h("button", { type: "button", title: "Insert", onclick: () => insertAtCursor(input, e) }, e)));
+  const columns = S.spec.settings.preloads.filter((c) => !["caseid", "sent_at"].includes(c));
+  const pick = h("select", { title: "Adds ${column}: each person gets their own value from the sample file, such as their name" },
+    h("option", { value: "" }, "Insert a column"), columns.map((c) => h("option", { value: c }, c)));
+  pick.addEventListener("change", () => { if (pick.value) insertAtCursor(input, `\${${pick.value}}`); pick.value = ""; });
+  return h("div", null,
+    h("div", { class: "tools" },
+      h("button", { type: "button", class: "ghost", onclick: () => { palette.style.display = palette.style.display === "none" ? "flex" : "none"; } }, "😊 Emoji"),
+      columns.length ? pick : null),
+    palette);
+}
+
 function rowCard(row, i, depth) {
   const open = S.open.has(i);
   const card = h("div", {
@@ -1224,12 +1363,12 @@ function rowBody(row, i) {
 
   // What the person reads.
   if (kind === "template") {
-    body.append(langFields("Template name", row, "template",
-      { mono: true, hint: "The approved template to send. Its text is in templates/<name>.json." }));
+    body.append(approvedField(row, "Approved message",
+      "Meta reviews this one, because the person has not written to you yet."));
   } else {
     const cap = isSelect(row) ? L["list-picker:body"] : 0;
     body.append(langFields("Message", row, "label", { multiline: true, cap, count: true, rows: 4,
-      hint: "*bold*  _italic_  {{flow.data.name}} adds a value from your sample file" }));
+      hint: "*bold*  _italic_" }));
   }
 
   if (isSelect(row)) body.append(choicesEditor(row));
@@ -1274,8 +1413,7 @@ function rowBody(row, i) {
   }
 
   if (kind === "note" && row.role !== "close" && Object.values(row.template || {}).some(Boolean)) {
-    body.append(langFields("Approved template", row, "template", { mono: true,
-      hint: "Sent instead of the message when more than 24 hours have passed." }));
+    body.append(approvedField(row, "Approved message", "Sent instead of the message when more than 24 hours have passed."));
   }
 
   return body;
@@ -1304,7 +1442,7 @@ function reminderField(row) {
     return box;
   }
   const current = row.timeout_message ? message(row.timeout_message, lang) : "";
-  const input = h("textarea", { value: current, placeholder: standard || "Write the reminder, or add timeout_nudge under Messages.", rows: 3 });
+  const input = h("textarea", { value: current, placeholder: standard || "There is no standard reminder (Survey settings, Standard replies). Write this question's own.", rows: 3 });
   input.addEventListener("input", () => {
     let msg = ownKey(row.timeout_message) ? S.spec.messages.find((m) => m.key === row.timeout_message) : null;
     if (!msg) {
@@ -1330,8 +1468,8 @@ function reminderField(row) {
     : "Stop words are not listened for here (Survey settings), so do not invite a STOP.";
   box.append(
     h("label", { style: "display:block;margin-top:8px;font-size:12px;font-weight:600;color:#3f4756" }, "Reminder text",
-      h("span", { class: "hint" }, `  Sent after ${duration(st.reminder_after)} without a reply, with the question again. Leave it blank to use the standard reminder shown in grey.`)),
-    input,
+      h("span", { class: "hint" }, `  Sent after ${duration(st.reminder_after)} without a reply, with the question again. Leave it blank to use the standard reply shown in grey.`)),
+    input, textTools(input),
     h("div", { class: "hint", style: "margin-top:4px" }, stopNote));
   return box;
 }
@@ -1366,8 +1504,8 @@ function nudgeField(row) {
     checkpoint(); renderCards();
   });
   const label = h("label", null, h("span", null, "Message when the reply does not fit",
-    h("span", { class: "hint" }, "  Sent before asking again. Leave it blank to use the standard message shown in grey.")));
-  return h("div", { class: "fld" }, label, input,
+    h("span", { class: "hint" }, "  Sent before asking again. Leave it blank to use the standard reply shown in grey.")));
+  return h("div", { class: "fld" }, label, input, textTools(input),
     kindOf(row) === "select_list" ? h("div", { class: "hint", style: "margin-top:4px" }, "{button} is replaced with the list button text.") : null);
 }
 
@@ -1443,6 +1581,10 @@ function conditionEditor(row, i, isSection) {
   return box;
 }
 
+function outcomeOf(row) {
+  const m = /^\$\{outcome\}\s*=\s*'([^']*)'$/.exec(row.relevance || "");
+  return m ? m[1] : "";
+}
 function closeFields(row) {
   const m = /^\$\{outcome\}\s*=\s*'([^']*)'$/.exec(row.relevance || "");
   const current = m ? m[1] : "";
@@ -1453,10 +1595,15 @@ function closeFields(row) {
       (o) => structural(() => { if (o) row.relevance = `\${outcome}='${o}'`; }),
       "Each ending needs its own closing."),
     m ? null : textField("Condition", row, "relevance", { mono: true }),
-    langFields("Approved template", row, "template", { mono: true,
-      hint: "Needed for people who never replied, because WhatsApp then allows only approved templates." }));
+    outcomeOf(row) === "unreachable" || Object.values(row.template || {}).some(Boolean)
+      ? approvedField(row, "Approved message", "People who never replied can only get a message Meta approved.")
+      : null);
 }
 
+/** A label on a list some buttons question uses is shown as a button, so the button's cap applies. */
+function labelCap(ln) {
+  return rowsUsing(ln).some((r) => kindOf(r) === "select_button") ? L.button_title : L["list-picker:item"];
+}
 function choicesEditor(row) {
   const ln = listOf(row);
   const kind = kindOf(row);
@@ -1478,7 +1625,7 @@ function choicesEditor(row) {
     value.addEventListener("input", () => { c.value = value.value; edited(); });
     value.addEventListener("change", checkpoint);
     c.label = c.label || {};
-    const cnt = counter(() => c.label[lang], L["list-picker:item"]);
+    const cnt = counter(() => c.label[lang], labelCap(ln));
     const labelInput = h("input", { value: c.label[lang] || "", placeholder: "What the person sees" });
     labelInput.addEventListener("input", () => { c.label[lang] = labelInput.value; cnt.update(); edited(); });
     labelInput.addEventListener("change", checkpoint);
@@ -1535,15 +1682,14 @@ function settingsCard() {
     h("div", { class: "grid2" },
       textField("Survey ID", st, "form_id", { mono: true, hint: "A short name with no spaces." }),
       textField("Title", st, "form_title")),
-    h("div", { class: "grid3" },
+    h("div", { class: "grid2" },
       listField("Languages", "languages", "Language codes, such as en or es, separated by commas.", () => {
         if (!st.languages.length) st.languages = ["en"];
         if (!st.languages.includes(st.default_language)) st.default_language = st.languages[0];
         if (!st.languages.includes(S.lang)) S.lang = st.default_language;
       }),
       selectField("Default language", st.languages.map((l) => [l, l]), st.default_language,
-        (v) => structural(() => { st.default_language = v; })),
-      textField("Twilio Functions service", st, "functions_service", { mono: true, hint: "Where encryption and saving run. Usually rtt-survey." })),
+        (v) => structural(() => { st.default_language = v; }))),
     h("div", { class: "grid3" },
       listField("Preloads", "preloads", "Columns your sample file must have, separated by commas."),
       numberField("Wait for a reply (seconds)", st, "default_timeout", 3600, "Used by every question that does not set its own.", true),
@@ -1558,6 +1704,7 @@ function settingsCard() {
       reminderAfterField(st)),
     langFields("Flow name", st, "flow_name", { mono: true, hint: "The flow's name in Twilio Studio." }),
     langFields("Description", st, "description"),
+    standardReplies(),
     h("div", { class: "note-box info" }, C.scope_note)));
   return card;
 }
@@ -1577,26 +1724,55 @@ function reminderAfterField(st) {
     h("span", { class: "hint" }, "  Hours:minutes without a reply. Under 24:00, because after that WhatsApp allows only approved templates."))), input);
 }
 
-function messagesCard() {
-  const open = S.open.has("messages");
-  const head = h("div", { class: "card-head", onclick: () => { open ? S.open.delete("messages") : S.open.add("messages"); renderCards(); } },
-    h("span", { class: "kind" }, "Messages"),
-    h("span", { class: "summary" }, "Standard texts used across the survey, such as the stop words and the reply when an answer does not fit"),
-    h("span", { class: "badge" }, `${S.spec.messages.length}`));
-  const card = h("div", { class: "card", style: "--kc:#64748b;margin-top:6px" }, head);
-  if (!open) return card;
-  const body = h("div", { class: "card-body" });
-  S.spec.messages.forEach((m, n) => {
-    body.append(h("div", { style: "margin-top:12px;padding-top:6px;border-top:1px solid var(--line)" },
-      h("div", { style: "display:flex;gap:8px;align-items:end" },
-        h("div", { style: "flex:1" }, textField("Key", m, "key", { mono: true, onChange: () => renderAll() })),
-        h("button", { class: "ghost", title: "Remove message", onclick: () => structural(() => S.spec.messages.splice(n, 1)) }, "✕")),
-      langFields("Text", m, "text", { multiline: true, rows: 2, count: true })));
-  });
-  body.append(h("div", { style: "margin-top:10px" },
-    h("button", { onclick: () => structural(() => S.spec.messages.push({ key: "new_message", text: {} })) }, "+ add message")));
-  card.append(body);
-  return card;
+// The texts every question shares unless it has its own. Kept in the spec's
+// `messages`, so the format does not change; a question's own nudge or
+// reminder is edited on its card and never listed here.
+const STANDARD_REPLIES = [
+  ["error_option", "When a choice does not fit", "Sent before asking a buttons or list question again. {button} becomes the list button text.", true],
+  ["error_option_labels", "When a typed number could mean two options", "Used instead of the one above when the options are themselves numbers.", true],
+  ["error_numeric", "When a number does not fit", "Sent before asking a number question again.", true],
+  [C.reminder_message, "Reminder", "Sent with the question again when nobody replies. Say they can reply STOP. Empty means no standard reminder.", true],
+  ["stop_words", "Stop words", `Separated by commas. ${C.universal_stop_word.toUpperCase()} always counts, in any capitals.`, false],
+  ["list_button", "Button that opens a list", `Up to ${L.list_button} characters, for lists that do not set their own.`, false],
+  ["unsolicited", "Reply to messages outside a survey", "Used when the survey has no reply step of its own.", true],
+];
+function standardReplies() {
+  const lang = S.lang;
+  const box = h("details", { class: "replies more", open: S.open.has("replies") ? true : null,
+    ontoggle: (e) => { e.target.open ? S.open.add("replies") : S.open.delete("replies"); } },
+    h("summary", null, "Standard replies", h("span", { class: "hint" }, "  The reminder, the replies when an answer does not fit, the stop words. Used by every question that does not write its own.")));
+  for (const [key, label, hint, multiline] of STANDARD_REPLIES) {
+    const holder = { text: message(key, lang) };
+    box.append(textField(label, holder, "text", {
+      multiline, rows: 2, hint, cap: key === "list_button" ? L.list_button : 0,
+      onInput: (value) => {
+        let msg = S.spec.messages.find((m) => m.key === key);
+        if (!msg) { msg = { key, text: {} }; S.spec.messages.push(msg); }
+        msg.text[lang] = value;
+      },
+      onChange: (value) => {
+        // The reminder's row turning up is what turns standard reminders on.
+        if (key === C.reminder_message && !value.trim()) {
+          S.spec.messages = S.spec.messages.filter((m) => m.key !== key);
+        }
+        renderAll();
+      },
+    }));
+  }
+  const standard = new Set(STANDARD_REPLIES.map(([key]) => key));
+  const owned = new Set(S.spec.survey.flatMap((r) => [r.constraint_message, r.timeout_message]).filter(Boolean));
+  const others = S.spec.messages.filter((m) => !standard.has(m.key) && !owned.has(m.key));
+  if (others.length) {
+    box.append(h("div", { class: "fld-label", style: "margin-top:12px" }, h("span", null, "Other messages",
+      h("span", { class: "hint" }, "  From the spreadsheet, or used by no question any more."))));
+    for (const m of others) {
+      box.append(h("div", { style: "display:flex;gap:8px;align-items:start" },
+        h("div", { style: "flex:1" }, langFields(m.key, m, "text", { multiline: true, rows: 2 })),
+        h("button", { class: "ghost", title: "Remove this message", style: "margin-top:28px",
+          onclick: () => structural(() => { S.spec.messages = S.spec.messages.filter((x) => x !== m); }) }, "✕")));
+    }
+  }
+  return box;
 }
 
 // ---------------------------------------------------------------------------
@@ -1605,7 +1781,7 @@ function messagesCard() {
 let ISSUES = [];
 function computeIssues() {
   const out = [];
-  const add = (level, rows, text) => out.push({ level, rows, text });
+  const add = (level, rows, text, action) => out.push({ level, rows, text, action });
   const rows = S.spec.survey;
   const indexOfRows = (ln) => rows.map((r, i) => (isSelect(r) && listOf(r) === ln ? i : -1)).filter((i) => i >= 0);
 
@@ -1626,11 +1802,27 @@ function computeIssues() {
     rows.forEach((r, i) => {
       const kind = kindOf(r);
       if (isGroupStart(r) || isGroupEnd(r)) return;
-      if (kind === "template") {
-        if (!r.template[lang]) add("error", [i], `${r.name} needs the name of its approved template.`);
-        return;
+      if (sendsTemplate(r) || kind === "template") {
+        const name = r.template[lang];
+        if (!name) {
+          if (kind === "template") add("error", [i], `${r.name} needs an approved message.`);
+        } else if (APPROVED) {
+          const msg = approvedNamed(name, lang);
+          if (!msg) add("error", [i], `${r.name} sends ${name}, which is not approved on your account in ${lang}.`);
+          else {
+            for (const p of msg.placeholders) {
+              const column = (r.variables || {})[p];
+              if (!column) add("error", [i], `${r.name}: choose the column that fills {{${p}}} of ${name}.`);
+              else if (!S.spec.settings.preloads.includes(column)) add("error", [i], `${r.name}: {{${p}}} is filled from ${column}, which is not under Preloads.`);
+            }
+          }
+        }
+        if (kind === "template") return;
       }
       if (!sendsTemplate(r) && !(r.label[lang] || "").trim()) add("warn", [i], `${r.name} has no message yet.`);
+      for (const [, column] of (r.label[lang] || "").matchAll(/\$\{(\w+)\}/g)) {
+        if (!S.spec.settings.preloads.includes(column)) add("error", [i], `${r.name} writes \${${column}}, which is not under Preloads.`);
+      }
       if (!isQuestion(r)) return;
       const body = r.label[lang] || "";
       if (isSelect(r) && chars(body) > L["list-picker:body"]) {
@@ -1645,7 +1837,8 @@ function computeIssues() {
         add("error", [i], `${r.name} has ${n} options. A list can have 1 to ${L.max_list_items}.`);
       }
       if (kind === "select_button" && !(n >= 1 && n <= L.max_session_buttons)) {
-        add("error", [i], `${r.name} has ${n} buttons. WhatsApp sends at most ${L.max_session_buttons}; use a list for more.`);
+        add("error", [i], `${r.name} has ${n} buttons. WhatsApp sends at most ${L.max_session_buttons}; use a list for more.`,
+          r.role !== "consent" && n > L.max_session_buttons && n <= L.max_list_items ? { label: "Switch to a list", run: () => structural(() => applyStep(r, "select_list")) } : null);
       }
     });
 
@@ -1658,7 +1851,12 @@ function computeIssues() {
         const label = c.label[lang] || "";
         const named = `Option ${c.value} in ${owner}`;
         if (!label.trim()) add("warn", where, `${named} has no label.`);
-        if (chars(label) > L["list-picker:item"]) add("error", where, `${named} has a ${chars(label)}-character label. WhatsApp allows ${L["list-picker:item"]}.`);
+        const cap = labelCap(ln);
+        if (chars(label) > cap) {
+          add("error", where, cap === L.button_title
+            ? `${named} has a ${chars(label)}-character label. WhatsApp shows ${cap} on a button, so it would be cut off.`
+            : `${named} has a ${chars(label)}-character label. WhatsApp allows ${cap}.`);
+        }
         if (chars(c.description[lang]) > L["list-picker:description"]) add("error", where, `${named} has a description over ${L["list-picker:description"]} characters.`);
         if (hasEmoji(label)) add("error", where, `${named} has an emoji in its label. Labels are matched letter by letter, so keep emoji in the message instead.`);
         const key = label.toLowerCase();
@@ -1704,7 +1902,8 @@ function renderIssues() {
     return;
   }
   for (const x of ISSUES) {
-    root.append(h("div", { class: `issue ${x.level}`, onclick: () => x.rows.length && select(x.rows[0]) }, x.text));
+    root.append(h("div", { class: `issue ${x.level}`, onclick: () => x.rows.length && select(x.rows[0]) }, x.text,
+      x.action ? h("button", { class: "act", onclick: (e) => { e.stopPropagation(); x.action.run(); } }, x.action.label) : null));
   }
 }
 
@@ -1717,6 +1916,7 @@ function escapeHtml(s) {
 function waFormat(s) {
   return escapeHtml(s || "")
     .replace(/\{\{\s*([^}]+?)\s*\}\}/g, '<span class="var">$1</span>')
+    .replace(/\$\{(\w+)\}/g, '<span class="var">$1</span>')
     .replace(/```([\s\S]+?)```/g, "<code>$1</code>")
     .replace(/(^|[\s(])\*(\S(?:[^*\n]*\S)?)\*(?=$|[\s).,!?:;])/g, "$1<b>$2</b>")
     .replace(/(^|[\s(])_(\S(?:[^_\n]*\S)?)_(?=$|[\s).,!?:;])/g, "$1<i>$2</i>")
@@ -1752,7 +1952,13 @@ function renderPreview() {
     return;
   }
   if (sendsTemplate(row)) {
-    chat.append(bubble(`Approved template "${row.template[lang] || "(no name)"}"\nMeta reviews its text, which is in templates/${row.template[lang] || "<name>"}.json.`, "sys"));
+    const msg = approvedNamed(row.template[lang], lang);
+    if (msg) {
+      chat.append(bubble(approvedText(msg.body, row)));
+      msg.buttons.forEach((b) => chat.append(h("div", { class: "wa-btn" }, b)));
+    } else {
+      chat.append(bubble(`Approved message "${row.template[lang] || "(none chosen)"}"\n${APPROVED ? "Not approved on your account." : "Open the builder with just survey-builder to see its text."}`, "sys"));
+    }
     if (kind === "template") { root.append(facts(row)); return; }
   }
   if (!(kind === "template") && !(sendsTemplate(row) && !row.label[lang])) {
@@ -2014,7 +2220,7 @@ function renderMap() {
     if (row) grp.append(el("rect", { x: n.x, y: n.y, width: 5, height: n.h, rx: 2, fill: color }));
     const maxChars = Math.floor((n.w - 16) / 6.2);
     const title = row ? `${row.role === "close" ? (OUTCOME_LABEL[outcomeOf(row)] || "Closing") : rowLabel(row)}  ${row.role === "close" ? "" : row.name}` : n.title;
-    const sub = row ? (sendsTemplate(row) && (kindOf(row) === "template" || !row.label[S.lang]) ? `template ${row.template[S.lang] || ""}` : (row.label[S.lang] || "").replace(/\s+/g, " ")) : n.sub;
+    const sub = row ? (sendsTemplate(row) && (kindOf(row) === "template" || !row.label[S.lang]) ? `approved ${row.template[S.lang] || ""}` : (row.label[S.lang] || "").replace(/\s+/g, " ")) : n.sub;
     grp.append(el("text", { x: n.x + 11, y: n.y + 15, "font-size": 11.5, "font-weight": 700, fill: row ? color : "#6b7385" }, clip(title, maxChars)));
     grp.append(el("text", { x: n.x + 11, y: n.y + 30, "font-size": 10.5, fill: "#6b7385" }, clip(sub, maxChars + 2)));
     if (row && isValidated(row)) {
@@ -2081,11 +2287,11 @@ $("#btn-copy").addEventListener("click", async () => {
   const flow = st.flow_name[S.lang] || `${st.form_id}_${S.lang}`;
   const cmd = [
     `just survey-check ${S.fileName}`,
-    `just survey-templates ${S.fileName}`,
+    `just survey-content ${S.fileName}`,
     `just survey-build ${S.fileName} "--lang ${S.lang}"`,
     `just flow-deploy flows/${flow}.json`,
   ].join("\n");
-  try { await navigator.clipboard.writeText(cmd); toast("Copied the four commands: check, templates, build, deploy as a draft."); }
+  try { await navigator.clipboard.writeText(cmd); toast("Copied the four commands: check, create the buttons and lists, build, deploy as a draft."); }
   catch { toast(`Run: ${cmd.replaceAll("\n", " ; ")}`); }
 });
 

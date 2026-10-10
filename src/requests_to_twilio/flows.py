@@ -65,7 +65,8 @@ _SENDING_TYPES = frozenset({"send-message", "send-and-wait-for-reply"})
 
 #: Matches ``{{flow.data.foo}}`` - a value the flow expects to be preloaded from
 #: the sample file at launch, the Studio equivalent of SurveyCTO preloads.
-_PRELOAD_PATTERN = re.compile(r"\{\{\s*flow\.data\.([A-Za-z0-9_]+)\s*\}\}")
+#: Filters count too: ``{{flow.data.name | default: 'there'}}`` reads ``name``.
+_PRELOAD_PATTERN = re.compile(r"\{\{\s*flow\.data\.([A-Za-z0-9_]+)\s*(?:\|[^}]*)?\}\}")
 
 
 class FlowError(Exception):
@@ -1078,6 +1079,11 @@ TEXT_LIMITS: tuple[tuple[str, str, int], ...] = (
 #: documented Twilio one - hence a warning, not an error.
 LIST_BUTTON_CHARS = 20
 
+#: What WhatsApp shows of a quick-reply button. Twilio accepts 25 characters
+#: (``TEXT_LIMITS``), but the phone cuts the title at 20: "Yes, I will take part"
+#: arrives as "Yes, I will take par".
+BUTTON_TITLE_CHARS = 20
+
 
 def overlong_content_text(
     definition: dict, content_types: dict[str, dict[str, Any]]
@@ -1895,6 +1901,20 @@ def preloaded_keys(definition: dict) -> set[str]:
 
     """
     return set(_PRELOAD_PATTERN.findall(json.dumps(definition, ensure_ascii=False)))
+
+
+def content_variable_keys(definition: dict) -> set[str]:
+    """Return the ``flow.data.*`` keys that fill an approved message's placeholders.
+
+    Stricter than :func:`preloaded_keys`: a blank one does not leave a gap in a
+    message, it fails the whole send (error 21656), so no sample row may leave
+    these empty.
+    """
+    keys: set[str] = set()
+    for state in definition.get("states", []):
+        for variable in state.get("properties", {}).get("content_variables") or []:
+            keys.update(_PRELOAD_PATTERN.findall(str(variable.get("value", ""))))
+    return keys
 
 
 def check_preloaded(definition: dict, sending: set[str]) -> tuple[set[str], set[str]]:

@@ -11,6 +11,7 @@ import contextlib
 import json
 import stat
 import sys
+import tempfile
 import time
 import webbrowser
 from datetime import UTC, datetime
@@ -22,7 +23,7 @@ import typer
 from twilio.rest import Client
 
 from . import config as cfg
-from .builder import BUILDER_HTML
+from .builder import session_page
 from .compile import (
     compile_spec,
     placeholder_sids,
@@ -38,6 +39,7 @@ from .flows import (
     FlowError,
     check_flow,
     check_preloaded,
+    content_variable_keys,
     inbound_flow_sid,
     list_flows,
     load_definition_file,
@@ -78,6 +80,7 @@ from .sheets import (
 )
 from .spec import (
     SCOPE_NOTE,
+    Spec,
     SpecError,
     check_spec,
     load_spec,
@@ -88,9 +91,12 @@ from .spec import (
 from .spec_xlsx import read_xlsx, write_xlsx
 from .templates import (
     CATEGORIES,
+    GENERATED_FROM,
     TemplateError,
     approval_status,
+    approved_messages,
     check_variables,
+    content_placeholders,
     drifted_types,
     find_by_name,
     list_templates,
@@ -146,13 +152,18 @@ def _client() -> tuple[Client, cfg.TwilioConfig]:
 
 def _check_preloaded_data(
     client: Client, flow_id: str, columns: list[str], *, force: bool
-) -> None:
+) -> frozenset[str]:
     """Compare a flow's flow.data references against the columns being sent.
 
     A key the flow references but the launcher does not send resolves to an
     empty string. Nothing errors: messages go out with a blank where the
     respondent's name should be, and the publish widget writes empty columns.
     Since that is only visible after the round, this blocks the send.
+
+    Returns:
+        The columns no sample row may leave blank, because they fill an approved
+        message's placeholders. Empty when the flow could not be read.
+
     """
     try:
         flow = resolve_flow(client, flow_id)
@@ -161,7 +172,7 @@ def _check_preloaded_data(
             f"  warning: could not check preloaded data ({exc})",
             fg=typer.colors.YELLOW,
         )
-        return
+        return frozenset()
 
     # Executions run the latest *published* revision. Against a flow that has
     # never been published there is nothing to run, so every row in the round
@@ -185,7 +196,8 @@ def _check_preloaded_data(
         )
 
     if not flow.definition:
-        return
+        return frozenset()
+    required = frozenset(content_variable_keys(flow.definition))
 
     # `Number` is always available: the launcher sends it as the destination.
     # `sent_at` likewise: the launcher supplies it on every send, so a flow may
@@ -211,7 +223,7 @@ def _check_preloaded_data(
                 f"  preloaded data OK: flow's {len(set(columns))} reference(s) all supplied",
                 fg=typer.colors.GREEN,
             )
-        return
+        return required
 
     typer.secho(
         f"\nFlow {flow.friendly_name!r} references {len(missing)} preloaded "
@@ -236,11 +248,12 @@ def _check_preloaded_data(
 
     if force:
         typer.secho("\n  (dry run, continuing)", fg=typer.colors.YELLOW)
-        return
+        return required
 
     if not typer.confirm("\nSend anyway?"):
         typer.echo("Aborted.")
         raise typer.Exit(code=1)
+    return required
 
 
 def _check_inbound_routing(
@@ -459,8 +472,11 @@ def launch_cmd(
 
     column_list = [c.strip() for c in columns.split(",") if c.strip()]
 
+    required: frozenset[str] = frozenset()
     if not skip_preload_check:
-        _check_preloaded_data(client, resolved_flow, column_list, force=dry_run)
+        required = _check_preloaded_data(
+            client, resolved_flow, column_list, force=dry_run
+        )
         _check_inbound_routing(client, resolved_flow, resolved_from, force=dry_run)
 
     try:
@@ -474,6 +490,7 @@ def launch_cmd(
             sec_between_batches=sec_between_batches,
             resume=resume,
             dry_run=dry_run,
+            required_columns=required,
         )
     except LaunchError as exc:
         _fail(str(exc))
@@ -2190,8 +2207,35 @@ def _survey_languages(spec, lang: str | None) -> list[str]:
     return [lang]
 
 
-@survey_app.command("templates")
-def survey_templates(
+def _spec_reference(spec_file: Path) -> str:
+    """Name a spec file the same way from any working copy of the repo."""
+    path = spec_file.resolve()
+    try:
+        return path.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _refuse_another_specs_folder(folder: Path, owner: str, form_id: str) -> None:
+    """Stop two surveys that share a Survey ID from writing over each other.
+
+    The Twilio content is named after the Survey ID, so a second survey with the
+    same one would reuse the first one's buttons, or with --replace recreate
+    them under it mid-round.
+    """
+    for path in sorted(folder.glob("*.json")):
+        recorded = json.loads(path.read_text(encoding="utf-8")).get(GENERATED_FROM)
+        if recorded and recorded != owner:
+            _fail(
+                f"Survey ID {form_id!r} already belongs to {recorded}: its buttons "
+                f"and lists are in {folder}. Give this survey its own Survey ID, "
+                "or delete that folder if the other survey is gone."
+            )
+
+
+@survey_app.command("content")
+@survey_app.command("templates", hidden=True)
+def survey_content(
     spec_file: Annotated[Path, typer.Argument(help="The survey spec, .json or .xlsx.")],
     lang: Annotated[
         str | None, typer.Option("--lang", help="One language. Default: every one.")
@@ -2208,17 +2252,20 @@ def survey_templates(
     ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Create the buttons and lists a survey sends, on your Twilio account.
+    """Create the buttons and lists a survey sends: its Twilio content.
 
-    One content template per select question, written to
-    templates/generated/<form_id>/ and created if it does not exist yet. They
-    are sent inside the 24-hour window, so none is ever submitted to Meta. The
-    opener and the closing for people who never replied are approved templates
-    you create and submit yourself; this reports whether they exist.
+    One piece of Twilio content per buttons or list question, written to
+    templates/generated/<form_id>/ and created on your account if it does not
+    exist yet. It is sent after the person has replied to the opener, so Meta
+    never reviews it. The opener and the closing for people who never replied
+    are approved messages you create and submit yourself; this reports whether
+    they exist. (`rtt survey templates` is the old name, still accepted.)
     """
     configure(verbose)
     spec = _checked_spec(spec_file)
     folder = Path("templates") / "generated" / spec.settings.form_id
+    owner = _spec_reference(spec_file)
+    _refuse_another_specs_folder(folder, owner, spec.settings.form_id)
     folder.mkdir(parents=True, exist_ok=True)
 
     written: list[Path] = []
@@ -2226,7 +2273,10 @@ def survey_templates(
         for name, definition in template_definitions(spec, language).items():
             path = folder / f"{name}.json"
             path.write_text(
-                json.dumps(definition, indent=2, ensure_ascii=False) + "\n",
+                json.dumps(
+                    {GENERATED_FROM: owner, **definition}, indent=2, ensure_ascii=False
+                )
+                + "\n",
                 encoding="utf-8",
             )
             written.append(path)
@@ -2323,7 +2373,7 @@ def survey_build(
         except BuildError as exc:
             _fail(str(exc))
         definitions = template_definitions(spec, language)
-        sids, missing, stale = {}, [], []
+        sids, missing, stale, unfilled = {}, [], [], []
         for name in required_templates(spec, language):
             existing = find_by_name(client, name)
             if existing is None:
@@ -2332,17 +2382,25 @@ def survey_build(
             sids[name] = existing.sid
             if name in definitions and drifted_types(existing, definitions[name]):
                 stale.append(name)
+            unfilled.extend(_unfilled_placeholders(spec, language, name, existing))
         if missing:
             _fail(
                 "these templates do not exist on the account yet: "
                 + ", ".join(missing)
-                + f"\nRun: rtt survey templates {spec_file} --lang {language}"
+                + f"\nRun: rtt survey content {spec_file} --lang {language}"
+            )
+        if unfilled:
+            _fail(
+                "these approved messages have placeholders nothing fills:\n  "
+                + "\n  ".join(unfilled)
+                + "\nMap each one to a sample column in the builder (the variables "
+                "of that row), or an empty one fails the send."
             )
         if stale:
             _fail(
                 "these templates say something different from the spec: "
                 + ", ".join(stale)
-                + f"\nRun: rtt survey templates {spec_file} --lang {language} --replace"
+                + f"\nRun: rtt survey content {spec_file} --lang {language} --replace"
             )
 
     try:
@@ -2377,19 +2435,47 @@ def survey_build(
     typer.echo(f"    rtt flow deploy {output} --name {flow_name}   # as a draft")
 
 
+def _unfilled_placeholders(
+    spec: Spec, language: str, name: str, existing: object
+) -> list[str]:
+    """Return the placeholders of approved message `name` no row of the spec maps."""
+    placeholders = content_placeholders(getattr(existing, "types", None) or {})
+    return [
+        f"{row.name}: {{{{{p}}}}} of {name}"
+        for row in spec.survey
+        if row.template.get(language) == name
+        for p in placeholders
+        if p not in row.variables
+    ]
+
+
 @survey_app.command("builder")
 def survey_builder(
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Open the survey builder: cards, a flow map and a phone preview, offline.
+    """Open the survey builder: cards, a flow map and a phone preview.
 
-    The builder is one HTML file opened from disk. It never talks to Twilio, so
-    it holds no credentials; it reads and writes the spec's canonical JSON, and
-    `rtt survey check` stays the check that counts.
+    Reads your account's approved messages first, so the opener and the closing
+    are picked from what Meta approved, with their text, rather than typed. A
+    missing or wrong .env stops here, before anything opens. The page itself
+    never talks to Twilio and holds no credentials: it gets a copy of that list,
+    reads and writes the spec's canonical JSON, and `rtt survey check` stays the
+    check that counts.
     """
     configure(verbose)
-    typer.secho(f"Opening {BUILDER_HTML}", fg=typer.colors.GREEN)
-    if not webbrowser.open(BUILDER_HTML.as_uri()):
+    cfg.load_env()
+    client, _ = _client()
+    try:
+        approved = approved_messages(client)
+    except TemplateError as exc:
+        _fail(str(exc))
+    page = session_page(approved, Path(tempfile.gettempdir()) / "rtt-survey-builder")
+    typer.secho(
+        f"Read {len(approved)} approved message(s) from your account.",
+        fg=typer.colors.GREEN,
+    )
+    typer.secho(f"Opening {page}", fg=typer.colors.GREEN)
+    if not webbrowser.open(page.as_uri()):
         typer.echo("  No browser opened. Open that file in Chrome or Edge.")
     typer.echo("  Chrome and Edge save straight back to the file you opened;")
     typer.echo("  other browsers download a copy instead.")

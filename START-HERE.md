@@ -263,7 +263,7 @@ visual builder or in Excel:
 ```powershell
 just survey-builder                            # cards, a flow map, a phone preview
 just survey-check my_survey.json               # must pass before you build
-just survey-templates my_survey.json           # its buttons and lists, on Twilio
+just survey-content my_survey.json             # its buttons and lists, on Twilio
 just survey-build my_survey.json               # -> flows/<flow_name>.json, checked
 just flow-deploy flows/my_survey.json          # a draft on your account
 ```
