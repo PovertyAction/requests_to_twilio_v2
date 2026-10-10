@@ -208,8 +208,8 @@ class TestAColumnInAMessage:
 
     def test_a_column_that_is_not_a_preload_is_refused(self):
         spec = starter_spec("en")
-        row(spec, "Q3").label["en"] = "Thanks ${nmae}."
-        assert any("${nmae}" in p for p in check_spec(spec))
+        row(spec, "Q3").label["en"] = "Thanks ${surname}."
+        assert any("${surname}" in p for p in check_spec(spec))
 
     def test_the_flow_still_passes_its_checks(self):
         spec = starter_spec("en")
