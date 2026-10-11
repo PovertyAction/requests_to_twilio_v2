@@ -145,8 +145,8 @@ is neither blank nor duplicated. It does **not** validate the value in `Number`.
 ```powershell
 just round intake scripts/build_rst2026_sample.py                          # export -> sample
 just round intake scripts/build_rst2026_sample.py --prefix RST2026-TEST  # a rehearsal, kept apart
-just round send rst2026_sample caseid,name,arm --dry-run   # checks, sends nothing
-just round send rst2026_sample caseid,name,arm               # sends, then watches for an hour
+just round send rst2026_sample caseid,name --dry-run   # checks, sends nothing
+just round send rst2026_sample caseid,name               # sends, then watches for an hour
 ```
 
 Rows that do not resolve are written to `<out>_needs_human_review.csv` with a
@@ -173,7 +173,8 @@ What `intake` does that a hand-made spreadsheet does not:
 | **Country comes from the form, per row** | The export's country column decides. A row that does not say, and whose number carries no `+`, is reported rather than resolved. |
 | **Consent is required** | Unticked rows are excluded and counted. |
 | **A landline is refused** | WhatsApp cannot reach one. `FIXED_LINE_OR_MOBILE` **is** accepted — that is the library's answer wherever a numbering plan does not separate the two, which is every number in `+1`. |
-| **`caseid` and `arm` never move** | A rebuild carries every existing assignment forward and gives new ones only to new sign-ups. `--resume` keys on `caseid`. |
+| **`caseid` never moves** | A rebuild carries every existing `caseid` forward and gives new ones only to new sign-ups. `--resume` keys on `caseid`. |
+| **No arms** | Random assignment belongs to the study design. A sample that needs an `arm` carries its own, and intake passes every column of a launch-shaped sample through. |
 | **An explicit `Number` column is trusted, but cross-checked** | If the form's columns and a `Number` column disagree, the row is reported rather than sent. A `Number` may rescue a row whose country cell could not be read, since it carries its own. |
 
 Parsing is [libphonenumber](https://github.com/google/libphonenumber) via

@@ -40,7 +40,6 @@ def make_args(tmp_path: Path, **overrides: object) -> argparse.Namespace:
     values: dict[str, object] = {
         "signups": tmp_path / "signups.xlsx",
         "out": tmp_path / "sample.xlsx",
-        "seed": 20260826,
         "prefix": "RST2026-LIVE",
         "name_col": None,
         "phone_col": None,
@@ -187,9 +186,7 @@ def test_a_rebuild_moves_nobody(tmp_path: Path) -> None:
     """The property the whole round rests on.
 
     `rtt launch --resume` keys on caseid, so an id that shifted when three more
-    people signed up would re-send to somebody already contacted - and an arm
-    that shifted would move a respondent between treatments after they had
-    answered.
+    people signed up would re-send to somebody already contacted.
     """
     args = make_args(tmp_path)
     first = form(
@@ -198,7 +195,7 @@ def test_a_rebuild_moves_nobody(tmp_path: Path) -> None:
     )
     sample, _, _ = builder.build(first, args)
     sample.to_excel(args.out, index=False, sheet_name="sample")
-    before = dict(zip(sample["Number"], zip(sample["caseid"], sample["arm"])))
+    before = dict(zip(sample["Number"], sample["caseid"]))
 
     later = form(
         *[first.iloc[i].tolist() for i in range(len(first))],
@@ -210,38 +207,20 @@ def test_a_rebuild_moves_nobody(tmp_path: Path) -> None:
 
     assert problems == []
     assert len(rebuilt) == 5
-    after = dict(zip(rebuilt["Number"], zip(rebuilt["caseid"], rebuilt["arm"])))
+    after = dict(zip(rebuilt["Number"], rebuilt["caseid"]))
     for number, assignment in before.items():
         assert after[number] == assignment
-    assert any("2 assignment(s) carried forward, 3 new" in note for note in notes)
+    assert any("2 caseid(s) carried forward, 3 new" in note for note in notes)
     assert sorted(rebuilt["caseid"]) == [f"RST2026-LIVE-{i:03d}" for i in range(1, 6)]
 
 
-def test_arms_stay_balanced_as_signups_arrive(tmp_path: Path) -> None:
-    """Filling the minority arm keeps balance without reshuffling anybody."""
-    args = make_args(tmp_path)
-    numbers = [
-        ("91", "9123456789"),
-        ("62", "08123456789"),
-        ("57", "3001234567"),
-        ("65", "81234567"),
-        ("84", "0912345678"),
-        ("66", "0812345678"),
-    ]
-    rows = [
-        signup(f"2026-08-24 09:0{i}:00", f"P{i}", country, number)
-        for i, (country, number) in enumerate(numbers)
-    ]
-
-    # One sign-up at a time, rewriting the sample each round, which is what
-    # happens on the day.
-    for count in range(1, len(rows) + 1):
-        sample, _, _ = builder.build(form(*rows[:count]), args)
-        sample.to_excel(args.out, index=False, sheet_name="sample")
-
-    counts = sample["arm"].value_counts().to_dict()
-    assert counts.get("1") == 3
-    assert counts.get("2") == 3
+def test_a_sample_from_signups_has_no_arm(tmp_path: Path) -> None:
+    """Assignment belongs to the study design, so intake never makes one up."""
+    sample, _, _ = builder.build(
+        form(signup("2026-08-24 09:00:00", "Priya", "91", "9123456789")),
+        make_args(tmp_path),
+    )
+    assert list(sample.columns) == ["Number", "caseid", "name"]
 
 
 def test_a_dropped_signup_is_called_out(tmp_path: Path) -> None:
@@ -339,6 +318,8 @@ def test_a_launch_sample_is_validated_not_converted() -> None:
     sample, problems, _ = builder.validate_launch_shape(frame)
     assert sample["caseid"].tolist() == ["RST2026-TEST-001"]
     assert len(problems) == 1
+    # The arm came from the design, so it is carried through as it was.
+    assert sample["arm"].tolist() == ["1"]
 
 
 def test_consented() -> None:
