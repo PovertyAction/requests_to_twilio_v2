@@ -12,6 +12,9 @@ Between them a workbook can hold a live round:
     data tab       written by Twilio, one row per submission, append-only
     tracking tab   written from here every poll, one row per respondent
 
+The data tab's header row is written from here too, before the round: the
+Function reads it to place each answer and refuses to publish without one.
+
 **Neither tab ever holds a phone number.** Both are keyed on caseid. An
 unencrypted number exists in exactly two places in this project - the master
 list a round is drawn from, and the dataset after `rtt decrypt` - and a shared
@@ -52,6 +55,12 @@ GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 TOKEN_LIFETIME_SECONDS = 600
 
 TIMEOUT = 30
+
+#: Where ``publish_gsheets`` reads its header from (``HEADER_COLUMNS`` in the
+#: JS). Column FP is the 172nd, so a header past it is a column the Function
+#: never sees.
+HEADER_CELLS = "A1:FP1"
+HEADER_LIMIT = 172
 
 
 class SheetsError(Exception):
@@ -251,6 +260,53 @@ def replace_tab(
     )
     logger.debug("wrote %d row(s) to tab %s", len(frame), tab)
     return len(frame), len(frame.columns)
+
+
+def _header_range(tab: str | None) -> str:
+    """Qualify the header range the way the Function does.
+
+    No tab means the workbook's first tab, which is where an unqualified range
+    lands for the Function too.
+    """
+    return f"{quote_tab(tab)}!{HEADER_CELLS}" if tab else HEADER_CELLS
+
+
+def read_header(*, sheet_id: str, tab: str | None, token: str) -> list[str]:
+    """Return row 1 as the Function reads it: empty if the row is.
+
+    Cells are not trimmed, because the Function matches them exactly - a header
+    of ``Q1 `` drops every answer to ``Q1``.
+    """
+    result = _request(
+        "GET", f"{SHEETS_API}/{sheet_id}/values/{_header_range(tab)}", token
+    )
+    rows = result.get("values") or []
+    return [str(cell) for cell in rows[0]] if rows else []
+
+
+def write_header(
+    columns: list[str], *, sheet_id: str, tab: str | None, token: str
+) -> None:
+    """Write row 1. Nothing below it is touched.
+
+    Raises:
+        SheetsError: If the row is wider than the Function reads, or the call
+            fails.
+
+    """
+    if len(columns) > HEADER_LIMIT:
+        raise SheetsError(
+            f"The header needs {len(columns)} columns, and publish_gsheets reads "
+            f"only the first {HEADER_LIMIT} ({HEADER_CELLS}). Publish this flow to "
+            "MotherDuck instead: rtt survey build --publish-target motherduck."
+        )
+    _request(
+        "PUT",
+        f"{SHEETS_API}/{sheet_id}/values/{_header_range(tab)}",
+        token,
+        params={"valueInputOption": "RAW"},
+        json={"values": [columns]},
+    )
 
 
 #: Column names that would mean a phone number reached the sheet. Checked by

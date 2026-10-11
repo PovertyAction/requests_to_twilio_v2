@@ -99,8 +99,8 @@ To save the answers in MotherDuck rather than a Google Sheet, add
 ### 5. Get the place the answers go ready
 
 ```powershell
-just flow table flows/my_survey.json      # MotherDuck: creates the table
-just flow header flows/my_survey.json     # Google Sheet: paste this into row 1
+just flow header-motherduck flows/my_survey.json      # MotherDuck: creates the table
+just flow header-sheets flows/my_survey.json     # Google Sheet: writes row 1
 ```
 
 ### 6. Put the flow on Twilio

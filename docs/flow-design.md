@@ -174,7 +174,7 @@ anything.
 
 ```powershell
 just flow check flows/my_flow.json
-just flow table flows/my_flow.json --table my_round     # or `just flow header` for a sheet
+just flow header-motherduck flows/my_flow.json --table my_round     # or `just flow header-sheets` for a sheet
 just flow deploy flows/my_flow.json --publish
 ```
 

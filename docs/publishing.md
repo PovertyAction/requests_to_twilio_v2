@@ -79,8 +79,8 @@ So generate the destination from the instrument rather than maintaining it
 alongside:
 
 ```powershell
-just flow table flows/my_survey.json      # MotherDuck: creates or extends the table
-just flow header flows/my_survey.json     # Sheets: the header row
+just flow header-motherduck flows/my_survey.json      # MotherDuck: creates or extends the table
+just flow header-sheets flows/my_survey.json     # Sheets: writes or extends the header row
 ```
 
 **Run one of these after every instrument change.** Both Functions log the names

@@ -31,7 +31,7 @@ from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
 
 from .log import get_logger
-from .widgets import TABLE_PARAMETER
+from .widgets import PUBLISH_TARGETS, TABLE_PARAMETER
 
 logger = get_logger()
 
@@ -846,13 +846,24 @@ def sheet_header_row(definition: dict) -> str:
     already constrains to identifiers, so none of them can contain a comma.
 
     """
+    return ",".join(destination_columns(definition))
+
+
+def destination_columns(definition: dict) -> list[str]:
+    """Return the columns a flow's destination needs: what it publishes, then
+    ``submitted_at``, which the Function stamps itself.
+
+    Raises:
+        FlowError: If the flow publishes nothing.
+
+    """
     columns = [key for key, _ in published_columns(definition)]
     if not columns:
         raise FlowError("Flow publishes nothing, so there is no header to build.")
 
     if "submitted_at" not in columns:
         columns.append("submitted_at")
-    return ",".join(columns)
+    return columns
 
 
 def missing_warehouse_columns(definition: dict, existing: list[str]) -> list[str]:
@@ -939,6 +950,23 @@ def publish_table(definition: dict) -> str | None:
         for parameter in state.get("properties", {}).get("parameters", []):
             if parameter.get("key") == TABLE_PARAMETER:
                 return str(parameter.get("value") or "") or None
+    return None
+
+
+def publish_destination(definition: dict) -> str | None:
+    """Return the publish target a flow calls, ``gsheets`` or ``motherduck``.
+
+    Read from the publish widget's Function URL, which is what decides where a
+    row goes. None when the flow has no publish widget or calls a Function this
+    project did not deploy.
+    """
+    for state in definition.get("states", []):
+        if not _is_publish_widget(state):
+            continue
+        url = str(state.get("properties", {}).get("url") or "")
+        for target, publish in PUBLISH_TARGETS.items():
+            if url.endswith(publish["path"]):
+                return target
     return None
 
 

@@ -270,8 +270,8 @@ Then, to put it on Twilio:
 ```powershell
 just survey content my_survey.json             # the buttons and lists it sends
 just survey build my_survey.json --lang en     # -> flows/<flow_name>.json, checked
-just flow header flows/my_survey.json          # the sheet's first row
-just flow table flows/my_survey.json           # or, for MotherDuck, its table
+just flow header-sheets flows/my_survey.json          # writes the sheet's first row
+just flow header-motherduck flows/my_survey.json           # or, for MotherDuck, its table
 just flow deploy flows/my_survey.json          # a draft; nothing is sent yet
 ```
 

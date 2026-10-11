@@ -109,10 +109,11 @@ Five steps, once:
    `.iam.gserviceaccount.com`) as an Editor. A service account is a principal in
    its own right; creating it grants it nothing. Forgetting this is the single
    most common reason the first row never appears.
-5. Put a header row in row 1, generated from the instrument rather than typed:
+5. With `GOOGLE_SHEET_ID` and `GOOGLE_SHEET_TAB` in `.env`, write row 1 from the
+   instrument:
 
    ```powershell
-   just flow header flows/data_use_demo_en.json
+   just flow header-sheets flows/data_use_demo_en.json
    ```
 
 `just setup functions` reads the JSON file and sets `GOOGLE_CLIENT_EMAIL` and
