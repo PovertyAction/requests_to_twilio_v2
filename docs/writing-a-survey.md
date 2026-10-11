@@ -19,10 +19,11 @@ instrument is still built by `scripts/build_data_use_demo.py`, from its own
 tables; it shares its widgets with the compiler.
 
 One row is one question **including the whole subgraph it becomes**. A closed
-question with retries is seven Studio widgets — ask, validate, store, count the
-retry, decide, nudge, give up — and the no-reply reminder adds three more. A
-plain text question is two, or five with the reminder. The `widgets` column in the workbook says which, next to each row, so
-the cost of a design choice is visible while you are making it.
+question with retries is eight Studio widgets (ask, note it went quiet,
+validate, store, give up, count the retry, decide, nudge), and the no-reply
+reminder adds about eight more. A plain text question is three. The `widgets`
+column in the workbook gives the exact count next to each row, so the cost of a
+design choice is visible while you are making it.
 
 That is the whole point. The demo instrument is 97 widgets for six questions
 asked two ways, and nobody reviews a canvas that size — which is the real reason
@@ -100,15 +101,18 @@ inside the file, so it is there when you need it rather than in a wiki.
 
 The types, and what each becomes:
 
-| `type` | the respondent sees | widgets |
+| `type` | the respondent sees | widgets, with retries and no reminder |
 | --- | --- | --- |
-| `text` | a plain message; **any** reply is stored | 4 |
-| `integer` / `decimal` | a plain message; the reply must match `constraint` | 9 |
-| `select_list <list>` | a tappable list, up to 10 options | 9 |
-| `select_button <list>` | up to 3 tappable buttons | 9 |
-| `template` | an approved template, and waits for a reply | 1 |
+| `text` | a plain message; **any** reply is stored | 3 |
+| `integer` / `decimal` | a plain message; the reply must match `constraint` | 8, or 9 with a `minimum` / `maximum` |
+| `select_list <list>` | a tappable list, up to 10 options | 8 |
+| `select_button <list>` | up to 3 tappable buttons | 8 |
+| `template` | an approved message, and waits for a reply | 1, or 2 when it listens for a stop word |
 | `note` | a message expecting no reply | 1 |
 | `begin group` / `end group` | a branch; the condition goes in `relevance` | 1 per comparison |
+
+The no-reply reminder adds about eight to a question, and listening for a stop
+word one more.
 
 `text` and `integer` look identical to a respondent and differ entirely in the
 data. `text` stores whatever arrives, including `about 5`. Use `integer` whenever
@@ -128,7 +132,7 @@ scales.
 | `list_name` | ties a block of rows to the question that uses them |
 | `value` | the **code** stored in the warehouse |
 | `option_id` | what a tapped row sends back; blank generates one |
-| `label:<lang>` | what the respondent sees. **24 characters** |
+| `label:<lang>` | what the respondent sees. **24 characters** in a list, **20** on a button |
 | `description:<lang>` | a second line under the label. 72 characters |
 | `typed:<lang>` | extra spellings to accept, pipe-separated (consent only, for now) |
 
@@ -265,8 +269,8 @@ Then, to put it on Twilio:
 
 ```powershell
 just survey content my_survey.json             # the buttons and lists it sends
-just survey build my_survey.json "--lang en"   # -> flows/<flow_name>.json, checked
-uv run rtt flow schema flows/my_survey.json --format header   # the sheet's first row
+just survey build my_survey.json --lang en     # -> flows/<flow_name>.json, checked
+just flow header flows/my_survey.json          # the sheet's first row
 just flow table flows/my_survey.json           # or, for MotherDuck, its table
 just flow deploy flows/my_survey.json          # a draft; nothing is sent yet
 ```

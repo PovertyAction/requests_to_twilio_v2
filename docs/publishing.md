@@ -41,12 +41,12 @@ sensible.
 
 ```powershell
 # data -> MotherDuck, tracking -> Sheets
-just demo build "--lang en --publish-target motherduck"
-just round watch "--tracker my_round_output.csv --sample my_round.xlsx --sheet"
+just demo build --lang en --publish-target motherduck
+just round watch --tracker my_round_output.csv --sample my_round.xlsx --sheet
 
 # both -> MotherDuck
-just demo build "--lang en --publish-target motherduck"
-just round watch "--tracker my_round_output.csv --sample my_round.xlsx --table tracking"
+just demo build --lang en --publish-target motherduck
+just round watch --tracker my_round_output.csv --sample my_round.xlsx --table tracking
 ```
 
 `--table` is the counterpart of `--sheet`: the delivery state is replaced in that
@@ -79,8 +79,8 @@ So generate the destination from the instrument rather than maintaining it
 alongside:
 
 ```powershell
-uv run rtt flow schema flows/data_use_demo_en.json --table my_db.main.round1  # DDL
-just flow header flows/data_use_demo_en.json                            # header row
+just flow table flows/my_survey.json      # MotherDuck: creates or extends the table
+just flow header flows/my_survey.json     # Sheets: the header row
 ```
 
 **Run one of these after every instrument change.** Both Functions log the names
@@ -132,8 +132,8 @@ exactly what a live round wants to notice.
 ## Watching a round, end to end
 
 ```powershell
-just round launch my_round.xlsx --columns "caseid,name,arm"
-just round watch "--tracker my_round_output.csv --sample my_round.xlsx --sheet --every 1 --hours 2"
+just round launch my_round.xlsx --columns caseid,name,arm
+just round watch --tracker my_round_output.csv --sample my_round.xlsx --sheet --every 1 --hours 2
 ```
 
 Each poll rewrites the tracking destination in place. The states, the flags and
@@ -143,7 +143,7 @@ what "settled" does not mean are in
 ## After the round
 
 ```powershell
-just data fetch "--tracker my_round_output.csv"       # reconcile against executions
+just data fetch --against my_round.csv               # rows Twilio has and the data lacks
 just data check my_round.csv                     # high-frequency checks
 just data decrypt my_round.csv                        # identifiers, locally
 ```

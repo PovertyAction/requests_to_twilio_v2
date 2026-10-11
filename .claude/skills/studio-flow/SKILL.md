@@ -49,8 +49,8 @@ because a stale reference teaches the format it was generated from rather than t
 one the code reads. This document made exactly that mistake once: see the tap
 table under Stage 2.
 
-One row is one question **and** its whole subgraph - seven widgets for a closed
-question with retries, two for open text, three more for the no-reply reminder
+One row is one question **and** its whole subgraph - eight widgets for a closed
+question with retries, three for open text, about eight more for the no-reply reminder
 (sent at 23h30, inside WhatsApp's 24-hour window), and `rtt survey check` prints
 the count per row. Stop words are listened for in the opening and in reply to a
 reminder, set by the spec's `stop_words` setting, not on every question.
@@ -118,7 +118,7 @@ verifying that it *is* pointed where you think, every time, because nothing
 downstream will tell you otherwise.
 
 ```bash
-just round launch "sample.xlsx --columns caseid,name --dry-run"
+just round launch sample.xlsx --columns caseid,name --dry-run
 #   inbound routing OK: replies to this number reach this flow
 ```
 
@@ -230,7 +230,7 @@ the survey runs to completion, and the damage is only visible in the output
 after the round. So the launcher cross-checks before sending:
 
 ```bash
-just round launch "sample_input.xlsx --columns caseid,name,treatment --dry-run"
+just round launch sample_input.xlsx --columns caseid,name,treatment --dry-run
 ```
 
 It fetches the flow, extracts every `flow.data.*` reference, compares against
@@ -970,13 +970,13 @@ Publishing can fail. `publish_gsheets.js` retries once, then drops the row
 silently. Reconcile after each round:
 
 ```bash
-just data fetch "--against responses.csv --output missing.csv"
+just data fetch --against responses.csv --output missing.csv
 ```
 
 Then load the analysis copy:
 
 ```bash
-just data decrypt "responses.csv --to-motherduck survey_round_1"
+just data decrypt responses.csv --to-motherduck survey_round_1
 ```
 
 ## Stage 6 - finalize
@@ -1023,8 +1023,8 @@ analysable. Run it before a round starts and after any edit.
 
 ```bash
 just flow check                       # every flow on the account
-just flow check "my_endline"          # one flow
-just flow check "--errors-only"       # suppress warnings
+just flow check my_endline          # one flow
+just flow check --errors-only       # suppress warnings
 just flow list                        # what exists, status, revision
 just flow pull <name>                 # into flows/ (gitignored) for review
 ```

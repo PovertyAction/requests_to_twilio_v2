@@ -229,28 +229,32 @@ adding a tracking tab later silently redirects every submission into it.
 
 ### MotherDuck
 
-Print the DDL from the flow itself and run it:
+Set `MOTHERDUCK_TOKEN`, `MOTHERDUCK_DATABASE` and `MOTHERDUCK_HOST` in `.env`,
+then run `just setup functions` again so the Functions get them. Build with
+`--publish-target motherduck` in the next step: **the default is Sheets, so a
+MotherDuck round has to say so.** A flow built without it publishes to a sheet
+you never made, and `just setup functions` will not catch it.
+
+Once the flow is built, create its table from the flow itself:
 
 ```powershell
-uv run rtt flow schema flows/data_use_demo_en.json --table my_db.main.my_round
+just flow table flows/my_survey.json      # asks before it creates anything
 ```
 
-Then set `MOTHERDUCK_TOKEN`, `MOTHERDUCK_DATABASE`, `MOTHERDUCK_HOST` and
-`MOTHERDUCK_TABLE` in `.env`, and build with
-`just demo build "--lang en --publish-target motherduck"` in the next step —
-**the default is Sheets, so a MotherDuck round has to say so.** Configuring
-MotherDuck and building without that flag gives you a flow that publishes to a
-sheet you never made, and `just setup functions` will not catch it.
+A survey from `just survey build` names its own table in `MOTHERDUCK_DATABASE`:
+the survey's ID, or the table set in its settings. The demo flow names none and
+writes to `MOTHERDUCK_TABLE` (`db.main.table`), so set that too and pass the
+table's name: `just flow table flows/data_use_demo_en.json --table my_round`.
 
 ## 9. Build and deploy the flow
 
 ```powershell
-just demo content        # the in-session templates the questions need
+just demo content        # the buttons and lists the questions show
 just demo build --lang en    # writes flows/data_use_demo_en.json
 just flow deploy flows/data_use_demo_en.json --publish
 ```
 
-`just demo build` resolves your Functions service and your content templates by
+`just demo build` looks up your Functions and the buttons and lists by
 name, so the flow it writes points at *your* account.
 
 `just flow deploy` refuses to ship a flow that fails the checks. That is deliberate:
@@ -279,10 +283,9 @@ just survey json my_survey.xlsx                # → my_survey.json, the tracked
 just survey check my_survey.json               # must pass before you build
 ```
 
-One row is one question *and* the whole subgraph it becomes — seven Studio widgets
-for a closed question with retries, two for open text, plus three for the no-reply
-reminder. `sample_template.xlsx` in
-the repository root is a filled-in example you can open right now, and its
+One row is one question *and* the whole subgraph it becomes: eight Studio
+widgets for a closed question with retries, three for open text, and about eight
+more for the no-reply reminder. `sample_template.xlsx` in the repository root is a filled-in example you can open right now, and its
 `help-survey` sheet documents every column.
 
 **This format is for surveys.** It assumes consent is asked before any question,
@@ -307,10 +310,10 @@ must match the flow exactly and must be `[A-Za-z0-9_]` only.
 
 ```powershell
 # See exactly what would be sent, and run every pre-flight check
-just round launch "sample_input.xlsx --columns caseid,name,arm --dry-run"
+just round launch sample_input.xlsx --columns caseid,name,arm --dry-run
 
 # Send for real
-just round launch "sample_input.xlsx --columns caseid,name,arm"
+just round launch sample_input.xlsx --columns caseid,name,arm
 ```
 
 Answer it on your phone. Then confirm the row arrived before you launch at
@@ -323,13 +326,14 @@ double-sending.
 
 ## 11. Get the data back
 
-First get the table out of MotherDuck. In the MotherDuck UI, run
+First save the answers as a CSV. From a Google Sheet, use **File → Download →
+Comma-separated values** on the data tab. From MotherDuck, run
 
 ```sql
 SELECT * FROM your_database.main.your_round;
 ```
 
-and use its download button to save a CSV. (There is deliberately no
+in the MotherDuck UI and use its download button. (There is deliberately no
 `rtt pull-from-warehouse`: exporting is one click, and a command that silently
 wrote respondent data to disk is not something worth adding.)
 
@@ -337,13 +341,13 @@ Then, locally:
 
 ```powershell
 # Decrypt with your private key. Writes responses_decrypted.csv
-just data decrypt "responses.csv"
+just data decrypt responses.csv
 
 # During a round: does the data look right?
-just data check "responses_decrypted.csv"
+just data check responses_decrypted.csv
 
 # What does Twilio think happened? Useful when a row seems missing
-just data fetch "--since 2026-08-01"
+just data fetch --since 2026-08-01
 ```
 
 Encrypted columns are detected automatically — they carry a `v2:` marker — so
