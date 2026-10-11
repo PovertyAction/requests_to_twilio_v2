@@ -2523,7 +2523,8 @@ def survey_build(
         typer.echo(
             f"    rtt flow schema {output} --format header   # the sheet's header row"
         )
-    typer.echo(f"    rtt flow deploy {output} --name {flow_name}   # as a draft")
+    # Published, because `rtt launch` refuses a flow that has only a draft.
+    typer.echo(f"    rtt flow deploy {output} --name {flow_name} --publish")
 
 
 def _unfilled_placeholders(

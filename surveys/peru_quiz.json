@@ -1,0 +1,335 @@
+{
+  "settings": {
+    "form_id": "peru_quiz",
+    "form_title": "Quiz de Lima - demo de encuestas por WhatsApp, IPA Perú",
+    "languages": [
+      "es"
+    ],
+    "default_language": "es",
+    "functions_service": "rtt-survey",
+    "default_timeout": 3600,
+    "default_retries": 2,
+    "stop_words": "opening_and_reminders",
+    "reminder_after": 84600,
+    "publish_table": "",
+    "preloads": [
+      "caseid",
+      "name",
+      "sent_at"
+    ],
+    "flow_name": {
+      "es": "peru_quiz_es"
+    },
+    "description": {
+      "es": "Quiz corto sobre Lima para la demo en vivo de la capacitación"
+    }
+  },
+  "survey": [
+    {
+      "type": "template",
+      "name": "intro",
+      "role": "intro",
+      "retries": 0,
+      "template": {
+        "es": "data_use_demo_intro_es"
+      },
+      "variables": {
+        "1": "name"
+      },
+      "publish": false
+    },
+    {
+      "type": "select_button consent",
+      "name": "consent",
+      "role": "consent",
+      "label": {
+        "es": "👋 Antes de empezar, ¿quieres participar?\n\nEs un quiz corto de 6 preguntas para la sesión. Participar es voluntario, puedes dejar de responder cuando quieras y tus respuestas son confidenciales. Solo las usaremos para mostrar en la sesión cómo funciona la recolección de datos por WhatsApp."
+      },
+      "retries": 1
+    },
+    {
+      "type": "select_button cebiche",
+      "name": "cebiche",
+      "label": {
+        "es": "🐟 Pregunta 1 de 6\n\nEl plato de pescado marinado en limón: ¿cómo se escribe?"
+      },
+      "retries": 2
+    },
+    {
+      "type": "select_button cuy",
+      "name": "cuy",
+      "label": {
+        "es": "🐹 Pregunta 2 de 6\n\nEl cuy, ¿mascota o comida?"
+      },
+      "retries": 2
+    },
+    {
+      "type": "select_button plato",
+      "name": "plato",
+      "label": {
+        "es": "🍽️ Pregunta 3 de 6\n\nPlato nacional del Perú: ¿ají de gallina o lomo saltado?"
+      },
+      "retries": 2
+    },
+    {
+      "type": "select_button pisco",
+      "name": "pisco",
+      "label": {
+        "es": "🍇 Pregunta 4 de 6\n\nEl pisco es..."
+      },
+      "retries": 2
+    },
+    {
+      "type": "select_list picante",
+      "name": "picante",
+      "label": {
+        "es": "🌶️ Pregunta 5 de 6\n\n¿Cuánto picante aguantas?"
+      },
+      "retries": 2
+    },
+    {
+      "type": "text",
+      "name": "recomendacion",
+      "label": {
+        "es": "📍 La última, pregunta 6 de 6\n\nUn plato o un lugar de Lima que un turista no debería perderse. Escríbelo con tus palabras."
+      },
+      "retries": 0
+    },
+    {
+      "type": "note",
+      "name": "close_complete",
+      "role": "close",
+      "label": {
+        "es": "🙌 ¡Listo, gracias por jugar!\n\nTus respuestas ya llegaron. En un momento vemos juntos quién aguanta un rocoto entero."
+      },
+      "relevance": "${outcome}='complete'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_incomplete",
+      "role": "close",
+      "label": {
+        "es": "Gracias por las respuestas que alcanzaste a dar, quedaron registradas. En un momento las vemos juntos en la sesión."
+      },
+      "relevance": "${outcome}='incomplete'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_declined",
+      "role": "close",
+      "label": {
+        "es": "Gracias por tu respuesta. Respetamos que hayas decidido no participar, y puedes seguir la demostración igual en la sesión."
+      },
+      "relevance": "${outcome}='declined'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_optout",
+      "role": "close",
+      "label": {
+        "es": "Entendido, no te enviaremos nada más sobre este quiz. Las respuestas que ya diste se conservan."
+      },
+      "relevance": "${outcome}='optout'",
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "close_never_started",
+      "role": "close",
+      "relevance": "${outcome}='unreachable'",
+      "template": {
+        "es": "data_use_demo_close_es"
+      },
+      "variables": {
+        "1": "name"
+      },
+      "publish": false
+    },
+    {
+      "type": "note",
+      "name": "unsolicited_reply",
+      "role": "unsolicited",
+      "label": {
+        "es": "👋 Gracias por tu mensaje. Este número solo se usa para un quiz corto durante la sesión, así que no necesitas hacer nada más por aquí."
+      },
+      "publish": false
+    }
+  ],
+  "choices": [
+    {
+      "list_name": "consent",
+      "value": "yes",
+      "option_id": "consent_yes",
+      "label": {
+        "es": "Sí, participo"
+      },
+      "typed": {
+        "es": "1|si|sí|s"
+      }
+    },
+    {
+      "list_name": "consent",
+      "value": "no",
+      "option_id": "consent_no",
+      "label": {
+        "es": "No, gracias"
+      },
+      "typed": {
+        "es": "2|no|n"
+      }
+    },
+    {
+      "list_name": "cebiche",
+      "value": "1",
+      "label": {
+        "es": "cebiche"
+      }
+    },
+    {
+      "list_name": "cebiche",
+      "value": "2",
+      "label": {
+        "es": "ceviche"
+      }
+    },
+    {
+      "list_name": "cebiche",
+      "value": "3",
+      "label": {
+        "es": "seviche"
+      }
+    },
+    {
+      "list_name": "cuy",
+      "value": "1",
+      "label": {
+        "es": "Mascota"
+      }
+    },
+    {
+      "list_name": "cuy",
+      "value": "2",
+      "label": {
+        "es": "Comida"
+      }
+    },
+    {
+      "list_name": "plato",
+      "value": "1",
+      "label": {
+        "es": "Ají de gallina"
+      }
+    },
+    {
+      "list_name": "plato",
+      "value": "2",
+      "label": {
+        "es": "Lomo saltado"
+      }
+    },
+    {
+      "list_name": "plato",
+      "value": "3",
+      "label": {
+        "es": "Ninguno, es cebiche"
+      }
+    },
+    {
+      "list_name": "pisco",
+      "value": "1",
+      "label": {
+        "es": "Perú"
+      }
+    },
+    {
+      "list_name": "pisco",
+      "value": "2",
+      "label": {
+        "es": "Chile"
+      }
+    },
+    {
+      "list_name": "pisco",
+      "value": "3",
+      "label": {
+        "es": "Mejor no empecemos"
+      }
+    },
+    {
+      "list_name": "picante",
+      "value": "1",
+      "label": {
+        "es": "1 - Ni el ají amarillo"
+      }
+    },
+    {
+      "list_name": "picante",
+      "value": "2",
+      "label": {
+        "es": "2"
+      }
+    },
+    {
+      "list_name": "picante",
+      "value": "3",
+      "label": {
+        "es": "3"
+      }
+    },
+    {
+      "list_name": "picante",
+      "value": "4",
+      "label": {
+        "es": "4"
+      }
+    },
+    {
+      "list_name": "picante",
+      "value": "5",
+      "label": {
+        "es": "5 - Un rocoto entero"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "key": "error_option",
+      "text": {
+        "es": "Sin problema, no pude leer esa respuesta.\n\nElige una opción del mensaje de arriba (si es una lista, toca *{button}*). También puedes responder con el número de tu respuesta."
+      }
+    },
+    {
+      "key": "error_option_labels",
+      "text": {
+        "es": "Sin problema, no pude leer esa respuesta.\n\nElige una opción del mensaje de arriba (si es una lista, toca *{button}*), o escribe la opción tal como aparece."
+      }
+    },
+    {
+      "key": "list_button",
+      "text": {
+        "es": "Elige tu respuesta"
+      }
+    },
+    {
+      "key": "timeout_nudge",
+      "text": {
+        "es": "Solo paso a recordarte: aquí está la pregunta otra vez, para cuando tengas un momento. Si prefieres parar, responde STOP y no te escribiremos más."
+      }
+    },
+    {
+      "key": "stop_words",
+      "text": {
+        "es": "stop, parar, cancelar, salir, baja, quit"
+      }
+    },
+    {
+      "key": "unsolicited",
+      "text": {
+        "es": "Gracias por tu mensaje. No necesitas hacer nada más por aquí."
+      }
+    }
+  ]
+}

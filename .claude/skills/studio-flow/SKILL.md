@@ -30,7 +30,8 @@ consent gate, the publish convergence and the closings are meant to be generated
 from them, so they cannot be got subtly wrong one question at a time.
 
 `just survey build` compiles a checked spec into a flow (`compile.py`), and
-`just flow deploy` puts it on the account as a draft. Run `just survey content`
+`just flow deploy --publish` puts it on the account as the version Twilio runs
+(a draft alone cannot be launched against). Run `just survey content`
 first: it creates the buttons and lists the survey sends (its Twilio content,
 which Meta never reviews; only the opener and the never-replied closing are
 approved messages).

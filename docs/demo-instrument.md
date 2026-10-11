@@ -45,6 +45,29 @@ just flow deploy flows/data_use_demo_en.json --publish
 Only the bookends — the opener and the closing message to someone who never
 replied — need Meta approval. Everything in between is in-session and free.
 
+## The Peru quiz
+
+`surveys/peru_quiz.json` is a six-question quiz about Lima, in Spanish, for a
+live demo of the whole path. It is a spec rather than a built flow, so open it in
+the builder and edit it there. It has no arms, and it reuses the demo's approved
+Spanish opener and closing, so it needs no new Meta review.
+
+```powershell
+just survey builder                                  # Open... surveys/peru_quiz.json
+just survey check surveys/peru_quiz.json
+just survey content surveys/peru_quiz.json           # its buttons and lists
+just survey build surveys/peru_quiz.json --lang es   # -> flows/peru_quiz_es.json
+just flow header flows/peru_quiz_es.json             # row 1 of the sheet's tab
+just flow deploy flows/peru_quiz_es.json --publish
+just round intake scripts/build_rst2026_sample.py inscripciones.xlsx --out peru_quiz_sample.xlsx --prefix PERU2026
+just round send peru_quiz_sample caseid,name --dry-run
+just round send peru_quiz_sample caseid,name
+```
+
+After the deploy, set `TWILIO_FLOW_ID` and point the sender at `peru_quiz_es`
+([START-HERE, step 8](../START-HERE.md#point-the-sender-at-the-flow)), then wait
+a few minutes before sending.
+
 ## The counter-example
 
 `flows/foro_nacional_datos_source.json` is an as-ran original, kept unmodified as

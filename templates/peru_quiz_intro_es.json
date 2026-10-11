@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "OPENING approved message for the Peru quiz, created and submitted live",
+    "during the session to show the approval step. Until Meta approves it the",
+    "quiz spec opens with data_use_demo_intro_es, which is already approved.",
+    "",
+    "Framed for UTILITY: it names the session the participant is attending and",
+    "says what will happen, with no persuasion and no incentive.",
+    "",
+    "The quick-reply button is mechanical: tapping Empezar answers the opener,",
+    "which opens the 24-hour window the quiz's buttons and list need.",
+    "",
+    "Submission is irreversible - Meta has no edit - so read it here first."
+  ],
+  "friendly_name": "peru_quiz_intro_es",
+  "language": "es",
+  "variables": {
+    "1": "Ana"
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Hola {{1}}, te escribimos desde la sesión de IPA sobre encuestas por WhatsApp.\n\nEste es el quiz corto de la sesión: 6 preguntas, unos 2 minutos. Tus respuestas son confidenciales y solo se usarán para mostrar en la sesión cómo llegan los datos.\n\nToca Empezar cuando quieras.",
+      "actions": [
+        {
+          "title": "Empezar",
+          "id": "Start_payload"
+        }
+      ]
+    }
+  }
+}

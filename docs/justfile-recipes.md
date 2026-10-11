@@ -109,10 +109,19 @@ just flow header flows/my_survey.json     # Google Sheet: paste this into row 1
 just flow deploy flows/my_survey.json --publish
 ```
 
-Then, in the Twilio console, set your sender's incoming-message webhook to the
-flow, so that replies reach it. The flow's address ends in its ID, which starts
-with `FW`. Do this a few minutes before you send: for a short while after the
-change, some replies can still go to the flow the sender used before.
+`--publish` makes it the version Twilio runs; `just round send` refuses a flow
+that has only a draft. The deploy prints the flow's ID, which starts with `FW`.
+Then:
+
+- In `.env`, set `TWILIO_FLOW_ID=FW…`, so `just round send` starts that flow.
+- In the Twilio console, open **Messaging → Senders → WhatsApp senders → your
+  sender**, and under *when a message comes in* choose **Studio Flow** and pick
+  the flow (or paste
+  `https://webhooks.twilio.com/v1/Accounts/<AccountSid>/Flows/<FlowSid>`), so
+  that replies reach it.
+
+Do this a few minutes before you send: for a short while after the change, some
+replies can still go to the flow the sender used before.
 
 ### 7. Send the survey
 

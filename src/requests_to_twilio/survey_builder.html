@@ -181,7 +181,7 @@
   <button id="btn-redo" class="ghost" title="Redo (Ctrl+Y)">&#8631; Redo</button>
   <div class="spacer"></div>
   <span class="hint" id="langs-label">Language</span><div class="seg" id="langs"></div>
-  <button id="btn-copy" title="Copy the commands that check this file, build the flow and deploy it as a draft">Copy deploy commands</button>
+  <button id="btn-copy" title="Copy the commands that check this file, build the flow and deploy it, published so a round can run it">Copy deploy commands</button>
   <button id="btn-issues" class="issues-btn">0 issues</button>
 </header>
 
@@ -2411,9 +2411,9 @@ $("#btn-copy").addEventListener("click", async () => {
     `just survey check ${S.fileName}`,
     `just survey content ${S.fileName}`,
     `just survey build ${S.fileName} --lang ${S.lang}`,
-    `just flow deploy flows/${flow}.json`,
+    `just flow deploy flows/${flow}.json --publish`,
   ].join("\n");
-  try { await navigator.clipboard.writeText(cmd); toast("Copied the four commands: check, create the buttons and lists, build, deploy as a draft."); }
+  try { await navigator.clipboard.writeText(cmd); toast("Copied the four commands: check, create the buttons and lists, build, deploy and publish."); }
   catch { toast(`Run: ${cmd.replaceAll("\n", " ; ")}`); }
 });
 

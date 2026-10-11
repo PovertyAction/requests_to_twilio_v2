@@ -10,7 +10,7 @@ same steps as a short list of commands are in
 
 **Read the timing note first.** Steps 1 to 3 involve Meta and can take **days to
 weeks**. Everything after them takes an afternoon. Teams get caught out by
-starting at step 5, finding it works in a sandbox, and then discovering that
+starting at step 4, finding it works in a sandbox, and then discovering that
 their real sender is three weeks from approval. If your round has a date, start
 step 1 today and do the rest while you wait.
 
@@ -19,23 +19,22 @@ step 1 today and do the rest while you wait.
 | 1 | A Twilio account | nobody | minutes |
 | 2 | A WhatsApp sender | **Meta business verification** | **days to weeks** |
 | 3 | An approved opening template | **Meta template review** | **minutes to days** |
-| 4 | Point the sender's replies at your flow | nobody | minutes |
-| 5 | Install this toolkit | nobody | minutes |
-| 6 | Generate an encryption keypair | nobody | seconds |
-| 7 | Deploy the two Twilio Functions | nobody | minutes |
-| 8 | Create the warehouse table | nobody | minutes |
-| 9 | Build and deploy the flow | nobody | minutes |
-| 10 | Launch to a test number | nobody | minutes |
-| 11 | Get the data back | nobody | minutes |
+| 4 | Install this toolkit | nobody | minutes |
+| 5 | Generate an encryption keypair | nobody | seconds |
+| 6 | Deploy the two Twilio Functions | nobody | minutes |
+| 7 | Create the warehouse table | nobody | minutes |
+| 8 | Build and deploy the flow, and point the sender at it | nobody | minutes |
+| 9 | Launch to a test number | nobody | minutes |
+| 10 | Get the data back | nobody | minutes |
 
 ## Already running flows? Start by reading one
 
 The table above is the path from nothing. If you already have a WhatsApp sender
-and flows on your own Twilio account, steps 1 to 4 are behind you and the
+and flows on your own Twilio account, steps 1 to 3 are behind you and the
 quickest way to judge whether this toolkit is worth adopting is to point it at a
 flow you already trust.
 
-Do **step 5** (install), then:
+Do **step 4** (install), then:
 
 ```powershell
 just flow list                            # find it by friendly name
@@ -50,11 +49,11 @@ new one.
 
 Not sure which flow your number is actually pointing at? `rtt launch` checks that
 before it sends and names the mismatch, so a dry run against a test number
-(step 10) will tell you. There is no command that resolves it on its own yet.
+(step 9) will tell you. There is no command that resolves it on its own yet.
 
-If the flow is worth keeping, carry on from step 5. You will still want steps 6
-and 7 for encryption and publishing, and you can skip step 9 — the flow already
-exists.
+If the flow is worth keeping, carry on from step 4. You will still want steps 5
+and 6 for encryption and publishing, and you can skip the build in step 8 — the
+flow already exists.
 
 ---
 
@@ -122,22 +121,7 @@ Consent wording stays out of Meta review on purpose: it is sent inside the
 window, so the full IRB text never goes through them and can change without a
 resubmission.
 
-## 4. Point replies at your flow
-
-**The single most expensive mistake in this repo's history.** A WhatsApp sender
-is a different Twilio resource that merely shares digits with a phone number, and
-it carries **its own** inbound webhook. Repointing the phone number's `sms_url`
-does nothing for WhatsApp.
-
-Set it under **Messaging → Senders → WhatsApp senders → your sender → inbound
-webhook**, pointing at the flow you are about to deploy.
-
-You do not have to get this right from memory: `rtt launch` checks it before
-sending and refuses to run a round whose replies would land somewhere else.
-Skipping it means messages send fine, respondents reply, the replies reach a
-different flow, and the round collects nothing while reporting success.
-
-## 5. Install the toolkit
+## 4. Install the toolkit
 
 You need [uv](https://docs.astral.sh/uv/), [just](https://just.systems/) and
 Node. On Windows:
@@ -159,7 +143,7 @@ Fill in `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_NUMBER` (with the
 Nothing secret is ever passed as a command-line flag: arguments land in shell
 history and are readable by other processes on the machine.
 
-## 6. Generate an encryption keypair
+## 5. Generate an encryption keypair
 
 ```powershell
 just setup key
@@ -179,7 +163,7 @@ This prints a **public key** and writes a **private key** to
 
 Point `.env` at it with `ENCRYPTION_PRIVATE_KEY_FILE=rtt_private_key.txt`.
 
-## 7. Deploy the two Twilio Functions
+## 6. Deploy the two Twilio Functions
 
 ```powershell
 just setup functions
@@ -193,7 +177,7 @@ secret is pasted into the Console.
 You do not need to copy anything from its output. Everything is looked up by name
 when the flow is built.
 
-## 8. Prepare the destination
+## 7. Prepare the destination
 
 Pick one. They are peers, chosen per build, and which one fits depends on the
 project — on budget and on what accounts you can get.
@@ -246,7 +230,7 @@ the survey's ID, or the table set in its settings. The demo flow names none and
 writes to `MOTHERDUCK_TABLE` (`db.main.table`), so set that too and pass the
 table's name: `just flow table flows/data_use_demo_en.json --table my_round`.
 
-## 9. Build and deploy the flow
+## 8. Build and deploy the flow
 
 ```powershell
 just demo content        # the buttons and lists the questions show
@@ -271,7 +255,7 @@ just survey builder                            # cards, a flow map, a phone prev
 just survey check my_survey.json               # must pass before you build
 just survey content my_survey.json             # its buttons and lists, on Twilio
 just survey build my_survey.json               # -> flows/<flow_name>.json, checked
-just flow deploy flows/my_survey.json          # a draft on your account
+just flow deploy flows/my_survey.json --publish   # published, so a round can run it
 ```
 
 or
@@ -296,7 +280,29 @@ them with `just flow check`, which judges a graph on its own terms.
 
 Full guide: [docs/writing-a-survey.md](docs/writing-a-survey.md).
 
-## 10. Launch to a test number
+### Point the sender at the flow
+
+`just flow deploy` prints the flow's SID, which starts `FW`. Two settings take it:
+
+1. **`.env`**: set `TWILIO_FLOW_ID=FW…`, because `just round send` starts
+   executions of that flow and `just data fetch` reads them.
+2. **The sender**: in the Twilio Console, open **Messaging → Senders → WhatsApp
+   senders → your sender**, and under *when a message comes in* choose **Studio
+   Flow** and pick the flow, or paste its webhook URL,
+   `https://webhooks.twilio.com/v1/Accounts/<AccountSid>/Flows/<FlowSid>`.
+
+**The second is the single most expensive mistake in this repo's history.** A
+WhatsApp sender is a different Twilio resource that merely shares digits with a
+phone number, and it carries **its own** inbound webhook, so repointing the phone
+number's `sms_url` does nothing for WhatsApp. Skipped, messages send fine,
+respondents reply, the replies reach a different flow, and the round collects
+nothing while reporting success. `rtt launch` checks the webhook and stops before
+sending a round whose replies would land somewhere else.
+
+Wait a few minutes after changing the webhook before you send: for a short while
+Twilio can still route some replies to the flow the sender pointed at before.
+
+## 9. Launch to a test number
 
 Put your own number in a sample file first. `sample_input.xlsx` is the shape:
 
@@ -324,7 +330,7 @@ flushed after every send, so an interrupted run does not lose the record of who
 was already contacted. Re-running without `--resume` is refused rather than
 double-sending.
 
-## 11. Get the data back
+## 10. Get the data back
 
 First save the answers as a CSV. From a Google Sheet, use **File → Download →
 Comma-separated values** on the data tab. From MotherDuck, run

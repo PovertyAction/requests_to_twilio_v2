@@ -288,11 +288,15 @@ def pick_column(
     required: bool = True,
     avoid: tuple[str, ...] = (),
 ) -> str | None:
-    """Find the export column for a role, preferring the most specific hint."""
+    """Find the export column for a role, preferring the most specific hint.
+
+    Headers are compared unaccented, as the hints are written, so a Spanish
+    form's "Código de país" matches "codigo de pais".
+    """
     lowered = {
-        str(c).strip().lower(): c
+        _fold(c): c
         for c in frame.columns
-        if not any(term in str(c).strip().lower() for term in avoid)
+        if not any(term in _fold(c) for term in avoid)
     }
     for hint in hints:
         for lower, original in lowered.items():
@@ -304,6 +308,15 @@ def pick_column(
         f"Could not find a {role} column. Columns present: "
         f"{', '.join(map(str, frame.columns))}\n"
         f"Pass it explicitly with --{role}-col."
+    )
+
+
+def _fold(header: object) -> str:
+    """Return a header lowercased and stripped of accents, for hint matching."""
+    return "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", str(header).strip().lower())
+        if not unicodedata.combining(ch)
     )
 
 
@@ -351,12 +364,7 @@ def region_from(raw: object) -> str | None:
 
     # Accents off before the lookup, so one key serves every spelling of a
     # name somebody types by hand.
-    flattened = "".join(
-        ch
-        for ch in unicodedata.normalize("NFKD", text.lower())
-        if not unicodedata.combining(ch)
-    )
-    letters = re.sub(r"[^a-z]", "", flattened)
+    letters = re.sub(r"[^a-z]", "", _fold(text))
     if len(letters) == 2 and letters.upper() in phonenumbers.SUPPORTED_REGIONS:
         return letters.upper()
     return COUNTRY_NAMES.get(letters)

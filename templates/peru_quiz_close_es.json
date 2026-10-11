@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "CLOSING approved message for the Peru quiz, sent to anyone who never",
+    "answered the opener. Their 24-hour window never opened, so this message is",
+    "business-initiated and needs Meta approval like the opener. Until it is",
+    "approved the quiz spec uses data_use_demo_close_es.",
+    "",
+    "Submission is irreversible - Meta has no edit - so read it here first."
+  ],
+  "friendly_name": "peru_quiz_close_es",
+  "language": "es",
+  "variables": {
+    "1": "Ana"
+  },
+  "types": {
+    "twilio/text": {
+      "body": "Hola {{1}}, el quiz por WhatsApp de la sesión de IPA ya se cerró.\n\nNo necesitas responder nada y no volveremos a escribirte sobre este quiz.\n\n_Equipo IPA_"
+    }
+  }
+}

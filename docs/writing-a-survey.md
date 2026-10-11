@@ -14,9 +14,10 @@ card per step, or the **workbook** in Excel. Both read and write the same file,
 so a team can mix them.
 
 `just survey build` compiles a spec that passes `just survey check` into a
-Studio flow, and `just flow deploy` puts it on your account as a draft. The demo
-instrument is still built by `scripts/build_data_use_demo.py`, from its own
-tables; it shares its widgets with the compiler.
+Studio flow, and `just flow deploy --publish` puts it on your account as the
+version Twilio runs. The demo instrument is still built by
+`scripts/build_data_use_demo.py`, from its own tables; it shares its widgets
+with the compiler.
 
 One row is one question **including the whole subgraph it becomes**. A closed
 question with retries is eight Studio widgets (ask, note it went quiet,
@@ -272,8 +273,14 @@ just survey content my_survey.json             # the buttons and lists it sends
 just survey build my_survey.json --lang en     # -> flows/<flow_name>.json, checked
 just flow header flows/my_survey.json          # the sheet's first row
 just flow table flows/my_survey.json           # or, for MotherDuck, its table
-just flow deploy flows/my_survey.json          # a draft; nothing is sent yet
+just flow deploy flows/my_survey.json --publish   # live; nothing is sent yet
 ```
+
+`--publish` is what lets a round run it: Twilio runs the published version, and
+`just round send` refuses a flow that has only a draft. The deploy prints the
+flow's ID, starting `FW`. Set `TWILIO_FLOW_ID` to it in `.env`, and point your
+WhatsApp sender's incoming messages at the flow
+([START-HERE, step 8](../START-HERE.md#point-the-sender-at-the-flow)).
 
 Two kinds of message reach the phone, and only one needs Meta:
 

@@ -470,3 +470,87 @@ def test_the_consent_question_is_never_the_phone_column(tmp_path: Path) -> None:
     sample, problems, _ = builder.build(frame, make_args(tmp_path))
     assert problems == []
     assert sample["Number"].tolist() == ["whatsapp:+573005550420"]
+
+
+#: A Spanish copy of the form, as the Peru training's sign-up sheet exports it.
+#: Accented headers on purpose: the hints are unaccented, and "Código de país"
+#: is the one that used to match nothing.
+SPANISH_COLUMNS = [
+    "Marca temporal",
+    "Nombre",
+    "Código de país",
+    "Tu número de WhatsApp",
+    "Organización",
+    "Acepto recibir un mensaje de WhatsApp de IPA para esta sesión.",
+]
+
+
+def spanish_form() -> pd.DataFrame:
+    """Two fake Peruvian sign-ups and one that did not tick consent."""
+    return pd.DataFrame(
+        [
+            ["12/10/2026 9:00:00", "Ana María", "+51", "912 345 678", "IPA", "Acepto"],
+            ["12/10/2026 9:01:00", "Luis", "Perú", "912345679", "IPA", "Acepto"],
+            ["12/10/2026 9:02:00", "Rosa", "51", "912345670", "IPA", ""],
+        ],
+        columns=SPANISH_COLUMNS,
+    )
+
+
+def test_spanish_headers_resolve_to_their_roles() -> None:
+    """Every role is found on the Spanish form, accents and all."""
+    frame = spanish_form()
+    pick = builder.pick_column
+    assert pick(frame, builder.NAME_HINTS, "name", avoid=builder.NAME_AVOID) == (
+        "Nombre"
+    )
+    assert pick(frame, builder.PHONE_HINTS, "phone", avoid=builder.PHONE_AVOID) == (
+        "Tu número de WhatsApp"
+    )
+    assert pick(frame, builder.COUNTRY_HINTS, "country") == "Código de país"
+    assert pick(frame, builder.CONSENT_HINTS, "consent") == SPANISH_COLUMNS[-1]
+    assert pick(frame, builder.TIMESTAMP_HINTS, "timestamp") == "Marca temporal"
+
+
+def test_a_spanish_form_becomes_a_sample(tmp_path: Path) -> None:
+    """The Peru sign-up sheet resolves, with no arm column."""
+    sample, problems, notes = builder.build(
+        spanish_form(), make_args(tmp_path, prefix="PERU2026")
+    )
+    assert problems == []
+    assert list(sample.columns) == ["Number", "caseid", "name"]
+    assert sample["Number"].tolist() == [
+        "whatsapp:+51912345678",
+        "whatsapp:+51912345679",
+    ]
+    assert sample["caseid"].tolist() == ["PERU2026-001", "PERU2026-002"]
+    assert sample["name"].tolist() == ["Ana", "Luis"]
+    assert any("did not tick consent" in note for note in notes)
+
+
+def test_a_spanish_rebuild_moves_nobody(tmp_path: Path) -> None:
+    """Caseids stay frozen across rebuilds of the Spanish form."""
+    args = make_args(tmp_path, prefix="PERU2026")
+    first, _, _ = builder.build(spanish_form().iloc[[1]], args)
+    first.to_excel(args.out, index=False, sheet_name="sample")
+
+    second, _, _ = builder.build(spanish_form(), args)
+    by_number = dict(zip(second["Number"], second["caseid"], strict=True))
+    assert by_number["whatsapp:+51912345679"] == "PERU2026-001"
+    assert by_number["whatsapp:+51912345678"] == "PERU2026-002"
+
+
+def test_the_report_prints_no_arm_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The projector shows no ARM counts, and the next step sends no arm."""
+    export = tmp_path / "inscripciones.xlsx"
+    spanish_form().to_excel(export, index=False)
+    out = tmp_path / "peru_quiz_sample.xlsx"
+
+    assert builder.main([str(export), "--out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "ARM" not in printed
+    assert "just round send peru_quiz_sample caseid,name --dry-run" in printed
+    assert "caseid,name,arm" not in printed
+    assert list(pd.read_excel(out, dtype=str).columns) == ["Number", "caseid", "name"]
