@@ -11,7 +11,7 @@ just round send my_sample caseid --watch motherduck     # watch in MotherDuck in
 
 | Recipe | What it does |
 |---|---|
-| `intake BUILDER` | Runs a small script, written once for each source of numbers, that turns your list into a sample. It fixes each number's format for its country, drops anyone who did not consent, and refuses landlines. People already in the sample keep their `caseid` and `arm`. Rows it cannot fix go to a `_needs_human_review.csv` file, with the reason. |
+| `intake BUILDER` | Runs a small script, written once for each source of numbers, that turns your list into a sample. It fixes each number's format for its country, drops anyone who did not consent, and refuses landlines. People already in the sample keep their `caseid`. It assigns no arms: if the study randomises, the design adds the `arm` column, and intake keeps it. Rows it cannot fix go to a `_needs_human_review.csv` file, with the reason. |
 | `send SAMPLE COLUMNS` | Sends the survey to everyone in `SAMPLE.xlsx` who has not had it yet, then watches the round for an hour. `COLUMNS` are the sample columns the survey uses; `caseid` is always one. `--dry-run` runs every check and sends nothing. `--watch motherduck` shows the progress in MotherDuck rather than a sheet. |
 | `watch` | Shows where each message is: failed, sent, delivered or answered. It catches what the answers cannot: a message WhatsApp refused never produces an answer row at all. |
 | `reset SAMPLE` | Clears a round. It only reports what it would do until you add `--yes`. It never deletes a sheet's header row, because that row is how answers find their columns. |

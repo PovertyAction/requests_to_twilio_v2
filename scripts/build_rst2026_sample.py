@@ -13,9 +13,12 @@ What this does:
   * resolves each number to ``whatsapp:+<E164>`` using the country the sign-up
     form collected, and refuses to guess when it cannot
   * drops anybody who did not tick the consent box
-  * assigns a stable, non-identifying caseid
-  * assigns arms 1 and 2 in balanced order, and **keeps every assignment it has
-    already made**
+  * assigns a stable, non-identifying caseid, and **keeps every caseid it has
+    already assigned**
+
+It assigns no arms. Random assignment belongs to the study design, so a sample
+that needs one carries its own `arm` column, and a sample already in launch
+shape keeps every column it has.
 
 Two properties are what make this safe to run repeatedly as sign-ups arrive,
 which is how a training-day round actually works:
@@ -28,12 +31,10 @@ which. A row that does not say, and whose number carries no ``+``, is reported
 for a human rather than resolved - sending on the wrong resolution means
 messaging a stranger.
 
-**caseid and arm never move.** A rebuild reads the sample it is about to
-overwrite and carries every number's existing caseid and arm forward unchanged;
-only new sign-ups get new ones. `rtt launch --resume` keys on caseid, so an id
-that shifted when the row count changed would re-send to somebody already
-contacted, and an arm that shifted would move a respondent between treatments
-after they had answered.
+**caseid never moves.** A rebuild reads the sample it is about to overwrite
+and carries every number's existing caseid forward unchanged; only new sign-ups
+get new ones. `rtt launch --resume` keys on caseid, so an id that shifted when
+the row count changed would re-send to somebody already contacted.
 
 Nothing in the printed report contains a phone number. Numbers are Confidential
 under IPA's data classification, and a report is the kind of thing that gets
@@ -50,7 +51,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import random
 import re
 import sys
 import unicodedata
@@ -66,9 +66,10 @@ from phonenumbers import PhoneNumberFormat, PhoneNumberType
 DEFAULT_INPUT = Path("rst2026_signups.xlsx")
 DEFAULT_OUTPUT = Path("rst2026_sample.xlsx")
 
-#: The columns `rtt launch` reads. A file that already has these is a launch
-#: sample rather than a sign-up export, and is validated instead of converted.
-LAUNCH_COLUMNS = ["Number", "caseid", "name", "arm"]
+#: The columns every sample has, in this order. A file that already has
+#: `Number` and `caseid` is a launch sample rather than a sign-up export, and is
+#: validated instead of converted.
+LAUNCH_COLUMNS = ["Number", "caseid", "name"]
 
 #: Header fragments, most specific first: `pick_column` takes the first hit.
 NAME_HINTS = ("first name", "nombre", "name")
@@ -426,11 +427,11 @@ def consented(raw: object) -> bool:
     return _text(raw).lower() not in REFUSALS
 
 
-def read_existing(path: Path) -> tuple[dict[str, tuple[str, str]], int]:
-    """Read the assignments already made, keyed on the resolved number.
+def read_existing(path: Path) -> tuple[dict[str, str], int]:
+    """Read the caseids already assigned, keyed on the resolved number.
 
-    Returns ``(number -> (caseid, arm), highest index seen)``. A missing or
-    unreadable file is not an error: the first build has nothing to carry.
+    Returns ``(number -> caseid, highest index seen)``. A missing or unreadable
+    file is not an error: the first build has nothing to carry.
     """
     if not path.is_file():
         return {}, 0
@@ -443,31 +444,18 @@ def read_existing(path: Path) -> tuple[dict[str, tuple[str, str]], int]:
     if not {"Number", "caseid"}.issubset(frame.columns):
         return {}, 0
 
-    assignments: dict[str, tuple[str, str]] = {}
+    assignments: dict[str, str] = {}
     highest = 0
     for record in frame.to_dict("records"):
         number = _text(record.get("Number"))
         caseid = _text(record.get("caseid"))
         if not number or not caseid:
             continue
-        assignments[number] = (caseid, _text(record.get("arm")))
+        assignments[number] = caseid
         tail = caseid.rsplit("-", 1)[-1]
         if tail.isdigit():
             highest = max(highest, int(tail))
     return assignments, highest
-
-
-def minority_arm(counts: dict[str, int], rng: random.Random) -> str:
-    """Return the arm with fewer members, coin-flipped on a tie.
-
-    Filling the minority arm keeps a growing round balanced. Reshuffling the
-    whole list would too, but only by moving people already contacted.
-    """
-    if counts["1"] < counts["2"]:
-        return "1"
-    if counts["2"] < counts["1"]:
-        return "2"
-    return rng.choice(["1", "2"])
 
 
 def build(
@@ -523,7 +511,6 @@ def build(
         ordered = ordered.sort_values(["_when", "_row"], kind="stable")
 
     existing, highest = read_existing(args.out)
-    rng = random.Random(args.seed)  # noqa: S311 - reproducibility, not secrecy
 
     rows: list[dict[str, str]] = []
     problems: list[tuple[int, str]] = []
@@ -588,23 +575,16 @@ def build(
     if refused:
         notes.append(f"{refused} sign-up(s) did not tick consent and were left out.")
 
-    counts = {"1": 0, "2": 0}
-    for _caseid, arm in existing.values():
-        if arm in counts:
-            counts[arm] += 1
-
     carried = 0
     index = highest
     for row in rows:
         prior = existing.get(row["Number"])
         if prior:
-            row["caseid"], row["arm"] = prior
+            row["caseid"] = prior
             carried += 1
             continue
         index += 1
         row["caseid"] = f"{args.prefix}-{index:03d}"
-        row["arm"] = minority_arm(counts, rng)
-        counts[row["arm"]] += 1
 
     dropped = set(existing) - set(seen)
     if dropped:
@@ -614,7 +594,7 @@ def build(
             f"stop being followed - check that before treating this as a fix."
         )
 
-    notes.append(f"{carried} assignment(s) carried forward, {len(rows) - carried} new.")
+    notes.append(f"{carried} caseid(s) carried forward, {len(rows) - carried} new.")
     return _as_sample(rows), problems, notes
 
 
@@ -628,6 +608,9 @@ def validate_launch_shape(
     that theirs was never checked.
     """
     print("  input is already in launch shape - validating, not converting\n")
+    # Every other column is the study's own, an `arm` from the design among
+    # them, so it is carried through untouched.
+    extra = [column for column in frame.columns if column not in LAUNCH_COLUMNS]
     rows: list[dict[str, str]] = []
     problems: list[tuple[int, str]] = []
     # Two rows can name the same person while looking nothing alike, and it is
@@ -665,26 +648,23 @@ def validate_launch_shape(
                 "Number": number,
                 "caseid": caseid,
                 "name": _text(record.get("name")) or "there",
-                "arm": _text(record.get("arm")),
+                **{column: _text(record.get(column)) for column in extra},
             }
         )
 
     blank = sum(1 for row in rows if not row["caseid"])
     notes = [f"{blank} row(s) have a blank caseid."] if blank else []
-    # An arm the flow cannot split on sends the respondent down neither branch.
-    odd = sorted({row["arm"] for row in rows if row["arm"] not in {"1", "2"}})
-    if odd:
-        notes.append(
-            f"arm values that are neither 1 nor 2: {', '.join(map(repr, odd))}"
-        )
-    return _as_sample(rows), problems, notes
+    return _as_sample(rows, extra), problems, notes
 
 
-def _as_sample(rows: list[dict[str, str]]) -> pd.DataFrame:
-    """Rows as a launch sample, with the columns in the order launch reads."""
+def _as_sample(
+    rows: list[dict[str, str]], extra: list[str] | None = None
+) -> pd.DataFrame:
+    """Rows as a launch sample: the sample's columns first, then the study's own."""
+    columns = LAUNCH_COLUMNS + (extra or [])
     if not rows:
-        return pd.DataFrame(columns=LAUNCH_COLUMNS)
-    return pd.DataFrame(rows)[LAUNCH_COLUMNS]
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows)[columns]
 
 
 def read_any(path: Path) -> pd.DataFrame:
@@ -752,9 +732,6 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Sign-up export, .csv or .xlsx (default: {DEFAULT_INPUT})",
     )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument(
-        "--seed", type=int, default=20260826, help="Tie-break seed for arm balance"
-    )
     parser.add_argument("--prefix", default="RST2026-LIVE", help="caseid prefix")
     parser.add_argument("--name-col", default=None)
     parser.add_argument("--phone-col", default=None)
@@ -810,8 +787,6 @@ def main(argv: list[str] | None = None) -> int:
     sample.to_excel(args.out, index=False, sheet_name="sample")
 
     print(f"Wrote {args.out}  ({len(sample)} row(s))")
-    print(f"  ARM 1: {(sample['arm'] == '1').sum()}")
-    print(f"  ARM 2: {(sample['arm'] == '2').sum()}")
     print(f"  caseids: {sample['caseid'].iloc[0]} .. {sample['caseid'].iloc[-1]}")
 
     for note in notes:
@@ -834,8 +809,8 @@ def main(argv: list[str] | None = None) -> int:
     stem = args.out.stem
     print(
         "\nNext:\n"
-        f"  just round send {stem} caseid,name,arm --dry-run   # checks, sends nothing\n"
-        f"  just round send {stem} caseid,name,arm   # sends to whoever is left"
+        f"  just round send {stem} caseid,name --dry-run   # checks, sends nothing\n"
+        f"  just round send {stem} caseid,name   # sends to whoever is left"
     )
     return 0
 
