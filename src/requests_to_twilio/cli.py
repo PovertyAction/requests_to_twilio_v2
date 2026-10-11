@@ -40,9 +40,11 @@ from .flows import (
     check_flow,
     check_preloaded,
     content_variable_keys,
+    destination_columns,
     inbound_flow_sid,
     list_flows,
     load_definition_file,
+    publish_destination,
     publish_table,
     published_columns,
     published_revision,
@@ -77,7 +79,9 @@ from .sheets import (
     SheetsError,
     access_token,
     credentials_from_env,
+    read_header,
     replace_tab,
+    write_header,
 )
 from .spec import (
     SCOPE_NOTE,
@@ -352,6 +356,83 @@ def _check_inbound_routing(
         raise typer.Exit(code=1)
 
 
+def _check_destination(client: Client, flow_id: str, *, force: bool) -> None:
+    """Verify the place the flow publishes to has a column for everything it sends.
+
+    Both publish Functions write only into columns that exist, and the Sheets one
+    publishes nothing at all without a header row. Unchecked, a round runs
+    cleanly on every phone and the destination stays empty, which is only
+    noticed after the respondents have gone. No "send anyway": the fix is one
+    command, and sending first loses the answers.
+    """
+    try:
+        flow = resolve_flow(client, flow_id)
+        wanted = destination_columns(flow.definition or {})
+    except FlowError as exc:
+        typer.secho(
+            f"  warning: could not check where the flow publishes ({exc})",
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    target = publish_destination(flow.definition)
+    name = publish_table(flow.definition)
+    problem = None
+    have: list[str] = []
+    if target == "gsheets":
+        tab = cfg.optional("GOOGLE_SHEET_TAB")
+        where = f"Row 1 of tab '{tab}'" if tab else "Row 1 of the sheet's first tab"
+        absent = "is empty"
+        fix = "just flow header-sheets <definition.json>"
+        try:
+            client_email, private_key, sheet_id = credentials_from_env()
+            token = access_token(client_email, private_key)
+            have = read_header(sheet_id=sheet_id, tab=tab, token=token)
+        except SheetsError as exc:
+            problem = f"could not be read: {exc}"
+    elif target == "motherduck" and name:
+        where = f"MotherDuck table main.{name}"
+        absent = "does not exist"
+        fix = "just flow header-motherduck <definition.json>"
+        try:
+            with wire_connect(resolve_database(None)) as connection:
+                have = wire_columns(connection, name) or []
+        except WarehouseError as exc:
+            problem = f"could not be read: {exc}"
+    else:
+        typer.secho(
+            "  warning: could not tell which table or sheet this flow publishes "
+            "to, so its columns were not checked",
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    if problem is None:
+        _, missing, _ = table_changes(wanted, have or None)
+        if not missing:
+            typer.secho(
+                f"  destination OK: {where} has every column the flow sends",
+                fg=typer.colors.GREEN,
+            )
+            return
+        problem = (
+            f"is missing {len(missing)} column(s) the flow sends: {', '.join(missing)}"
+            if have
+            else absent
+        )
+
+    typer.secho(f"\n{where} {problem}\n", fg=typer.colors.RED, bold=True)
+    typer.secho(
+        "  Respondents would answer and nothing would arrive where you expect it.\n"
+        f"  Fix it first, then send:\n\n    {fix}\n",
+        fg=typer.colors.YELLOW,
+    )
+    if force:
+        typer.secho("  (dry run, continuing)", fg=typer.colors.YELLOW)
+        return
+    raise typer.Exit(code=1)
+
+
 def _print_findings(label: str, findings: list) -> None:
     """Render one flow's findings. Errors red, warnings yellow, clean green."""
     if not findings:
@@ -489,6 +570,7 @@ def launch_cmd(
             client, resolved_flow, column_list, force=dry_run
         )
         _check_inbound_routing(client, resolved_flow, resolved_from, force=dry_run)
+    _check_destination(client, resolved_flow, force=dry_run)
 
     try:
         launch(
@@ -1473,15 +1555,21 @@ def flow_table(
     except FlowError as exc:
         _fail(str(exc))
     name = table or publish_table(definition)
+    if not name and publish_destination(definition) == "gsheets":
+        _fail(
+            "This flow publishes to a Google Sheet, not MotherDuck. Write its header "
+            "row with `just flow header-sheets`."
+        )
     if not name:
         _fail(
-            "This flow names no MotherDuck table: it publishes to Google Sheets, or "
-            "it was built before flows named one. Rebuild it with "
+            "This flow names no MotherDuck table: it was built before flows named "
+            "one. Rebuild it with "
             "`rtt survey build --publish-target motherduck`, or pass --table."
         )
-    wanted = [key for key, _ in published_columns(definition)]
-    if "submitted_at" not in wanted:
-        wanted.append("submitted_at")
+    try:
+        wanted = destination_columns(definition)
+    except FlowError as exc:
+        _fail(str(exc))
 
     cfg.load_env()
     try:
@@ -1518,6 +1606,72 @@ def flow_table(
             for statement in statements:
                 cursor.execute(statement)
     typer.secho(f"Done: {target}", fg=typer.colors.GREEN, bold=True)
+
+
+@flow_app.command("header")
+def flow_header(
+    definition_file: Annotated[
+        Path, typer.Argument(help="Flow definition JSON, e.g. flows/foo.json")
+    ],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the prompt.")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Write the Google Sheet header row a flow publishes to, or add its new columns.
+
+    The Sheets counterpart of `rtt flow table`. The publish Function places each
+    answer by matching its name against row 1, and publishes nothing when row 1
+    is empty. This makes row 1 match the flow: written if it is empty, and any
+    column the flow publishes added after the last one. Columns the flow no
+    longer sends are kept. Writes to GOOGLE_SHEET_ID and GOOGLE_SHEET_TAB from
+    .env, with the service account the Function uses.
+    """
+    configure(verbose)
+    try:
+        definition = load_definition_file(definition_file)
+        wanted = destination_columns(definition)
+    except FlowError as exc:
+        _fail(str(exc))
+    if publish_destination(definition) == "motherduck":
+        _fail(
+            "This flow publishes to MotherDuck, not a Google Sheet. Make its table "
+            "with `just flow header-motherduck`."
+        )
+
+    try:
+        client_email, private_key, sheet_id = credentials_from_env()
+        tab = cfg.optional("GOOGLE_SHEET_TAB")
+        token = access_token(client_email, private_key)
+        have = read_header(sheet_id=sheet_id, tab=tab, token=token)
+    except SheetsError as exc:
+        _fail(str(exc))
+
+    target = f"tab '{tab}'" if tab else "the first tab"
+    create, missing, extra = table_changes(wanted, have or None)
+    if create:
+        typer.echo(f"Row 1 of {target} is empty. It will be written with:")
+        typer.echo("  " + ", ".join(wanted))
+    elif missing:
+        typer.echo(
+            f"Row 1 of {target} is missing {len(missing)} column(s) the flow sends:"
+        )
+        typer.echo("  " + ", ".join(missing))
+    else:
+        typer.secho(
+            f"Row 1 of {target} already has every column the flow sends.",
+            fg=typer.colors.GREEN,
+        )
+    extra = [c for c in extra if c]
+    if extra:
+        typer.echo(f"  Kept, not sent by this flow: {', '.join(extra)}")
+    if not create and not missing:
+        return
+    if not yes and not typer.confirm("Apply?"):
+        raise typer.Exit(code=1)
+    try:
+        write_header(have + missing, sheet_id=sheet_id, tab=tab, token=token)
+    except SheetsError as exc:
+        _fail(str(exc))
+    typer.secho(f"Done: row 1 of {target}", fg=typer.colors.GREEN, bold=True)
 
 
 @flow_app.command("deploy")
@@ -2520,9 +2674,7 @@ def survey_build(
     if publish_target == "motherduck":
         typer.echo(f"    rtt flow table {output}   # its table: {spec.table_name}")
     else:
-        typer.echo(
-            f"    rtt flow schema {output} --format header   # the sheet's header row"
-        )
+        typer.echo(f"    rtt flow header {output}   # the sheet's header row")
     typer.echo(f"    rtt flow deploy {output} --name {flow_name}   # as a draft")
 
 

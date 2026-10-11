@@ -71,12 +71,14 @@ a list-picker opener passes on disk and cannot open a conversation.
 ### `rtt flow table` / `rtt flow schema` — the shape the destination needs
 
 ```powershell
-just flow table flows/my_survey.json                     # MotherDuck: create or extend the table
-just flow header flows/my_survey.json                    # Google Sheets: the header row
+just flow header-motherduck flows/my_survey.json                     # MotherDuck: create or extend the table
+just flow header-sheets flows/my_survey.json                    # Google Sheets: write or extend the header row
 uv run rtt flow schema flows/my_survey.json              # MotherDuck: print the DDL only
 ```
 
-`flow table` asks before changing anything and never drops a column. A flow from
+`flow table` and `flow header` ask before changing anything and never drop a
+column. `round send` checks the destination before it sends, dry run included,
+and stops if a column the flow publishes is missing. A flow from
 `just survey build` names its own table; for one that does not, such as the demo,
 pass `--table`.
 

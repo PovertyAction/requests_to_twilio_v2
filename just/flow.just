@@ -24,9 +24,13 @@ pull NAME *ARGS:
     uv run rtt flow pull {{ NAME }} {{ ARGS }}
 
 [doc("Create its MotherDuck table, or add the columns it is missing")]
-table FILE *ARGS:
+header-motherduck FILE *ARGS:
     uv run rtt flow table {{ FILE }} {{ ARGS }}
 
-[doc("Print the header row for its Google Sheet")]
-header FILE:
-    uv run rtt flow schema {{ FILE }} --format header
+[doc("Write its Google Sheet header row, or add the columns it is missing")]
+header-sheets FILE *ARGS:
+    uv run rtt flow header {{ FILE }} {{ ARGS }}
+
+# The names before the destination was in them, still used by the Twilio lab decks.
+alias table := header-motherduck
+alias header := header-sheets

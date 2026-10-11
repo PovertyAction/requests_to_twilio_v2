@@ -74,8 +74,8 @@ Two causes, both now caught by `just flow check`:
 ### A question is missing from the warehouse
 
 The publish Function inserts only into columns that already exist and returns
-**HTTP 200** either way. Re-run `just flow table` (MotherDuck) or `just flow
-header` (Sheets) after any instrument change.
+**HTTP 200** either way. Re-run `just flow header-motherduck` (MotherDuck) or
+`just flow header-sheets` (Sheets) after any instrument change.
 
 ### Every tap fell through to the retry nudge
 

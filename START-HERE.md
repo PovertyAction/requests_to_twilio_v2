@@ -214,15 +214,14 @@ below whenever you add a question.
 
 ### Google Sheets (default)
 
-Print the header row the flow expects, and paste it into row 1 of a tab:
-
-```powershell
-just flow header flows/data_use_demo_en.json
-```
-
 Create the sheet, share it with your service account's address as an Editor,
 then set `GOOGLE_SERVICE_ACCOUNT_FILE`, `GOOGLE_SHEET_ID` and
-`GOOGLE_SHEET_TAB` in `.env`.
+`GOOGLE_SHEET_TAB` in `.env`. Then write the header row the flow expects into
+row 1 of that tab:
+
+```powershell
+just flow header-sheets flows/data_use_demo_en.json
+```
 
 **Set `GOOGLE_SHEET_TAB` explicitly.** Unset means *the first visible tab*, so
 adding a tracking tab later silently redirects every submission into it.
@@ -238,13 +237,13 @@ you never made, and `just setup functions` will not catch it.
 Once the flow is built, create its table from the flow itself:
 
 ```powershell
-just flow table flows/my_survey.json      # asks before it creates anything
+just flow header-motherduck flows/my_survey.json      # asks before it creates anything
 ```
 
 A survey from `just survey build` names its own table in `MOTHERDUCK_DATABASE`:
 the survey's ID, or the table set in its settings. The demo flow names none and
 writes to `MOTHERDUCK_TABLE` (`db.main.table`), so set that too and pass the
-table's name: `just flow table flows/data_use_demo_en.json --table my_round`.
+table's name: `just flow header-motherduck flows/data_use_demo_en.json --table my_round`.
 
 ## 9. Build and deploy the flow
 
