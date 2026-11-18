@@ -1,5 +1,5 @@
-# .dep-accept.toml -- overrides for the dep-accept harness.
-# Full schema: references/config-schema.md in the dep-accept skill.
+# .dependabot-review.toml -- overrides for the dependabot-review harness.
+# Full schema: references/config-schema.md in the dependabot-review skill.
 
 [checks]
 # Drop the harness's own `-q`. `pyproject.toml` already sets `addopts = "-q"`,
